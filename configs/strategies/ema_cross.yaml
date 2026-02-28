@@ -1,0 +1,24 @@
+# EMA 交叉策略配置
+strategy:
+  name: ema_cross
+  class_path: strategy.ema_cross:EMACrossStrategy
+
+  params:
+    fast_ema_period: 10
+    slow_ema_period: 20
+    trade_size: 0.01  # BTC
+
+  instruments:
+    - BTCUSDT-PERP.BINANCE
+
+  bar_type: "{instrument_id}-15-MINUTE-LAST-INTERNAL@1-MINUTE-EXTERNAL"
+
+  # 订阅配置
+  subscribe:
+    bars: true
+    trade_ticks: false
+    quote_ticks: false
+
+  # 生命周期
+  close_positions_on_stop: true
+  reduce_only_on_stop: true

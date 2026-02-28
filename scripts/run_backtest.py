@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""回测运行脚本.
+
+从 ParquetDataCatalog 加载历史数据，运行指定策略的回测，并输出报告。
+
+Usage:
+    # 使用默认参数（BTCUSDT，1m，2024-01-01 ~ 2024-03-31）
+    python scripts/run_backtest.py
+
+    # 自定义时间段和 symbol
+    python scripts/run_backtest.py \\
+        --symbols BTCUSDT ETHUSDT \\
+        --start 2023-01-01 \\
+        --end 2023-12-31 \\
+        --interval 1m
+
+    # 指定初始资金和杠杆
+    python scripts/run_backtest.py \\
+        --balance 50000 \\
+        --leverage 5
+
+    # 保存报告到指定目录
+    python scripts/run_backtest.py --save --output-dir experiments/reports/my_run
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import InstrumentId
+
+from src.backtest.report import BacktestReporter
+from src.backtest.runner import BacktestConfig, BacktestRunner
+from src.core.config import load_app_config
+from src.core.enums import Interval
+from src.core.logging import setup_logging
+from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
+
+
+def parse_args() -> argparse.Namespace:
+    """解析命令行参数.
+
+    Returns:
+        argparse.Namespace: 包含以下字段：
+            - symbols (list[str]): 交易对列表，默认 ["BTCUSDT"]。
+            - start (str): 回测起始日期，格式 YYYY-MM-DD。
+            - end (str): 回测结束日期，格式 YYYY-MM-DD。
+            - interval (str): K 线周期，默认 "1m"。
+            - balance (int): 初始账户余额（USDT），默认 10000。
+            - leverage (float): 账户杠杆，默认 10.0。
+            - fast_ema (int): 快线 EMA 周期，默认 10。
+            - slow_ema (int): 慢线 EMA 周期，默认 20。
+            - save (bool): 是否保存报告到文件。
+            - output_dir (str | None): 报告输出目录。
+            - env (str | None): 配置环境标识。
+    """
+    parser = argparse.ArgumentParser(description="NautilusTrader 回测运行脚本")
+
+    parser.add_argument("--symbols", nargs="+", default=["BTCUSDT"], help="交易对列表（默认：BTCUSDT）")
+    parser.add_argument("--start", default="2024-01-01", help="回测起始日期 YYYY-MM-DD（默认：2024-01-01）")
+    parser.add_argument("--end", default="2024-03-31", help="回测结束日期 YYYY-MM-DD（默认：2024-03-31）")
+    parser.add_argument(
+        "--interval",
+        default="1m",
+        choices=[i.value for i in Interval],
+        help="K 线周期（默认：1m）",
+    )
+    parser.add_argument("--balance", type=int, default=10_000, help="初始余额 USDT（默认：10000）")
+    parser.add_argument("--leverage", type=float, default=10.0, help="账户杠杆（默认：10.0）")
+    parser.add_argument("--fast-ema", type=int, default=10, help="快线 EMA 周期（默认：10）")
+    parser.add_argument("--slow-ema", type=int, default=20, help="慢线 EMA 周期（默认：20）")
+    parser.add_argument("--atr-sl", type=float, default=None, help="ATR 止损乘数 (如: 2.0，默认: None)")
+    parser.add_argument("--atr-tp", type=float, default=None, help="ATR 止盈乘数 (如: 4.0，默认: None)")
+    parser.add_argument("--save", action="store_true", help="保存报告到文件")
+    parser.add_argument("--output-dir", default=None, help="报告输出目录（默认：experiments/reports/<run_id>）")
+    parser.add_argument("--env", default=None, help="配置环境（默认：dev）")
+
+    return parser.parse_args()
+
+
+def build_strategy_config(args: argparse.Namespace, symbol: str, interval: Interval) -> EMACrossConfig:
+    """构建 EMA 交叉策略配置.
+
+    Args:
+        args: 解析后的命令行参数。
+        symbol: 交易对名称，如 "BTCUSDT"。
+        interval: K 线周期枚举。
+
+    Returns:
+        配置好的 EMACrossConfig 实例。
+    """
+    from src.core.enums import INTERVAL_TO_NAUTILUS
+    from decimal import Decimal
+
+    instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
+    nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
+    bar_type = BarType.from_str(f"{instrument_id}-{nautilus_interval}-LAST-EXTERNAL")
+
+    return EMACrossConfig(
+        instrument_id=instrument_id,
+        bar_type=bar_type,
+        fast_ema_period=args.fast_ema,
+        slow_ema_period=args.slow_ema,
+        trade_size=Decimal("0.01"),
+        atr_sl_multiplier=args.atr_sl,
+        atr_tp_multiplier=args.atr_tp,
+    )
+
+
+def main() -> None:
+    """回测主入口.
+
+    Raises:
+        ValueError: 日期参数不合法，或 catalog 中无对应数据。
+        SystemExit: argparse 参数错误时自动触发。
+    """
+    args = parse_args()
+    setup_logging(level="WARNING")  # 回测时减少日志噪音
+
+    app_config = load_app_config(env=args.env)
+
+    start = dt.date.fromisoformat(args.start)
+    end = dt.date.fromisoformat(args.end)
+
+    if start > end:
+        print(f"❌ start ({start}) 不能大于 end ({end})")
+        sys.exit(1)
+
+    interval = Interval(args.interval)
+
+    # 目前只支持单 symbol 策略绑定一个 instrument
+    # 多 symbol 可扩展为多策略实例
+    symbol = args.symbols[0]
+
+    bt_config = BacktestConfig(
+        start=start,
+        end=end,
+        symbols=args.symbols,
+        interval=interval,
+        starting_balance_usdt=args.balance,
+        leverage=args.leverage,
+    )
+
+    strategy_config = build_strategy_config(args, symbol, interval)
+
+    print("=" * 70)
+    print("🚀 启动回测")
+    print("=" * 70)
+    print(f"  Symbol   : {', '.join(args.symbols)}")
+    print(f"  Period   : {start} ~ {end}")
+    print(f"  Interval : {interval.value}")
+    print(f"  Balance  : {args.balance:,} USDT  Leverage: {args.leverage}x")
+    print(f"  EMA      : fast={args.fast_ema}  slow={args.slow_ema}")
+    print("=" * 70)
+
+    runner = BacktestRunner(app_config, bt_config)
+    run_result = runner.run(EMACrossStrategy, strategy_config)
+
+    # 输出报告
+    reporter = BacktestReporter(run_result)
+    reporter.print_summary()
+
+    # 保存报告
+    if args.save:
+        output_dir = Path(args.output_dir) if args.output_dir else None
+        saved_path = reporter.save(output_dir)
+        print(f"\n💾 报告已保存: {saved_path}")
+
+
+if __name__ == "__main__":
+    main()

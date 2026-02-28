@@ -1,0 +1,41 @@
+# 全局风控配置
+risk:
+  # 事前风控
+  pre_trade:
+    max_order_size_usd: 50000
+    max_position_size_usd: 200000
+    max_leverage: 10
+    min_order_interval_ms: 500  # 最小下单间隔
+    max_open_orders: 20
+
+  # 实时风控
+  real_time:
+    max_drawdown_pct: 5.0        # 最大回撤百分比
+    daily_loss_limit_usd: 5000   # 单日最大亏损
+    trailing_drawdown_pct: 3.0   # 追踪回撤
+
+  # 熔断机制
+  circuit_breaker:
+    enabled: true
+    triggers:
+      - type: daily_loss
+        threshold_usd: 5000
+        action: halt_all        # halt_all / reduce_only / alert_only
+        cooldown_minutes: 60
+
+      - type: drawdown
+        threshold_pct: 5.0
+        action: halt_all
+        cooldown_minutes: 120
+
+      - type: rapid_loss         # 短时间连续亏损
+        window_minutes: 10
+        max_losses: 3
+        action: reduce_only
+        cooldown_minutes: 30
+
+  # 事后风控
+  post_trade:
+    reconciliation_interval_minutes: 15
+    pnl_attribution: true
+    slippage_tracking: true

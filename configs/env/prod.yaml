@@ -1,0 +1,30 @@
+# 生产环境配置
+env: prod
+
+logging:
+  level: WARNING
+  format: json
+  console: false
+
+data:
+  catalog_dir: data/processed/catalog
+  raw_dir: data/raw
+  features_dir: data/features
+  database_url: "postgresql://admin:Longmao!666@127.0.0.1:5432/nautilus_trader"
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  password: "Longmao!666"
+  db: 0
+
+monitoring:
+  enabled: true
+  prometheus_port: 9090
+
+risk:
+  enabled: true
+  mode: hard
+
+exchange:
+  testnet: false

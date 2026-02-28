@@ -1,0 +1,24 @@
+# 预发布环境配置
+env: stage
+
+logging:
+  level: INFO
+  format: json
+  console: false
+
+data:
+  catalog_dir: data/processed/catalog
+  raw_dir: data/raw
+  features_dir: data/features
+  database_url: "postgresql://admin:Longmao!666@127.0.0.1:5432/nautilus_trader"
+
+monitoring:
+  enabled: true
+  prometheus_port: 9090
+
+risk:
+  enabled: true
+  mode: hard
+
+exchange:
+  testnet: true

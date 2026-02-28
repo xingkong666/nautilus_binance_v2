@@ -1,0 +1,8 @@
+# 交易对配置
+# 使用 NautilusTrader TestInstrumentProvider 名称映射
+
+instruments:
+  BTCUSDT:
+    provider: btcusdt_perp_binance
+  ETHUSDT:
+    provider: ethusdt_perp_binance

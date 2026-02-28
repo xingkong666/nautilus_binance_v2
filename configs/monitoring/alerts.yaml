@@ -1,0 +1,38 @@
+# 告警配置
+alerting:
+  enabled: true
+
+  channels:
+    - type: telegram
+      enabled: true
+      # bot_token / chat_id 从环境变量读取
+      levels: [CRITICAL, ERROR]
+
+    - type: slack
+      enabled: false
+      webhook_url: ""
+      levels: [CRITICAL]
+
+  rules:
+    - name: circuit_breaker_triggered
+      level: CRITICAL
+      message: "🚨 熔断触发: {reason}"
+
+    - name: drawdown_warning
+      level: ERROR
+      condition: "drawdown_pct > 3.0"
+      message: "⚠️ 回撤预警: {drawdown_pct:.1f}%"
+
+    - name: position_limit_warning
+      level: ERROR
+      condition: "position_usd > max_position_size_usd * 0.8"
+      message: "⚠️ 仓位接近上限: {position_usd:.0f} USDT"
+
+    - name: order_fill_latency
+      level: WARNING
+      condition: "fill_latency_ms > 1000"
+      message: "⏱️ 成交延迟: {fill_latency_ms}ms"
+
+    - name: reconciliation_mismatch
+      level: CRITICAL
+      message: "🔴 对账不一致: {details}"

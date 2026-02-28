@@ -1,0 +1,26 @@
+# 执行引擎配置
+execution:
+  # 默认订单设置
+  default_time_in_force: GTC
+  default_order_type: MARKET
+
+  # 滑点模型
+  slippage:
+    model: fixed  # fixed / volume_based / historical
+    fixed_bps: 2  # 固定滑点 basis points
+
+  # 成本模型
+  cost:
+    maker_fee_bps: 2
+    taker_fee_bps: 4
+
+  # 速率限制
+  rate_limit:
+    max_orders_per_second: 5
+    max_orders_per_minute: 100
+    burst_size: 10
+
+  # 算法执行
+  algo:
+    enabled: false
+    default_algo: null  # twap / vwap / iceberg
