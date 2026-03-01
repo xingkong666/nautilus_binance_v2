@@ -41,9 +41,11 @@ from nautilus_trader.model.identifiers import InstrumentId
 from src.backtest.report import BacktestReporter
 from src.backtest.runner import BacktestConfig, BacktestRunner
 from src.core.config import load_app_config
-from src.core.enums import Interval
+from src.core.enums import INTERVAL_TO_NAUTILUS, Interval
 from src.core.logging import setup_logging
+from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
+from src.strategy.ema_pullback_atr import EMAPullbackATRConfig, EMAPullbackATRStrategy
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,6 +68,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="NautilusTrader 回测运行脚本")
 
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT"], help="交易对列表（默认：BTCUSDT）")
+    parser.add_argument(
+        "--strategy",
+        choices=["ema_cross", "ema_pullback_atr"],
+        default="ema_cross",
+        help="策略类型（默认：ema_cross）",
+    )
     parser.add_argument("--start", default="2024-01-01", help="回测起始日期 YYYY-MM-DD（默认：2024-01-01）")
     parser.add_argument("--end", default="2024-03-31", help="回测结束日期 YYYY-MM-DD（默认：2024-03-31）")
     parser.add_argument(
@@ -76,8 +84,44 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--balance", type=int, default=10_000, help="初始余额 USDT（默认：10000）")
     parser.add_argument("--leverage", type=float, default=10.0, help="账户杠杆（默认：10.0）")
+    parser.add_argument(
+        "--trade-size",
+        type=str,
+        default="0.01",
+        help="固定下单数量（币数，默认：0.01；当设置 capital_pct_per_trade 时作为回退值）",
+    )
+    parser.add_argument(
+        "--capital-pct-per-trade",
+        type=float,
+        default=None,
+        help="按账户总权益百分比下单（0-100），设置后优先于 trade_size",
+    )
     parser.add_argument("--fast-ema", type=int, default=10, help="快线 EMA 周期（默认：10）")
     parser.add_argument("--slow-ema", type=int, default=20, help="慢线 EMA 周期（默认：20）")
+    parser.add_argument(
+        "--pullback-atr-multiplier",
+        type=float,
+        default=1.0,
+        help="EMA 回撤策略的 ATR 回撤倍数（默认：1.0）",
+    )
+    parser.add_argument(
+        "--adx-period",
+        type=int,
+        default=14,
+        help="EMA 回撤策略 ADX 周期（默认：14）",
+    )
+    parser.add_argument(
+        "--adx-threshold",
+        type=float,
+        default=20.0,
+        help="EMA 回撤策略 ADX 阈值（默认：20.0，<=0 表示关闭）",
+    )
+    parser.add_argument(
+        "--min-trend-gap-ratio",
+        type=float,
+        default=0.0005,
+        help="EMA 回撤策略最小趋势间距比例 |fast-slow|/close（默认：0.0005）",
+    )
     parser.add_argument(
         "--entry-min-atr-ratio",
         type=float,
@@ -88,7 +132,7 @@ def parse_args() -> argparse.Namespace:
         "--signal-cooldown-bars",
         type=int,
         default=3,
-        help="信号冷却 Bar 数（默认：3，<=0 表示关闭）",
+        help="信号冷却 Bar 数（默认：3，<=0 表示关闭；两个 EMA 策略均生效）",
     )
     parser.add_argument("--atr-sl", type=float, default=None, help="ATR 止损乘数 (如: 2.0，默认: None)")
     parser.add_argument("--atr-tp", type=float, default=None, help="ATR 止盈乘数 (如: 4.0，默认: None)")
@@ -99,19 +143,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_strategy_config(args: argparse.Namespace, symbol: str, interval: Interval) -> EMACrossConfig:
-    """构建 EMA 交叉策略配置.
-
-    Args:
-        args: 解析后的命令行参数。
-        symbol: 交易对名称，如 "BTCUSDT"。
-        interval: K 线周期枚举。
-
-    Returns:
-        配置好的 EMACrossConfig 实例。
-    """
-    from src.core.enums import INTERVAL_TO_NAUTILUS
-
+def build_bar_type(symbol: str, interval: Interval) -> tuple[InstrumentId, BarType]:
+    """按交易对和周期构建 instrument_id 与 bar_type."""
     instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
     nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
     if interval == Interval.MINUTE_1:
@@ -120,18 +153,52 @@ def build_strategy_config(args: argparse.Namespace, symbol: str, interval: Inter
         bar_type = BarType.from_str(
             f"{instrument_id}-{nautilus_interval}-LAST-INTERNAL@1-MINUTE-EXTERNAL",
         )
+    return instrument_id, bar_type
 
-    return EMACrossConfig(
-        instrument_id=instrument_id,
-        bar_type=bar_type,
-        fast_ema_period=args.fast_ema,
-        slow_ema_period=args.slow_ema,
-        entry_min_atr_ratio=args.entry_min_atr_ratio,
-        signal_cooldown_bars=args.signal_cooldown_bars,
-        trade_size=Decimal("0.01"),
-        atr_sl_multiplier=args.atr_sl,
-        atr_tp_multiplier=args.atr_tp,
-    )
+
+def build_strategy(
+    args: argparse.Namespace,
+    symbol: str,
+    interval: Interval,
+) -> tuple[type[BaseStrategy], BaseStrategyConfig]:
+    """根据参数构建策略类与策略配置."""
+    instrument_id, bar_type = build_bar_type(symbol, interval)
+
+    if args.strategy == "ema_cross":
+        config: BaseStrategyConfig = EMACrossConfig(
+            instrument_id=instrument_id,
+            bar_type=bar_type,
+            fast_ema_period=args.fast_ema,
+            slow_ema_period=args.slow_ema,
+            entry_min_atr_ratio=args.entry_min_atr_ratio,
+            signal_cooldown_bars=args.signal_cooldown_bars,
+            trade_size=Decimal(args.trade_size),
+            capital_pct_per_trade=args.capital_pct_per_trade,
+            atr_sl_multiplier=args.atr_sl,
+            atr_tp_multiplier=args.atr_tp,
+        )
+        return EMACrossStrategy, config
+
+    if args.strategy == "ema_pullback_atr":
+        config = EMAPullbackATRConfig(
+            instrument_id=instrument_id,
+            bar_type=bar_type,
+            fast_ema_period=args.fast_ema,
+            slow_ema_period=args.slow_ema,
+            pullback_atr_multiplier=args.pullback_atr_multiplier,
+            min_trend_gap_ratio=args.min_trend_gap_ratio,
+            signal_cooldown_bars=args.signal_cooldown_bars,
+            trade_size=Decimal(args.trade_size),
+            capital_pct_per_trade=args.capital_pct_per_trade,
+            atr_period=14,
+            atr_sl_multiplier=args.atr_sl,
+            atr_tp_multiplier=args.atr_tp,
+            adx_period=args.adx_period,
+            adx_threshold=args.adx_threshold,
+        )
+        return EMAPullbackATRStrategy, config
+
+    raise ValueError(f"Unsupported strategy: {args.strategy}")
 
 
 def main() -> None:
@@ -168,25 +235,41 @@ def main() -> None:
         leverage=args.leverage,
     )
 
-    strategy_config = build_strategy_config(args, symbol, interval)
+    strategy_cls, strategy_config = build_strategy(args, symbol, interval)
 
     print("=" * 70)
     print("🚀 启动回测")
     print("=" * 70)
     print(f"  Symbol   : {', '.join(args.symbols)}")
+    print(f"  Strategy : {args.strategy}")
     print(f"  Period   : {start} ~ {end}")
     print(f"  Interval : {interval.value}")
     print(f"  Balance  : {args.balance:,} USDT  Leverage: {args.leverage}x")
-    print(f"  EMA      : fast={args.fast_ema}  slow={args.slow_ema}")
-    print(
-        "  Filter   : "
-        f"min_atr_ratio={args.entry_min_atr_ratio} "
-        f"cooldown_bars={args.signal_cooldown_bars}"
-    )
+    if args.capital_pct_per_trade is not None and args.capital_pct_per_trade > 0:
+        print(f"  Sizing   : capital_pct_per_trade={args.capital_pct_per_trade}%")
+    else:
+        print(f"  Sizing   : fixed trade_size={args.trade_size}")
+    if args.strategy == "ema_cross":
+        print(f"  EMA      : fast={args.fast_ema}  slow={args.slow_ema}")
+        print(
+            "  Filter   : "
+            f"min_atr_ratio={args.entry_min_atr_ratio} "
+            f"cooldown_bars={args.signal_cooldown_bars}"
+        )
+    else:
+        print(f"  EMA      : fast={args.fast_ema}  slow={args.slow_ema}")
+        print(
+            "  Pullback : "
+            f"atr_multiplier={args.pullback_atr_multiplier} "
+            f"min_trend_gap_ratio={args.min_trend_gap_ratio} "
+            f"cooldown_bars={args.signal_cooldown_bars} "
+            f"adx_period={args.adx_period} "
+            f"adx_threshold={args.adx_threshold}"
+        )
     print("=" * 70)
 
     runner = BacktestRunner(app_config, bt_config)
-    run_result = runner.run(EMACrossStrategy, strategy_config)
+    run_result = runner.run(strategy_cls, strategy_config)
 
     # 输出报告
     reporter = BacktestReporter(run_result)

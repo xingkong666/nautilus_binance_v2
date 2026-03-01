@@ -17,6 +17,7 @@ from nautilus_trader.model.enums import OrderSide, TimeInForce, TriggerType
 from nautilus_trader.model.events import PositionChanged, PositionClosed, PositionOpened
 from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId
 from nautilus_trader.model.instruments import Instrument
+from nautilus_trader.model.objects import Quantity
 from nautilus_trader.model.position import Position
 from nautilus_trader.trading.strategy import Strategy
 
@@ -30,7 +31,8 @@ class BaseStrategyConfig(StrategyConfig, frozen=True):
         instrument_id: 交易对标识。
         bar_type: K 线类型。
         close_positions_on_stop: 策略停止时是否平仓，默认 True。
-        trade_size: 每次下单数量（币数），默认 0.01。
+        trade_size: 每次下单数量（币数），默认 0.01（固定数量模式）。
+        capital_pct_per_trade: 每笔使用账户总权益的百分比（0-100），设置后优先于 trade_size。
         stop_loss_pct: 止损百分比（如 0.02 = 2%）；None 表示不设止损。
         take_profit_pct: 止盈百分比（如 0.04 = 4%）；None 表示不设止盈。
         atr_period: 计算 ATR 所用的周期长度（如果采用 ATR 止盈止损），默认 14。
@@ -42,6 +44,7 @@ class BaseStrategyConfig(StrategyConfig, frozen=True):
     bar_type: BarType
     close_positions_on_stop: bool = True
     trade_size: Decimal = Decimal("0.01")
+    capital_pct_per_trade: float | None = None
     stop_loss_pct: float | None = None
     take_profit_pct: float | None = None
     atr_period: int = 14
@@ -148,9 +151,9 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
             )
             self._event_bus.publish(signal)
         else:
-            self._submit_market_order(direction)
+            self._submit_market_order(direction, bar)
 
-    def _submit_market_order(self, direction: SignalDirection) -> None:
+    def _submit_market_order(self, direction: SignalDirection, bar: Bar) -> None:
         """回测本地模式：先平仓再开市价单.
 
         LONG  → 平空 + 开多；SHORT → 平多 + 开空；FLAT → 平所有仓位。
@@ -162,7 +165,10 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
             return
 
         instrument_id = self.config.instrument_id
-        qty = self.instrument.make_qty(self.config.trade_size)
+        qty = self._resolve_order_quantity(bar)
+        if qty is None:
+            self.log.warning("Order skipped: resolved quantity is 0")
+            return
 
         # 平当前所有仓位（会触发 on_position_closed，自动取消 bracket 单）
         self.close_all_positions(instrument_id)
@@ -182,6 +188,66 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
             f"Order submitted: {side.name} {qty} {instrument_id}",
             color=LogColor.BLUE,
         )
+
+    def _resolve_order_quantity(self, bar: Bar) -> Quantity | None:
+        """解析下单数量（优先资金占比，其次固定数量）."""
+        if self.instrument is None:
+            return None
+
+        capital_pct = self.config.capital_pct_per_trade
+        if capital_pct is not None and capital_pct > 0:
+            qty = self._resolve_qty_from_capital_pct(capital_pct, float(bar.close))
+            if qty is not None and qty.as_decimal() > 0:
+                return qty
+
+            self.log.warning(
+                "capital_pct_per_trade sizing failed, fallback to fixed trade_size",
+                capital_pct_per_trade=capital_pct,
+            )
+
+        qty = self.instrument.make_qty(self.config.trade_size)
+        if qty.as_decimal() <= 0:
+            return None
+        return qty
+
+    def _resolve_qty_from_capital_pct(self, capital_pct: float, close_price: float) -> Quantity | None:
+        """按账户总权益百分比计算下单量."""
+        if self.instrument is None:
+            return None
+        if close_price <= 0:
+            return None
+
+        venue = getattr(self.config.instrument_id, "venue", None)
+        if venue is None:
+            return None
+
+        try:
+            account = self.portfolio.account(venue=venue)
+        except Exception:  # noqa: BLE001
+            return None
+        if account is None:
+            return None
+
+        quote_ccy = getattr(self.instrument, "quote_currency", None)
+        balance = account.balance_total(quote_ccy)
+        if balance is None:
+            balance = account.balance_total()
+        if balance is None:
+            return None
+
+        equity = balance.as_decimal()
+        if equity <= 0:
+            return None
+
+        notional = equity * Decimal(str(capital_pct / 100.0))
+        if notional <= 0:
+            return None
+
+        qty_decimal = notional / Decimal(str(close_price))
+        qty = self.instrument.make_qty(qty_decimal)
+        if qty.as_decimal() <= 0:
+            return None
+        return qty
 
     # ------------------------------------------------------------------
     # Bracket 止损/���盈管理

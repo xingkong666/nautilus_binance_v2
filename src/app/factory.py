@@ -27,6 +27,7 @@ from src.core.enums import INTERVAL_TO_NAUTILUS, Interval
 from src.exchange.binance_adapter import BinanceAdapter, build_binance_adapter
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
+from src.strategy.ema_pullback_atr import EMAPullbackATRConfig, EMAPullbackATRStrategy
 
 logger = structlog.get_logger()
 
@@ -55,6 +56,7 @@ class AppFactory:
         fast_ema: int = 10,
         slow_ema: int = 20,
         trade_size: Decimal = Decimal("0.01"),
+        capital_pct_per_trade: float | None = None,
     ) -> tuple[type[EMACrossStrategy], EMACrossConfig]:
         """创建 EMA 交叉策略及其配置.
 
@@ -64,6 +66,7 @@ class AppFactory:
             fast_ema: 快线 EMA 周期，默认 10。
             slow_ema: 慢线 EMA 周期，默认 20。
             trade_size: 每次交易数量（币数），默认 0.01。
+            capital_pct_per_trade: 每笔使用账户总权益百分比（0-100），None 表示不用。
 
         Returns:
             (策略类, 策略配置实例) 元组，可直接传入 BacktestRunner.run()。
@@ -83,6 +86,7 @@ class AppFactory:
             fast_ema_period=fast_ema,
             slow_ema_period=slow_ema,
             trade_size=trade_size,
+            capital_pct_per_trade=capital_pct_per_trade,
         )
 
         logger.info(
@@ -95,6 +99,53 @@ class AppFactory:
         )
         return EMACrossStrategy, config
 
+    def create_ema_pullback_atr_strategy(
+        self,
+        symbol: str,
+        interval: Interval = Interval.MINUTE_1,
+        fast_ema: int = 20,
+        slow_ema: int = 50,
+        pullback_atr_multiplier: float = 1.0,
+        trade_size: Decimal = Decimal("0.01"),
+        capital_pct_per_trade: float | None = None,
+        adx_period: int = 14,
+        adx_threshold: float = 20.0,
+    ) -> tuple[type[EMAPullbackATRStrategy], EMAPullbackATRConfig]:
+        """创建 EMA 回撤策略及其配置."""
+        instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
+        nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
+        if interval == Interval.MINUTE_1:
+            bar_type = BarType.from_str(f"{instrument_id}-{nautilus_interval}-LAST-EXTERNAL")
+        else:
+            bar_type = BarType.from_str(
+                f"{instrument_id}-{nautilus_interval}-LAST-INTERNAL@1-MINUTE-EXTERNAL",
+            )
+
+        config = EMAPullbackATRConfig(
+            instrument_id=instrument_id,
+            bar_type=bar_type,
+            fast_ema_period=fast_ema,
+            slow_ema_period=slow_ema,
+            pullback_atr_multiplier=pullback_atr_multiplier,
+            trade_size=trade_size,
+            capital_pct_per_trade=capital_pct_per_trade,
+            adx_period=adx_period,
+            adx_threshold=adx_threshold,
+        )
+
+        logger.info(
+            "strategy_created",
+            strategy="EMAPullbackATR",
+            symbol=symbol,
+            interval=interval.value,
+            fast_ema=fast_ema,
+            slow_ema=slow_ema,
+            pullback_atr_multiplier=pullback_atr_multiplier,
+            adx_period=adx_period,
+            adx_threshold=adx_threshold,
+        )
+        return EMAPullbackATRStrategy, config
+
     def create_strategy_from_config(
         self,
         strategy_cfg: dict[str, Any],
@@ -104,7 +155,7 @@ class AppFactory:
         """根据 YAML 策略配置动态创建策略.
 
         从 configs/strategies/*.yaml 加载的配置字典创建对应策略。
-        目前支持 "ema_cross"，后续可扩展。
+        目前支持 "ema_cross"、"ema_pullback_atr"，后续可扩展。
 
         Args:
             strategy_cfg: 策略配置字典（来自 YAML configs/strategies/）。
@@ -121,15 +172,31 @@ class AppFactory:
         params = strategy_cfg.get("params", {})
 
         if name == "ema_cross":
+            capital_pct = params.get("capital_pct_per_trade")
             return self.create_ema_cross_strategy(
                 symbol=symbol,
                 interval=interval,
                 fast_ema=params.get("fast_ema_period", 10),
                 slow_ema=params.get("slow_ema_period", 20),
                 trade_size=Decimal(str(params.get("trade_size", "0.01"))),
+                capital_pct_per_trade=float(capital_pct) if capital_pct is not None else None,
             )
 
-        raise ValueError(f"Unsupported strategy: '{name}'. Available: ema_cross")
+        if name == "ema_pullback_atr":
+            capital_pct = params.get("capital_pct_per_trade")
+            return self.create_ema_pullback_atr_strategy(
+                symbol=symbol,
+                interval=interval,
+                fast_ema=params.get("fast_ema_period", 20),
+                slow_ema=params.get("slow_ema_period", 50),
+                pullback_atr_multiplier=float(params.get("pullback_atr_multiplier", 1.0)),
+                trade_size=Decimal(str(params.get("trade_size", "0.01"))),
+                capital_pct_per_trade=float(capital_pct) if capital_pct is not None else None,
+                adx_period=int(params.get("adx_period", 14)),
+                adx_threshold=float(params.get("adx_threshold", 20.0)),
+            )
+
+        raise ValueError(f"Unsupported strategy: '{name}'. Available: ema_cross, ema_pullback_atr")
 
     # ------ 交易所适配器工厂 ------
 

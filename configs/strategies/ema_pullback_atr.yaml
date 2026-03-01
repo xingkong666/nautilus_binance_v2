@@ -1,28 +1,29 @@
-# EMA 交叉策略配置
+# EMA 趋势 + ATR 回撤反弹策略配置
 strategy:
-  name: ema_cross
-  class_path: strategy.ema_cross:EMACrossStrategy
+  name: ema_pullback_atr
+  class_path: strategy.ema_pullback_atr:EMAPullbackATRStrategy
 
   params:
-    fast_ema_period: 10
-    slow_ema_period: 20
-    trade_size: 0.01  # BTC
+    fast_ema_period: 20
+    slow_ema_period: 50
+    pullback_atr_multiplier: 1.0
+    min_trend_gap_ratio: 0.0005
+    signal_cooldown_bars: 3
+    trade_size: 0.01
     # capital_pct_per_trade: 10.0  # 可选：按账户权益 10% 下单（优先于 trade_size）
     atr_period: 14
-    entry_min_atr_ratio: 0.0015
-    signal_cooldown_bars: 3
+    adx_period: 14
+    adx_threshold: 20.0
 
   instruments:
     - BTCUSDT-PERP.BINANCE
 
   bar_type: "{instrument_id}-15-MINUTE-LAST-INTERNAL@1-MINUTE-EXTERNAL"
 
-  # 订阅配置
   subscribe:
     bars: true
     trade_ticks: false
     quote_ticks: false
 
-  # 生命周期
   close_positions_on_stop: true
   reduce_only_on_stop: true
