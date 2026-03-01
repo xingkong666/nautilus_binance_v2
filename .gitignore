@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+
+# Data (keep structure, ignore content)
+data/raw/*
+data/processed/*
+data/features/*
+data/versioned/*
+!data/**/.gitkeep
+
+# Experiments
+experiments/reports/*
+experiments/artifacts/*
+!experiments/**/.gitkeep
+
+# Runtime backups
+backup/**/*.tar.gz
+backup/**/*.dump.gz
+backup/**/*.rdb
+backup/**/*.err
+
+# Lock file (optional)
+# uv.lock
+
+# OS
+.DS_Store
+Thumbs.db

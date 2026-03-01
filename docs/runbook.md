@@ -55,13 +55,42 @@ kill -SIGKILL <pid>
 
 ```bash
 uv run python scripts/run_backtest.py \
-  --config configs/strategies/ema_cross.yaml \
-  --env configs/env/dev.yaml \
+  --env dev \
+  --symbols BTCUSDT \
   --start 2024-01-01 \
-  --end 2024-06-30
+  --end 2024-06-30 \
+  --interval 15m \
+  --fast-ema 10 \
+  --slow-ema 20 \
+  --entry-min-atr-ratio 0.0015 \
+  --signal-cooldown-bars 3
 
 # 报告输出到 experiments/reports/
 ```
+
+### 参数扫描（2024H2 默认窗口）
+
+```bash
+uv run python scripts/param_sweep.py \
+  --strategy ema \
+  --symbols BTCUSDT ETHUSDT \
+  --is-start 2024-07-01 \
+  --is-end 2024-10-31 \
+  --oos-start 2024-11-01 \
+  --oos-end 2024-12-31 \
+  --workers 8
+```
+
+关键输出文件：
+
+- `experiments/sweep/ema_sweep_is.csv`
+- `experiments/sweep/ema_sweep_oos.csv`
+
+新增平滑度相关列：
+
+- `Volatility`
+- `MaxDrawdown`
+- `SmoothScore`（综合排序分数，越高越好）
 
 ---
 
@@ -102,6 +131,22 @@ uv run python scripts/download_data.py \
 
 # 数据存到 data/raw/，处理后的 catalog 在 data/processed/
 ```
+
+### 代理与网络环境
+
+若你所在环境需要代理访问 Binance，建议显式配置：
+
+```bash
+export HTTPS_PROXY=http://127.0.0.1:7890
+export HTTP_PROXY=http://127.0.0.1:7890
+export NO_PROXY=127.0.0.1,localhost
+```
+
+注意事项：
+
+1. 下载器对“本地已有 CSV”走快路径，不会创建网络客户端。  
+2. 若设置了 `ALL_PROXY=socks5://...` 或 `socks5h://...`，需安装 SOCKS 依赖（`httpx[socks]`），否则会在创建 HTTP client 时抛错。  
+3. 代理仅影响需要联网的下载流程，不影响本地回测与本地 CSV 读取。
 
 ---
 
