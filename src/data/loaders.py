@@ -11,7 +11,9 @@ import datetime as dt
 import hashlib
 import json
 import zipfile
+from contextlib import suppress
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pandas as pd
@@ -158,15 +160,13 @@ class BaseBinanceDownloader:
             None
         """
         manifest_path = save_dir / "manifest.json"
-        data: dict = {
+        data: dict[str, Any] = {
             "updated_at": dt.datetime.now(dt.UTC).isoformat(),
             "files": {},
         }
         if manifest_path.exists():
-            try:
+            with suppress(Exception):
                 data = json.loads(manifest_path.read_text())
-            except Exception:
-                pass
         data.setdefault("files", {})
         data["files"][date_str] = status
         manifest_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
@@ -306,7 +306,7 @@ class BaseBinanceDownloader:
 
         paths: list[Path] = []
         for res in results:
-            if isinstance(res, Exception):
+            if isinstance(res, BaseException):
                 logger.warning("download_error", symbol=symbol, error=str(res))
                 continue
             paths.append(res)
@@ -335,6 +335,16 @@ class BaseBinanceDownloader:
         Returns:
             解压后的 CSV 文件路径.
         """
+        date_str = date.strftime("%Y-%m-%d")
+        base_name = f"{symbol}-{interval.value}-{date_str}"
+        save_dir = self._raw_dir / self.TRADER_TYPE.value / symbol
+        save_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = save_dir / f"{base_name}.csv"
+
+        # 快路径：本地已有有效 CSV 时直接返回，避免创建 HTTP client。
+        if self._validate_existing_csv(csv_path):
+            self._write_manifest(save_dir, date_str, "skipped")
+            return csv_path
 
         async def _run() -> Path:
             async with httpx.AsyncClient() as client:

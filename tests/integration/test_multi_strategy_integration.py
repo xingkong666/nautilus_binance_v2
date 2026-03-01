@@ -18,13 +18,12 @@ from src.portfolio.allocator import PortfolioAllocator, PortfolioSnapshot
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
 from src.strategy.rsi_strategy import RSIStrategy, RSIStrategyConfig
 from tests.regression.conftest import (
-    BTCUSDT,
     BAR_TYPE,
+    BTCUSDT,
     STARTING_BALANCE,
     build_engine,
     make_sine_bars,
 )
-
 
 # ---------------------------------------------------------------------------
 # 多策略回测辅助
@@ -38,6 +37,8 @@ def run_multi_strategy(
     rsi_period: int = 14,
     trade_size: str = "0.010",
     starting_balance: int = STARTING_BALANCE,
+    entry_min_atr_ratio: float = 0.0,
+    signal_cooldown_bars: int = 0,
 ) -> dict[str, Any]:
     """同时运行 EMA Cross + RSI 策略，返回联合指标.
 
@@ -48,6 +49,8 @@ def run_multi_strategy(
         rsi_period: RSI 周期。
         trade_size: 每次下单量（币数字符串）。
         starting_balance: 初始余额（USDT）。
+        entry_min_atr_ratio: EMA 入场最小 ATR 比例过滤，<=0 表示关闭。
+        signal_cooldown_bars: EMA 信号冷却条数，<=0 表示关闭。
 
     Returns:
         包含 iterations / total_orders / total_positions 的字典。
@@ -61,6 +64,8 @@ def run_multi_strategy(
         fast_ema_period=ema_fast,
         slow_ema_period=ema_slow,
         trade_size=Decimal(trade_size),
+        entry_min_atr_ratio=entry_min_atr_ratio,
+        signal_cooldown_bars=signal_cooldown_bars,
     )
     rsi_cfg = RSIStrategyConfig(
         instrument_id=BTCUSDT.id,

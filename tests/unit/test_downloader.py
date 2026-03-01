@@ -11,6 +11,8 @@ import datetime as dt
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from src.core.enums import Interval
@@ -72,5 +74,29 @@ def test_csv_skip_existing(tmp_path: Path) -> None:
     csv_path.write_text("test")
 
     # 应直接返回已有路径, 不发请求
+    result = downloader.download_klines(symbol, interval, date)
+    assert result == csv_path
+
+
+def test_csv_skip_existing_does_not_create_http_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """验证: 本地命中快路径时不应初始化 httpx.AsyncClient."""
+    downloader = BinanceFuturesDownloader(raw_dir=tmp_path)
+
+    symbol = "BTCUSDT"
+    interval = Interval.MINUTE_1
+    date = dt.date(2025, 11, 9)
+    base_name = f"{symbol}-{interval.value}-{date:%Y-%m-%d}"
+
+    save_dir = tmp_path / "futures" / symbol
+    save_dir.mkdir(parents=True)
+    csv_path = save_dir / f"{base_name}.csv"
+    csv_path.write_text("test")
+
+    class _FailAsyncClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("AsyncClient should not be created when CSV already exists")
+
+    monkeypatch.setattr("src.data.loaders.httpx.AsyncClient", _FailAsyncClient)
+
     result = downloader.download_klines(symbol, interval, date)
     assert result == csv_path
