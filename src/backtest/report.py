@@ -10,8 +10,8 @@
 
 from __future__ import annotations
 
-import json
 import datetime as dt
+import json
 from pathlib import Path
 from typing import Any
 
@@ -184,7 +184,7 @@ class BacktestReporter:
         """
         s = self.summary()
         # dt.date 转字符串
-        s["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        s["generated_at"] = dt.datetime.now(dt.UTC).isoformat()
         # float -> round 4 位
         if s["pnl"]:
             for currency in s["pnl"]:

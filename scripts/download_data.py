@@ -29,6 +29,7 @@ Features:
     - 单 symbol 失败不中断整体流程，打印错误后继续
     - 支持仅下载模式（--download-only）或下载 + 写入 Catalog 两种模式
 """
+# ruff: noqa: E402
 
 from __future__ import annotations
 
@@ -37,9 +38,6 @@ import datetime as dt
 import sys
 import time
 from pathlib import Path
-from typing import List
-
-from tqdm import tqdm
 
 # ------------------------------------------------------------------------------
 # Path bootstrap
@@ -250,6 +248,11 @@ def main() -> None:
     load_instruments_config()
 
     interval = Interval(args.interval)
+    if interval != Interval.MINUTE_1:
+        raise ValueError(
+            "仅支持下载 1m 原始 K 线数据。请使用 --interval 1m，"
+            "并在回测时通过聚合生成 15m/更高周期。"
+        )
 
     start = dt.date.fromisoformat(args.start) if args.start else None
     end = dt.date.fromisoformat(args.end) if args.end else None

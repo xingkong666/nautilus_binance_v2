@@ -7,12 +7,9 @@ from decimal import Decimal
 import pytest
 
 from src.portfolio.allocator import (
-    AllocationResult,
     PortfolioAllocator,
     PortfolioSnapshot,
-    StrategyAllocation,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

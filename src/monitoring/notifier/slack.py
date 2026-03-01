@@ -113,7 +113,7 @@ class SlackNotifier(BaseNotifier):
         cls,
         min_level: AlertLevel = AlertLevel.CRITICAL,
         enabled: bool = True,
-    ) -> "SlackNotifier":
+    ) -> SlackNotifier:
         """从环境变量创建实例（SLACK_WEBHOOK_URL）.
 
         Args:

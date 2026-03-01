@@ -110,7 +110,7 @@ class TelegramNotifier(BaseNotifier):
         cls,
         min_level: AlertLevel = AlertLevel.ERROR,
         enabled: bool = True,
-    ) -> "TelegramNotifier":
+    ) -> TelegramNotifier:
         """从环境变量创建实例（TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID）.
 
         Args:

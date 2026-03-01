@@ -8,6 +8,7 @@ Factory 只负责"生产"，不持有状态；有状态的单例放在 Container
     engine = factory.create_backtest_engine(bt_config)
     strategy = factory.create_ema_cross_strategy(symbol="BTCUSDT")
 """
+# ruff: noqa: TC001,TC003
 
 from __future__ import annotations
 
@@ -16,14 +17,13 @@ from decimal import Decimal
 from typing import Any
 
 import structlog
+from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
 from src.app.container import Container
 from src.backtest.runner import BacktestConfig, BacktestRunner
 from src.core.enums import INTERVAL_TO_NAUTILUS, Interval
-from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
-
 from src.exchange.binance_adapter import BinanceAdapter, build_binance_adapter
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
@@ -70,7 +70,12 @@ class AppFactory:
         """
         instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
         nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
-        bar_type = BarType.from_str(f"{instrument_id}-{nautilus_interval}-LAST-EXTERNAL")
+        if interval == Interval.MINUTE_1:
+            bar_type = BarType.from_str(f"{instrument_id}-{nautilus_interval}-LAST-EXTERNAL")
+        else:
+            bar_type = BarType.from_str(
+                f"{instrument_id}-{nautilus_interval}-LAST-INTERNAL@1-MINUTE-EXTERNAL",
+            )
 
         config = EMACrossConfig(
             instrument_id=instrument_id,

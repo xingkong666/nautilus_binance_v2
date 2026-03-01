@@ -13,26 +13,17 @@ import datetime as dt
 from decimal import Decimal
 from typing import Any
 
-import pytest
-from nautilus_trader.backtest.engine import BacktestEngine
-from nautilus_trader.common.config import LoggingConfig
-from nautilus_trader.config import BacktestEngineConfig
-from nautilus_trader.model.currencies import USDT
 from nautilus_trader.model.data import Bar
-from nautilus_trader.model.enums import AccountType, OmsType
-from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.objects import Money, Price, Quantity
+from nautilus_trader.model.objects import Price, Quantity
 
 from src.strategy.rsi_strategy import RSIStrategy, RSIStrategyConfig
 from tests.regression.conftest import (
-    BTCUSDT,
     BAR_TYPE,
+    BTCUSDT,
     STARTING_BALANCE,
     build_engine,
     make_sine_bars,
-    make_trend_bars,
 )
-
 
 # ---------------------------------------------------------------------------
 # 辅助函数
@@ -183,7 +174,7 @@ class TestRSIInvariants:
     def test_flat_price_rsi_neutral_no_orders(self):
         """完全平坦价格下，RSI 停留在 50 附近，不穿越超买超卖区，不产生订单。"""
         start_ns = int(
-            dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc).timestamp() * 1_000_000_000
+            dt.datetime(2024, 1, 1, tzinfo=dt.UTC).timestamp() * 1_000_000_000
         )
         flat_bars = [
             Bar(

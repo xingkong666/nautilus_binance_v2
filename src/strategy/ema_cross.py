@@ -2,11 +2,12 @@
 
 只产出信号, 不直接下单. 下单由执行引擎负责.
 """
+# ruff: noqa: TC002
 
 from __future__ import annotations
 
 from nautilus_trader.config import PositiveInt
-from nautilus_trader.indicators import ExponentialMovingAverage
+from nautilus_trader.indicators import AverageTrueRange, ExponentialMovingAverage
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
@@ -23,12 +24,16 @@ class EMACrossConfig(BaseStrategyConfig, frozen=True):
         trade_size: 每次交易量（币数，继承自 BaseStrategyConfig，默认 0.01）。
         fast_ema_period: 快线 EMA 周期，默认 10。
         slow_ema_period: 慢线 EMA 周期，默认 20。
+        entry_min_atr_ratio: 入场最小波动阈值（ATR / close），默认 0.0015。
+        signal_cooldown_bars: 信号冷却条数，默认 3。
     """
 
     instrument_id: InstrumentId
     bar_type: BarType
     fast_ema_period: PositiveInt = 10
     slow_ema_period: PositiveInt = 20
+    entry_min_atr_ratio: float = 0.0015
+    signal_cooldown_bars: int = 3
 
 
 class EMACrossStrategy(BaseStrategy):
@@ -45,6 +50,13 @@ class EMACrossStrategy(BaseStrategy):
         self.fast_ema = ExponentialMovingAverage(config.fast_ema_period)
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
         self._prev_fast_above: bool | None = None
+        self._bar_index = 0
+        self._last_signal_bar_index: int | None = None
+
+        # BaseStrategy 仅在启用 ATR 止盈止损时构建 ATR 指标；
+        # EMA 的波动过滤也需要 ATR，因此在此补充初始化。
+        if self._atr_indicator is None and config.entry_min_atr_ratio > 0:
+            self._atr_indicator = AverageTrueRange(config.atr_period)
 
     def _register_indicators(self) -> None:
         """注册 EMA 指标."""
@@ -56,6 +68,8 @@ class EMACrossStrategy(BaseStrategy):
 
         只在交叉发生时产出信号, 避免重复信号.
         """
+        self._bar_index += 1
+
         fast_above = self.fast_ema.value >= self.slow_ema.value
 
         # 第一根 bar, 记录状态但不产出信号
@@ -75,10 +89,45 @@ class EMACrossStrategy(BaseStrategy):
 
         self._prev_fast_above = fast_above
 
-        if signal:
-            self.log.info(
-                f"EMA Cross: fast={self.fast_ema.value:.2f} slow={self.slow_ema.value:.2f} → {signal.value}",
-            )
+        if signal is None:
+            return None
+
+        atr_ratio: float | None = None
+        min_atr_ratio = float(self.config.entry_min_atr_ratio)
+        if min_atr_ratio > 0:
+            if self._atr_indicator is None or not self._atr_indicator.initialized:
+                self.log.info("EMA cross filtered: ATR not initialized")
+                return None
+
+            close = float(bar.close)
+            if close <= 0:
+                self.log.warning(f"EMA cross filtered: invalid close={close}")
+                return None
+
+            atr_ratio = float(self._atr_indicator.value) / close
+            if atr_ratio < min_atr_ratio:
+                self.log.info(
+                    f"EMA cross filtered: atr_ratio={atr_ratio:.6f} < min_atr_ratio={min_atr_ratio:.6f}",
+                )
+                return None
+
+        cooldown_bars = max(0, int(self.config.signal_cooldown_bars))
+        if cooldown_bars > 0 and self._last_signal_bar_index is not None:
+            bars_since_last_signal = self._bar_index - self._last_signal_bar_index
+            if bars_since_last_signal < cooldown_bars:
+                cooldown_left = cooldown_bars - bars_since_last_signal
+                self.log.info(
+                    f"EMA cross filtered: cooldown active cooldown_left={cooldown_left} bars",
+                )
+                return None
+
+        self._last_signal_bar_index = self._bar_index
+        atr_ratio_text = f"{atr_ratio:.6f}" if atr_ratio is not None else "n/a"
+        self.log.info(
+            "EMA Cross accepted: "
+            f"fast={self.fast_ema.value:.2f} slow={self.slow_ema.value:.2f} "
+            f"atr_ratio={atr_ratio_text} cooldown={cooldown_bars} → {signal.value}",
+        )
 
         return signal
 
@@ -87,3 +136,5 @@ class EMACrossStrategy(BaseStrategy):
         self.fast_ema.reset()
         self.slow_ema.reset()
         self._prev_fast_above = None
+        self._bar_index = 0
+        self._last_signal_bar_index = None

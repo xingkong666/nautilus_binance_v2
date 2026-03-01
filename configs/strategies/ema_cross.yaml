@@ -7,6 +7,9 @@ strategy:
     fast_ema_period: 10
     slow_ema_period: 20
     trade_size: 0.01  # BTC
+    atr_period: 14
+    entry_min_atr_ratio: 0.0015
+    signal_cooldown_bars: 3
 
   instruments:
     - BTCUSDT-PERP.BINANCE

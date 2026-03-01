@@ -10,18 +10,17 @@
         → engine.run()
         → 返回 BacktestResult + 报告数据
 """
+# ruff: noqa: TC001,TC002
 
 from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass, field
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 
 import structlog
 from nautilus_trader.backtest.engine import BacktestEngine
-from nautilus_trader.backtest.models import FillModel
 from nautilus_trader.common.config import LoggingConfig
 from nautilus_trader.config import BacktestEngineConfig
 from nautilus_trader.model.currencies import USDT
@@ -249,14 +248,15 @@ class BacktestRunner:
             成功加载的 Bar 总条数。
         """
         bt = self._bt_cfg
-        nautilus_interval = INTERVAL_TO_NAUTILUS[bt.interval]
 
         start_ns = self._date_to_ns(bt.start)
         end_ns = self._date_to_ns(bt.end, end_of_day=True)
 
         total = 0
         for inst in instruments:
-            bar_type_str = f"{inst.id}-{nautilus_interval}-LAST-EXTERNAL"
+            source_interval = Interval.MINUTE_1 if bt.interval != Interval.MINUTE_1 else bt.interval
+            source_nautilus_interval = INTERVAL_TO_NAUTILUS[source_interval]
+            bar_type_str = f"{inst.id}-{source_nautilus_interval}-LAST-EXTERNAL"
             bars = self._catalog.bars(
                 bar_types=[bar_type_str],
                 start=start_ns,
@@ -268,10 +268,14 @@ class BacktestRunner:
 
             engine.add_data(bars)
             total += len(bars)
+            event = "bar_data_loaded"
+            if bt.interval != Interval.MINUTE_1:
+                event = "bar_data_loaded_for_internal_aggregation"
             logger.info(
-                "bar_data_loaded",
+                event,
                 symbol=inst.raw_symbol.value,
-                bar_type=bar_type_str,
+                source_bar_type=bar_type_str,
+                target_interval=bt.interval.value,
                 count=len(bars),
             )
 
@@ -327,8 +331,8 @@ class BacktestRunner:
             对应的 UTC datetime 对象。
         """
         if end_of_day:
-            return dt.datetime.combine(date, dt.time(23, 59, 59), tzinfo=dt.timezone.utc)
-        return dt.datetime.combine(date, dt.time.min, tzinfo=dt.timezone.utc)
+            return dt.datetime.combine(date, dt.time(23, 59, 59), tzinfo=dt.UTC)
+        return dt.datetime.combine(date, dt.time.min, tzinfo=dt.UTC)
 
     @staticmethod
     def _date_to_ns(date: dt.date, end_of_day: bool = False) -> int:

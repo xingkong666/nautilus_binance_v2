@@ -22,12 +22,14 @@ Usage:
     # 保存报告到指定目录
     python scripts/run_backtest.py --save --output-dir experiments/reports/my_run
 """
+# ruff: noqa: E402
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,6 +78,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--leverage", type=float, default=10.0, help="账户杠杆（默认：10.0）")
     parser.add_argument("--fast-ema", type=int, default=10, help="快线 EMA 周期（默认：10）")
     parser.add_argument("--slow-ema", type=int, default=20, help="慢线 EMA 周期（默认：20）")
+    parser.add_argument(
+        "--entry-min-atr-ratio",
+        type=float,
+        default=0.0015,
+        help="信号过滤最小 ATR/Close 比例（默认：0.0015，<=0 表示关闭）",
+    )
+    parser.add_argument(
+        "--signal-cooldown-bars",
+        type=int,
+        default=3,
+        help="信号冷却 Bar 数（默认：3，<=0 表示关闭）",
+    )
     parser.add_argument("--atr-sl", type=float, default=None, help="ATR 止损乘数 (如: 2.0，默认: None)")
     parser.add_argument("--atr-tp", type=float, default=None, help="ATR 止盈乘数 (如: 4.0，默认: None)")
     parser.add_argument("--save", action="store_true", help="保存报告到文件")
@@ -97,17 +111,23 @@ def build_strategy_config(args: argparse.Namespace, symbol: str, interval: Inter
         配置好的 EMACrossConfig 实例。
     """
     from src.core.enums import INTERVAL_TO_NAUTILUS
-    from decimal import Decimal
 
     instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
     nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
-    bar_type = BarType.from_str(f"{instrument_id}-{nautilus_interval}-LAST-EXTERNAL")
+    if interval == Interval.MINUTE_1:
+        bar_type = BarType.from_str(f"{instrument_id}-{nautilus_interval}-LAST-EXTERNAL")
+    else:
+        bar_type = BarType.from_str(
+            f"{instrument_id}-{nautilus_interval}-LAST-INTERNAL@1-MINUTE-EXTERNAL",
+        )
 
     return EMACrossConfig(
         instrument_id=instrument_id,
         bar_type=bar_type,
         fast_ema_period=args.fast_ema,
         slow_ema_period=args.slow_ema,
+        entry_min_atr_ratio=args.entry_min_atr_ratio,
+        signal_cooldown_bars=args.signal_cooldown_bars,
         trade_size=Decimal("0.01"),
         atr_sl_multiplier=args.atr_sl,
         atr_tp_multiplier=args.atr_tp,
@@ -158,6 +178,11 @@ def main() -> None:
     print(f"  Interval : {interval.value}")
     print(f"  Balance  : {args.balance:,} USDT  Leverage: {args.leverage}x")
     print(f"  EMA      : fast={args.fast_ema}  slow={args.slow_ema}")
+    print(
+        "  Filter   : "
+        f"min_atr_ratio={args.entry_min_atr_ratio} "
+        f"cooldown_bars={args.signal_cooldown_bars}"
+    )
     print("=" * 70)
 
     runner = BacktestRunner(app_config, bt_config)

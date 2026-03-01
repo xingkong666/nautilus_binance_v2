@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum, unique
-from typing import Any, Callable
+from typing import Any
 
 import structlog
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import structlog
 
-from src.core.events import EventBus, EventType, Event
+from src.core.events import Event, EventBus, EventType
 from src.state.persistence import TradePersistence
 
 logger = structlog.get_logger()

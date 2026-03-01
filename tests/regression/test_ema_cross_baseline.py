@@ -12,10 +12,12 @@
 
 from __future__ import annotations
 
-import pytest
+import datetime as dt
 
-from tests.regression.conftest import make_sine_bars, make_trend_bars, run_ema_cross
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.objects import Price, Quantity
 
+from tests.regression.conftest import BAR_TYPE, make_sine_bars, run_ema_cross
 
 # ---------------------------------------------------------------------------
 # 基准值（Hardcoded Baselines）
@@ -201,6 +203,20 @@ class TestParameterSensitivity:
         assert m_small["total_orders"] == m_large["total_orders"]
 
 
+class TestSignalFilters:
+    """验证 EMA 新增过滤器对交易频率有抑制作用。"""
+
+    def test_atr_ratio_filter_reduces_orders(self, sine_bars):
+        baseline = run_ema_cross(sine_bars, entry_min_atr_ratio=0.0, signal_cooldown_bars=0)
+        filtered = run_ema_cross(sine_bars, entry_min_atr_ratio=0.0025, signal_cooldown_bars=0)
+        assert filtered["total_orders"] <= baseline["total_orders"]
+
+    def test_cooldown_reduces_orders(self, sine_bars):
+        baseline = run_ema_cross(sine_bars, entry_min_atr_ratio=0.0, signal_cooldown_bars=0)
+        filtered = run_ema_cross(sine_bars, entry_min_atr_ratio=0.0, signal_cooldown_bars=3)
+        assert filtered["total_orders"] <= baseline["total_orders"]
+
+
 # ---------------------------------------------------------------------------
 # 策略属性不变性测试
 # ---------------------------------------------------------------------------
@@ -211,12 +227,7 @@ class TestStrategyInvariants:
 
     def test_no_orders_on_flat_data(self):
         """完全平坦的价格数据（无波动）不产生交叉，订单数为 0。"""
-        from nautilus_trader.model.data import Bar
-        from nautilus_trader.model.objects import Price, Quantity
-        import datetime as dt
-        from tests.regression.conftest import BAR_TYPE
-
-        start_ns = int(dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc).timestamp() * 1_000_000_000)
+        start_ns = int(dt.datetime(2024, 1, 1, tzinfo=dt.UTC).timestamp() * 1_000_000_000)
         flat_bars = [
             Bar(
                 bar_type=BAR_TYPE,

@@ -93,7 +93,7 @@ class LiveHealthProbe:
 
     def __init__(
         self,
-        container: "Container",
+        container: Container,
         interval_sec: float = 15.0,
     ) -> None:
         """初始化 LiveHealthProbe.

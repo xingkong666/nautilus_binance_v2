@@ -22,9 +22,7 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money, Price, Quantity
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
-from src.backtest.runner import BacktestConfig, BacktestRunResult
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
-
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -70,7 +68,7 @@ def make_sine_bars(
     """
     if start_ts_ns is None:
         start_ts_ns = int(
-            dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc).timestamp() * 1_000_000_000
+            dt.datetime(2024, 1, 1, tzinfo=dt.UTC).timestamp() * 1_000_000_000
         )
 
     bars = []
@@ -114,7 +112,7 @@ def make_trend_bars(
         按时间顺序排列的 Bar 列表。
     """
     start_ts_ns = int(
-        dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc).timestamp() * 1_000_000_000
+        dt.datetime(2024, 1, 1, tzinfo=dt.UTC).timestamp() * 1_000_000_000
     )
     bars = []
     price = start_price
@@ -178,6 +176,8 @@ def run_ema_cross(
     slow_period: int = 20,
     trade_size: str = "0.010",
     starting_balance: int = STARTING_BALANCE,
+    entry_min_atr_ratio: float = 0.0,
+    signal_cooldown_bars: int = 0,
 ) -> dict[str, Any]:
     """运行 EMA 交叉策略回测，返回关键指标字典.
 
@@ -187,6 +187,8 @@ def run_ema_cross(
         slow_period: 慢线 EMA 周期。
         trade_size: 每次下单量（币数字符串）。
         starting_balance: 初始余额（USDT）。
+        entry_min_atr_ratio: 最小 ATR/Close 比率，<=0 表示关闭过滤。
+        signal_cooldown_bars: 信号冷却条数，<=0 表示关闭。
 
     Returns:
         包含以下字段的字典：
@@ -204,6 +206,8 @@ def run_ema_cross(
         fast_ema_period=fast_period,
         slow_ema_period=slow_period,
         trade_size=Decimal(trade_size),
+        entry_min_atr_ratio=entry_min_atr_ratio,
+        signal_cooldown_bars=signal_cooldown_bars,
     )
     engine.add_strategy(EMACrossStrategy(config=strategy_cfg))
     engine.sort_data()

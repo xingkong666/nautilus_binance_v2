@@ -7,14 +7,13 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from src.core.events import EventBus, EventType
 from src.execution.order_intent import OrderIntent
 from src.execution.order_router import OrderRouter
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

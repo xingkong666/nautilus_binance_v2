@@ -5,8 +5,7 @@
 
 from __future__ import annotations
 
-from prometheus_client import Counter, Gauge, Histogram, Summary
-
+from prometheus_client import Counter, Gauge, Histogram
 
 # ---------------------------------------------------------------------------
 # 交易指标

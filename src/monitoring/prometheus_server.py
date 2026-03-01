@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import threading
 
-from prometheus_client import start_http_server
-
 import structlog
+from prometheus_client import start_http_server
 
 logger = structlog.get_logger()
 
