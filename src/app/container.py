@@ -12,7 +12,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from contextlib import suppress
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
@@ -268,7 +269,7 @@ class Container:
 
     # ------ EventBus 构建 ------
 
-    def _get_env_settings(self) -> dict:
+    def _get_env_settings(self) -> dict[str, str]:
         """读取环境变量中的敏感配置（Token、密钥等）.
 
         Returns:
@@ -294,11 +295,9 @@ class Container:
 
         # 全局事件计数（Prometheus）
         if self._config.monitoring.enabled:
-            def _metrics_handler(event):
-                try:
+            def _metrics_handler(event: Any) -> None:
+                with suppress(Exception):
                     EVENT_BUS_EVENTS.labels(event_type=event.event_type.value).inc()
-                except Exception:
-                    pass
 
             bus.subscribe_all(_metrics_handler)
 

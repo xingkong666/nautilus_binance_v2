@@ -44,7 +44,7 @@ class AlertManager:
         self._notifiers: list[BaseNotifier] = []
         self._started = False
 
-    def add_notifier(self, notifier: BaseNotifier) -> "AlertManager":
+    def add_notifier(self, notifier: BaseNotifier) -> AlertManager:
         """注册一个通知渠道.
 
         Args:
@@ -198,29 +198,29 @@ def build_alert_manager(
                 if not ch_enabled:
                     continue
                 if telegram_token and telegram_chat_id:
-                    notifier = TelegramNotifier(
+                    telegram_notifier = TelegramNotifier(
                         bot_token=telegram_token,
                         chat_id=telegram_chat_id,
                         min_level=min_level,
                         enabled=True,
                     )
                 else:
-                    notifier = TelegramNotifier.from_env(min_level=min_level, enabled=True)
-                manager.add_notifier(notifier)
+                    telegram_notifier = TelegramNotifier.from_env(min_level=min_level, enabled=True)
+                manager.add_notifier(telegram_notifier)
 
             elif ch_type == "slack":
                 if not ch_enabled:
                     continue
                 webhook_url = ch.get("webhook_url", "")
                 if webhook_url:
-                    notifier = SlackNotifier(
+                    slack_notifier = SlackNotifier(
                         webhook_url=webhook_url,
                         min_level=min_level,
                         enabled=True,
                     )
                 else:
-                    notifier = SlackNotifier.from_env(min_level=min_level, enabled=True)
-                manager.add_notifier(notifier)
+                    slack_notifier = SlackNotifier.from_env(min_level=min_level, enabled=True)
+                manager.add_notifier(slack_notifier)
 
             else:
                 logger.warning("unknown_alert_channel_type", type=ch_type)

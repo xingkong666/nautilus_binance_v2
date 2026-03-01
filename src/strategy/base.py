@@ -8,22 +8,19 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from decimal import Decimal
-from typing import Optional
 
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.config import StrategyConfig
+from nautilus_trader.indicators import AverageTrueRange
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.enums import OrderSide, TimeInForce, TriggerType
 from nautilus_trader.model.events import PositionChanged, PositionClosed, PositionOpened
 from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId
 from nautilus_trader.model.instruments import Instrument
-from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.model.position import Position
 from nautilus_trader.trading.strategy import Strategy
 
-from nautilus_trader.indicators import AverageTrueRange
-
-from src.core.events import EventBus, EventType, SignalDirection, SignalEvent
+from src.core.events import EventBus, SignalDirection, SignalEvent
 
 
 class BaseStrategyConfig(StrategyConfig, frozen=True):
@@ -45,14 +42,14 @@ class BaseStrategyConfig(StrategyConfig, frozen=True):
     bar_type: BarType
     close_positions_on_stop: bool = True
     trade_size: Decimal = Decimal("0.01")
-    stop_loss_pct: Optional[float] = None
-    take_profit_pct: Optional[float] = None
+    stop_loss_pct: float | None = None
+    take_profit_pct: float | None = None
     atr_period: int = 14
-    atr_sl_multiplier: Optional[float] = None
-    atr_tp_multiplier: Optional[float] = None
+    atr_sl_multiplier: float | None = None
+    atr_tp_multiplier: float | None = None
 
 
-class BaseStrategy(Strategy):
+class BaseStrategy(Strategy):  # type: ignore[misc]
     """策略基类.
 
     子类实现 generate_signal() 返回信号方向.
@@ -72,7 +69,7 @@ class BaseStrategy(Strategy):
         self._sl_orders: dict[str, ClientOrderId] = {}
         self._tp_orders: dict[str, ClientOrderId] = {}
 
-        self._atr_indicator: Optional[AverageTrueRange] = None
+        self._atr_indicator: AverageTrueRange | None = None
         if config.atr_sl_multiplier is not None or config.atr_tp_multiplier is not None:
              self._atr_indicator = AverageTrueRange(config.atr_period)
 
@@ -234,12 +231,12 @@ class BaseStrategy(Strategy):
             position: 当前持仓对象。
         """
         cfg = self.config
-        
+
         # 如果未设置任何止损止盈参数，则退出
-        if (cfg.stop_loss_pct is None and cfg.take_profit_pct is None and 
+        if (cfg.stop_loss_pct is None and cfg.take_profit_pct is None and
             cfg.atr_sl_multiplier is None and cfg.atr_tp_multiplier is None):
             return
-            
+
         if self.instrument is None:
             return
 
@@ -249,7 +246,7 @@ class BaseStrategy(Strategy):
         avg_px = float(position.avg_px_open)
         is_long = position.is_long
         qty = position.quantity
-        
+
         current_atr = None
         if self._atr_indicator is not None and self._atr_indicator.initialized:
             current_atr = self._atr_indicator.value
@@ -317,8 +314,6 @@ class BaseStrategy(Strategy):
         Args:
             pos_id_str: 仓位 ID 字符串。
         """
-        instrument_id = self.config.instrument_id
-
         for order_map in (self._sl_orders, self._tp_orders):
             coid = order_map.pop(pos_id_str, None)
             if coid is None:

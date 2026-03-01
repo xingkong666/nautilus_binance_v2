@@ -27,7 +27,15 @@ async def check_binance_time_offset() -> int:
         resp = await client.get("https://fapi.binance.com/fapi/v1/time", timeout=5.0)
         local_after_ms = int(time.time() * 1000)
 
-        server_time_ms = resp.json()["serverTime"]
+        payload = resp.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Invalid Binance server time response")
+
+        server_time_raw = payload.get("serverTime")
+        if not isinstance(server_time_raw, int):
+            raise RuntimeError("Binance response missing integer serverTime")
+
+        server_time_ms = server_time_raw
         local_time_ms = (local_before_ms + local_after_ms) // 2
         offset_ms = local_time_ms - server_time_ms
 

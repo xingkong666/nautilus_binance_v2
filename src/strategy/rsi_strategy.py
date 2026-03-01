@@ -97,7 +97,9 @@ class RSIStrategy(BaseStrategy):
         elif self._prev_rsi >= overbought > current_rsi:
             signal = SignalDirection.SHORT
             self.log.info(
-                f"RSI overbought cross: prev={self._prev_rsi:.2f} → curr={current_rsi:.2f} (threshold={overbought}) → SHORT",
+                "RSI overbought cross: "
+                f"prev={self._prev_rsi:.2f} → curr={current_rsi:.2f} "
+                f"(threshold={overbought}) → SHORT",
             )
 
         self._prev_rsi = current_rsi

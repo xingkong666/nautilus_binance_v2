@@ -14,7 +14,6 @@ import pytest
 from src.core.events import EventBus, EventType, RiskAlertEvent
 from src.live.supervisor import LiveSupervisor, SupervisorState
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -144,7 +143,7 @@ class TestSupervisorCircuitBreaker:
         fake_event = MagicMock()
         fake_event.payload = {}
 
-        for i in range(3):
+        for _i in range(3):
             sup._on_circuit_breaker(fake_event)
 
         assert sup._error_count == 3

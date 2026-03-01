@@ -7,17 +7,14 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 import structlog
-
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.trading.strategy import Strategy
 
-from src.core.events import EventBus, EventType, OrderIntentEvent
+from src.core.events import EventBus, OrderIntentEvent
 from src.execution.order_intent import OrderIntent
 
 logger = structlog.get_logger()
@@ -86,11 +83,15 @@ class OrderRouter:
 
     def _create_order(self, intent: OrderIntent, instrument: Instrument) -> MarketOrder:
         """创建 Nautilus 订单."""
+        if self._strategy is None:
+            raise RuntimeError("Strategy not bound")
+
+        strategy = self._strategy
         side = OrderSide.BUY if intent.side == "BUY" else OrderSide.SELL
         tif = TimeInForce[intent.time_in_force]
 
         if intent.order_type == "MARKET":
-            return self._strategy.order_factory.market(
+            return strategy.order_factory.market(
                 instrument_id=instrument.id,
                 order_side=side,
                 quantity=instrument.make_qty(intent.quantity),
@@ -99,7 +100,7 @@ class OrderRouter:
             )
         else:
             # 默认用市价单, 其他类型后续扩展
-            return self._strategy.order_factory.market(
+            return strategy.order_factory.market(
                 instrument_id=instrument.id,
                 order_side=side,
                 quantity=instrument.make_qty(intent.quantity),

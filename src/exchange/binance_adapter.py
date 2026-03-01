@@ -33,9 +33,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
+from nautilus_trader.adapters.binance import config as binance_config
 from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
 from nautilus_trader.adapters.binance.config import (
-    BinanceAccountType,
     BinanceDataClientConfig,
     BinanceExecClientConfig,
     BinanceInstrumentProviderConfig,
@@ -54,6 +54,11 @@ from nautilus_trader.config import (
 from nautilus_trader.live.node import TradingNode
 
 logger = structlog.get_logger(__name__)
+_DEFAULT_BINANCE_ACCOUNT_TYPE = getattr(
+    getattr(binance_config, "BinanceAccountType", object),
+    "USDT_FUTURES",
+    "USDT_FUTURES",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +101,7 @@ class BinanceAdapterConfig:
     api_key: str | None = None
     api_secret: str | None = None
     environment: BinanceEnvironment = BinanceEnvironment.LIVE
-    account_type: BinanceAccountType = BinanceAccountType.USDT_FUTURES
+    account_type: Any = _DEFAULT_BINANCE_ACCOUNT_TYPE
     base_url_http: str | None = None
     base_url_ws: str | None = None
     proxy_url: str | None = None
@@ -319,12 +324,10 @@ class BinanceAdapter:
         Returns:
             BinanceExecClientConfig 实例。
         """
-        from nautilus_trader.adapters.binance.config import BinanceSymbol
-
         futures_leverages = None
         if self.config.futures_leverages:
             futures_leverages = {
-                BinanceSymbol(sym): lev
+                binance_config.BinanceSymbol(sym): lev  # type: ignore[attr-defined]
                 for sym, lev in self.config.futures_leverages.items()
             }
 
@@ -445,7 +448,7 @@ def build_binance_adapter(
         api_key=api_key,
         api_secret=api_secret,
         environment=environment,
-        account_type=BinanceAccountType.USDT_FUTURES,
+        account_type=_DEFAULT_BINANCE_ACCOUNT_TYPE,
         instrument_ids=instrument_ids,
         futures_leverages=leverages,
         proxy_url=proxy_url,

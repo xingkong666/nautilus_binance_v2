@@ -24,7 +24,7 @@ class AlertLevel(Enum):
     CRITICAL = 3
 
     @classmethod
-    def from_str(cls, s: str) -> "AlertLevel":
+    def from_str(cls, s: str) -> AlertLevel:
         """从字符串解析告警级别（不区分大小写）.
 
         Args:
@@ -38,8 +38,8 @@ class AlertLevel(Enum):
         """
         try:
             return cls[s.upper()]
-        except KeyError:
-            raise ValueError(f"Unknown alert level: '{s}'. Valid: WARNING, ERROR, CRITICAL")
+        except KeyError as err:
+            raise ValueError(f"Unknown alert level: '{s}'. Valid: WARNING, ERROR, CRITICAL") from err
 
 
 class AlertMessage:

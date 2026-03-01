@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
+from contextlib import suppress
 from decimal import Decimal
 from typing import Any
 
@@ -176,10 +177,12 @@ class DrawdownWatcher(BaseWatcher):
             return  # 冷却中，跳过
 
         self._last_alert_ts[level.name] = now
+        severity = "预警" if level == AlertLevel.ERROR else "严重"
+        emoji = "⚠️" if level == AlertLevel.ERROR else "🚨"
         self._alert_manager.send_direct(
             level=level,
             rule_name="drawdown_warning",
-            message=f"{'⚠️' if level == AlertLevel.ERROR else '🚨'} 回撤{'预警' if level == AlertLevel.ERROR else '严重'}: {drawdown_pct:.1f}% (阈值 {threshold:.1f}%)",
+            message=f"{emoji} 回撤{severity}: {drawdown_pct:.1f}% (阈值 {threshold:.1f}%)",
             details={
                 "drawdown_pct": f"{drawdown_pct:.2f}%",
                 "peak_equity": str(self._peak_equity),
@@ -300,10 +303,8 @@ def build_watchers(
             if rule.get("name") == "order_fill_latency":
                 cond = rule.get("condition", "")
                 # 简单解析 "fill_latency_ms > 1000" 中的数值
-                try:
+                with suppress(ValueError, IndexError):
                     latency_threshold = float(cond.split(">")[-1].strip())
-                except (ValueError, IndexError):
-                    pass
         watchers.append(FillLatencyWatcher(event_bus, alert_manager, latency_threshold))
 
     logger.info("watchers_built", count=len(watchers))

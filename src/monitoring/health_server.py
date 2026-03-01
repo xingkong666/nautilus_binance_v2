@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 import json
-import time
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 import structlog
@@ -67,13 +67,13 @@ class _HealthHandler(BaseHTTPRequestHandler):
         else:
             self._respond(404, {"error": "not found"})
 
-    def _respond(self, code: int, body: dict) -> None:
+    def _respond(self, code: int, body: dict[str, Any]) -> None:
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps(body).encode())
 
-    def log_message(self, format: str, *args: Any) -> None:
+    def log_message(self, msg_format: str, *args: Any) -> None:
         pass  # 静默 HTTP 日志
 
 

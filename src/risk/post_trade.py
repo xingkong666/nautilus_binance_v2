@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any
 
 import structlog
 
@@ -85,8 +84,8 @@ class PostTradeAnalyzer:
             total_trades=len(self._trades),
             winning_trades=len(winning),
             losing_trades=len(losing),
-            total_pnl=sum(t.pnl for t in self._trades),
-            total_fees=sum(t.fees for t in self._trades),
+            total_pnl=sum((t.pnl for t in self._trades), start=Decimal("0")),
+            total_fees=sum((t.fees for t in self._trades), start=Decimal("0")),
             avg_slippage_bps=sum(t.slippage_bps for t in self._trades) / len(self._trades),
             trades=self._trades.copy(),
         )

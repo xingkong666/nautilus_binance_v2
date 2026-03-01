@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from typing import Any, cast
 
 import structlog
 
@@ -22,7 +23,7 @@ def setup_logging(level: str = "INFO", json_format: bool = True, console: bool =
     log_level = getattr(logging, level.upper(), logging.INFO)
 
     # structlog 处理链
-    processors: list = [
+    processors: list[Any] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
@@ -55,4 +56,4 @@ def setup_logging(level: str = "INFO", json_format: bool = True, console: bool =
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """获取 logger 实例."""
-    return structlog.get_logger(name)
+    return cast("structlog.stdlib.BoundLogger", structlog.get_logger(name))

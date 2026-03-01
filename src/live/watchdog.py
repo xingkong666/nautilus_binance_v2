@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
@@ -128,7 +129,7 @@ class Watchdog:
 
     def __init__(
         self,
-        container: "Container",
+        container: Container,
         check_interval_sec: float = 10.0,
         max_memory_mb: float = 2048.0,
     ) -> None:
@@ -376,9 +377,9 @@ class Watchdog:
         # 尝试通过 alert_manager 发送告警
         try:
             msg = f"[Watchdog] 服务 {entry.name} 异常（连续失败 {entry.fail_count} 次）"
-            self._container.alert_manager.send_alert(
+            self._container.alert_manager.send_direct(
                 level="ERROR",
-                title="实盘服务异常",
+                rule_name="watchdog_service_failure",
                 message=msg,
             )
         except Exception:

@@ -11,9 +11,8 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
-from decimal import Decimal, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
 import structlog
@@ -407,9 +406,10 @@ class PortfolioAllocator:
             多行字符串，包含每个策略的分配比例和金额。
         """
         results = self.allocate(total_capital)
+        deployable = total_capital * Decimal(str((100 - self._reserve_pct) / 100))
         lines = [
             f"PortfolioAllocator [{self._mode}] — 总资金: {total_capital} USDT",
-            f"  储备: {self._reserve_pct}%  可部署: {total_capital * Decimal(str((100 - self._reserve_pct) / 100)):.2f} USDT",
+            f"  储备: {self._reserve_pct}%  可部署: {deployable:.2f} USDT",
             "-" * 60,
         ]
         for sid, r in results.items():

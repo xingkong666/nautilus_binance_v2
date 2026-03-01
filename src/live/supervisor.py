@@ -17,16 +17,18 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
 from enum import Enum, unique
 from typing import TYPE_CHECKING
 
 import structlog
 
-from src.core.events import EventType
+from src.core.events import Event, EventType
 
 if TYPE_CHECKING:
     from src.app.container import Container
+    from src.live.account_sync import AccountSync
+    from src.live.health import LiveHealthProbe
+    from src.live.watchdog import Watchdog
 
 logger = structlog.get_logger(__name__)
 
@@ -58,7 +60,7 @@ class LiveSupervisor:
         sup.stop()          # 也可由信号触发
     """
 
-    def __init__(self, container: "Container") -> None:
+    def __init__(self, container: Container) -> None:
         """初始化 Supervisor.
 
         Args:
@@ -71,9 +73,9 @@ class LiveSupervisor:
         self._stop_event = threading.Event()
 
         # 子服务引用（start 后填充）
-        self._account_sync: "AccountSync | None" = None  # noqa: F821
-        self._watchdog: "Watchdog | None" = None          # noqa: F821
-        self._health_probe: "LiveHealthProbe | None" = None  # noqa: F821
+        self._account_sync: AccountSync | None = None
+        self._watchdog: Watchdog | None = None
+        self._health_probe: LiveHealthProbe | None = None
 
         # 错误计数，用于决策是否重启
         self._error_count = 0
@@ -220,7 +222,7 @@ class LiveSupervisor:
     # 事件处理
     # ------------------------------------------------------------------
 
-    def _on_circuit_breaker(self, event) -> None:
+    def _on_circuit_breaker(self, event: Event) -> None:
         """处理熔断事件，进入 DEGRADED 状态.
 
         Args:

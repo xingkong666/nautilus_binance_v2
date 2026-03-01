@@ -40,7 +40,7 @@ target-version = "py313"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "N", "B", "A", "C4", "SIM", "TCH"]
+select = ["E", "F", "W", "I", "UP", "N", "B", "A", "C4", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -49,6 +49,10 @@ asyncio_mode = "auto"
 [tool.mypy]
 python_version = "3.13"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["nautilus_trader.*", "pandas", "yaml"]
+ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]

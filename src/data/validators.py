@@ -6,11 +6,21 @@
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
+from typing import TypedDict
 
 import pandas as pd
 import structlog
 
 logger = structlog.get_logger()
+
+
+class DataGap(TypedDict):
+    """时间缺口信息."""
+
+    from_ts: int
+    to_ts: int
+    missing_bars: int
 
 
 class DataValidationError(Exception):
@@ -82,7 +92,7 @@ def validate_data_completeness(
     df: pd.DataFrame,
     expected_interval_ms: int = 60_000,
     max_gap_tolerance: int = 3,
-) -> list[dict]:
+) -> list[DataGap]:
     """检查数据连续性, 发现缺失的时间段.
 
     Args:
@@ -93,18 +103,19 @@ def validate_data_completeness(
     Returns:
         缺失时间段列表
     """
-    gaps = []
+    gaps: list[DataGap] = []
     if len(df) < 2:
         return gaps
 
     diffs = df["open_time"].diff().dropna()
     abnormal = diffs[diffs > expected_interval_ms * max_gap_tolerance]
 
-    for idx in abnormal.index:
-        gap = {
-            "from_ts": int(df["open_time"].iloc[idx - 1]),
-            "to_ts": int(df["open_time"].iloc[idx]),
-            "missing_bars": int(diffs.iloc[idx] / expected_interval_ms) - 1,
+    for idx, diff_value in abnormal.items():
+        i = int(idx)
+        gap: DataGap = {
+            "from_ts": int(df["open_time"].iloc[i - 1]),
+            "to_ts": int(df["open_time"].iloc[i]),
+            "missing_bars": int(diff_value / expected_interval_ms) - 1,
         }
         gaps.append(gap)
 
@@ -115,7 +126,7 @@ def validate_data_completeness(
 
 
 def validate_cross_day_continuity(
-    csv_paths: list,
+    csv_paths: list[Path],
     expected_interval_ms: int = 60_000,
 ) -> list[str]:
     """检查跨天数据连续性, 合并多个 CSV 文件后验证日间缺口.
@@ -160,8 +171,8 @@ def validate_cross_day_continuity(
 
     missing_dates: list[str] = []
     for gap in gaps:
-        from_dt = dt.datetime.fromtimestamp(gap["from_ts"] / 1000, tz=dt.timezone.utc)
-        to_dt = dt.datetime.fromtimestamp(gap["to_ts"] / 1000, tz=dt.timezone.utc)
+        from_dt = dt.datetime.fromtimestamp(gap["from_ts"] / 1000, tz=dt.UTC)
+        to_dt = dt.datetime.fromtimestamp(gap["to_ts"] / 1000, tz=dt.UTC)
         # 找出缺失的日期
         current = from_dt.date() + dt.timedelta(days=1)
         while current < to_dt.date():

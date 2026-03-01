@@ -10,6 +10,7 @@ import json
 import shutil
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import structlog
 
@@ -25,10 +26,10 @@ class DataVersionManager:
         self._manifest_path = versioned_dir / "manifest.json"
         self._manifest = self._load_manifest()
 
-    def _load_manifest(self) -> dict:
+    def _load_manifest(self) -> dict[str, Any]:
         if self._manifest_path.exists():
             with open(self._manifest_path) as f:
-                return json.load(f)
+                return cast("dict[str, Any]", json.load(f))
         return {"versions": []}
 
     def _save_manifest(self) -> None:
@@ -69,9 +70,9 @@ class DataVersionManager:
         logger.info("data_version_created", version_id=version_id, checksum=checksum)
         return version_id
 
-    def list_versions(self) -> list[dict]:
+    def list_versions(self) -> list[dict[str, Any]]:
         """列出所有版本."""
-        return self._manifest.get("versions", [])
+        return cast("list[dict[str, Any]]", self._manifest.get("versions", []))
 
     @staticmethod
     def _compute_checksum(directory: Path) -> str:

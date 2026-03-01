@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import time
 from decimal import Decimal
 
 import pytest
@@ -14,7 +13,6 @@ from src.core.events import EventBus, EventType, OrderIntentEvent, RiskAlertEven
 from src.risk.circuit_breaker import CircuitBreaker
 from src.risk.drawdown_control import DrawdownController
 from src.risk.pre_trade import PreTradeRiskManager
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -105,7 +103,7 @@ class TestCircuitBreakerIntegration:
         assert circuit_breaker.is_active is True
 
         # 模拟上层在提交前检查熔断状态（实际由 OrderRouter / Supervisor 负责）
-        intent = OrderIntentEvent(
+        _intent = OrderIntentEvent(
             instrument_id="BTCUSDT-PERP.BINANCE",
             side="BUY",
             quantity=Decimal("0.01"),

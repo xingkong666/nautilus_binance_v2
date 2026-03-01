@@ -21,9 +21,10 @@ from __future__ import annotations
 
 import signal
 import sys
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Generator
+from types import FrameType
 
 import structlog
 
@@ -109,7 +110,7 @@ def bootstrap_app(env: str | None = None, log_level: str = "INFO") -> AppContext
 def bootstrap_context(
     env: str | None = None,
     log_level: str = "INFO",
-) -> Generator[AppContext, None, None]:
+) -> Generator[AppContext]:
     """上下文管理器形式的启动，退出时自动 teardown.
 
     推荐在脚本和测试中使用，确保资源（DB 连接等）正确释放。
@@ -148,7 +149,7 @@ def register_shutdown_handler(container: Container) -> None:
         container: 需要在退出时 teardown 的 Container 实例。
     """
 
-    def _handler(signum, frame):
+    def _handler(signum: int, frame: FrameType | None) -> None:
         sig_name = signal.Signals(signum).name
         logger.warning("shutdown_signal_received", signal=sig_name)
         container.teardown()
