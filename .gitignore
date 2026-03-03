@@ -29,6 +29,7 @@ data/versioned/*
 # Experiments
 experiments/reports/*
 experiments/artifacts/*
+experiments/sweep/*
 !experiments/**/.gitkeep
 
 # Runtime backups
