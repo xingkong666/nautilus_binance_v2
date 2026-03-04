@@ -46,6 +46,7 @@ from src.core.logging import setup_logging
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
 from src.strategy.ema_pullback_atr import EMAPullbackATRConfig, EMAPullbackATRStrategy
+from src.strategy.turtle import TurtleConfig, TurtleStrategy
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT"], help="交易对列表（默认：BTCUSDT）")
     parser.add_argument(
         "--strategy",
-        choices=["ema_cross", "ema_pullback_atr"],
+        choices=["ema_cross", "ema_pullback_atr", "turtle"],
         default="ema_cross",
         help="策略类型（默认：ema_cross）",
     )
@@ -134,6 +135,22 @@ def parse_args() -> argparse.Namespace:
         default=3,
         help="信号冷却 Bar 数（默认：3，<=0 表示关闭；两个 EMA 策略均生效）",
     )
+    parser.add_argument("--entry-period", type=int, default=20, help="海龟策略入场通道周期（默认：20）")
+    parser.add_argument("--exit-period", type=int, default=10, help="海龟策略出场通道周期（默认：10）")
+    parser.add_argument("--turtle-atr-period", type=int, default=20, help="海龟策略 ATR 周期（默认：20）")
+    parser.add_argument(
+        "--stop-atr-multiplier",
+        type=float,
+        default=2.0,
+        help="海龟策略止损 ATR 乘数（默认：2.0）",
+    )
+    parser.add_argument(
+        "--unit-add-atr-step",
+        type=float,
+        default=0.5,
+        help="海龟策略加仓阶梯（ATR 倍数，默认：0.5）",
+    )
+    parser.add_argument("--max-units", type=int, default=4, help="海龟策略最大分批单位数（默认：4）")
     parser.add_argument("--atr-sl", type=float, default=None, help="ATR 止损乘数 (如: 2.0，默认: None)")
     parser.add_argument("--atr-tp", type=float, default=None, help="ATR 止盈乘数 (如: 4.0，默认: None)")
     parser.add_argument("--save", action="store_true", help="保存报告到文件")
@@ -198,6 +215,21 @@ def build_strategy(
         )
         return EMAPullbackATRStrategy, config
 
+    if args.strategy == "turtle":
+        config = TurtleConfig(
+            instrument_id=instrument_id,
+            bar_type=bar_type,
+            entry_period=args.entry_period,
+            exit_period=args.exit_period,
+            atr_period=args.turtle_atr_period,
+            stop_atr_multiplier=args.stop_atr_multiplier,
+            unit_add_atr_step=args.unit_add_atr_step,
+            max_units=args.max_units,
+            trade_size=Decimal(args.trade_size),
+            capital_pct_per_trade=args.capital_pct_per_trade,
+        )
+        return TurtleStrategy, config
+
     raise ValueError(f"Unsupported strategy: {args.strategy}")
 
 
@@ -256,8 +288,15 @@ def main() -> None:
             f"min_atr_ratio={args.entry_min_atr_ratio} "
             f"cooldown_bars={args.signal_cooldown_bars}"
         )
-    else:
+    elif args.strategy == "ema_pullback_atr":
         print(f"  EMA      : fast={args.fast_ema}  slow={args.slow_ema}")
+    else:
+        print(
+            "  Turtle   : "
+            f"entry={args.entry_period} exit={args.exit_period} "
+            f"atr_period={args.turtle_atr_period} stop={args.stop_atr_multiplier}N "
+            f"add_step={args.unit_add_atr_step}N max_units={args.max_units}"
+        )
         print(
             "  Pullback : "
             f"atr_multiplier={args.pullback_atr_multiplier} "

@@ -67,10 +67,30 @@ uv run python scripts/smoke_testnet.py
 
 ```bash
 uv run python scripts/run_backtest.py \
-  --config configs/strategies/ema_cross.yaml \
-  --env configs/env/dev.yaml \
+  --strategy ema_cross \
+  --symbols BTCUSDT \
   --start 2024-01-01 \
-  --end 2024-06-30
+  --end 2024-06-30 \
+  --interval 15m \
+  --fast-ema 10 \
+  --slow-ema 20
+```
+
+海龟策略示例：
+
+```bash
+uv run python scripts/run_backtest.py \
+  --strategy turtle \
+  --symbols BTCUSDT \
+  --start 2024-01-01 \
+  --end 2024-06-30 \
+  --interval 15m \
+  --entry-period 20 \
+  --exit-period 10 \
+  --turtle-atr-period 20 \
+  --stop-atr-multiplier 2.0 \
+  --unit-add-atr-step 0.5 \
+  --max-units 4
 ```
 
 ### 5. 实盘
@@ -115,7 +135,7 @@ nautilus_binance_v2/
 │   ├── app/                #   应用组装（Container / Factory / Bootstrap）
 │   ├── core/               #   基础设施（Config / Events / Logging）
 │   ├── data/               #   数据加载与特征
-│   ├── strategy/           #   策略基类 + EMA Cross
+│   ├── strategy/           #   策略基类 + EMA / RSI / Turtle
 │   ├── execution/          #   执行层（OrderRouter / AlgoExecution）
 │   ├── risk/               #   风控全链路
 │   ├── portfolio/          #   多策略分配
@@ -182,3 +202,4 @@ docker compose up -d
 | [risk.md](docs/risk.md) | 风控体系详解 |
 | [monitoring.md](docs/monitoring.md) | 监控 & 告警配置 |
 | [runbook.md](docs/runbook.md) | 运维操作手册 |
+| [turtle_backtest_4h_sensitivity.md](docs/turtle_backtest_4h_sensitivity.md) | Turtle 4h 参数敏感性与样本外验证 |

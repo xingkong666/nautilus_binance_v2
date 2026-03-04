@@ -1,0 +1,27 @@
+# 海龟交易策略配置
+strategy:
+  name: turtle
+  class_path: strategy.turtle:TurtleStrategy
+
+  params:
+    entry_period: 20
+    exit_period: 10
+    atr_period: 20
+    stop_atr_multiplier: 2.0
+    unit_add_atr_step: 0.5
+    max_units: 4
+    trade_size: 0.01
+    # capital_pct_per_trade: 10.0  # 可选：按账户权益 10% 下单（优先于 trade_size）
+
+  instruments:
+    - BTCUSDT-PERP.BINANCE
+
+  bar_type: "{instrument_id}-15-MINUTE-LAST-INTERNAL@1-MINUTE-EXTERNAL"
+
+  subscribe:
+    bars: true
+    trade_ticks: false
+    quote_ticks: false
+
+  close_positions_on_stop: true
+  reduce_only_on_stop: true

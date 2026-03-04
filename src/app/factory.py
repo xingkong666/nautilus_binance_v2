@@ -28,6 +28,7 @@ from src.exchange.binance_adapter import BinanceAdapter, build_binance_adapter
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
 from src.strategy.ema_pullback_atr import EMAPullbackATRConfig, EMAPullbackATRStrategy
+from src.strategy.turtle import TurtleConfig, TurtleStrategy
 
 logger = structlog.get_logger()
 
@@ -146,6 +147,53 @@ class AppFactory:
         )
         return EMAPullbackATRStrategy, config
 
+    def create_turtle_strategy(
+        self,
+        symbol: str,
+        interval: Interval = Interval.MINUTE_1,
+        entry_period: int = 20,
+        exit_period: int = 10,
+        atr_period: int = 20,
+        stop_atr_multiplier: float = 2.0,
+        unit_add_atr_step: float = 0.5,
+        max_units: int = 4,
+        trade_size: Decimal = Decimal("0.01"),
+        capital_pct_per_trade: float | None = None,
+    ) -> tuple[type[TurtleStrategy], TurtleConfig]:
+        """创建海龟交易策略及其配置."""
+        instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
+        nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
+        if interval == Interval.MINUTE_1:
+            bar_type = BarType.from_str(f"{instrument_id}-{nautilus_interval}-LAST-EXTERNAL")
+        else:
+            bar_type = BarType.from_str(
+                f"{instrument_id}-{nautilus_interval}-LAST-INTERNAL@1-MINUTE-EXTERNAL",
+            )
+
+        config = TurtleConfig(
+            instrument_id=instrument_id,
+            bar_type=bar_type,
+            entry_period=entry_period,
+            exit_period=exit_period,
+            atr_period=atr_period,
+            stop_atr_multiplier=stop_atr_multiplier,
+            unit_add_atr_step=unit_add_atr_step,
+            max_units=max_units,
+            trade_size=trade_size,
+            capital_pct_per_trade=capital_pct_per_trade,
+        )
+        logger.info(
+            "strategy_created",
+            strategy="Turtle",
+            symbol=symbol,
+            interval=interval.value,
+            entry_period=entry_period,
+            exit_period=exit_period,
+            atr_period=atr_period,
+            max_units=max_units,
+        )
+        return TurtleStrategy, config
+
     def create_strategy_from_config(
         self,
         strategy_cfg: dict[str, Any],
@@ -155,7 +203,7 @@ class AppFactory:
         """根据 YAML 策略配置动态创建策略.
 
         从 configs/strategies/*.yaml 加载的配置字典创建对应策略。
-        目前支持 "ema_cross"、"ema_pullback_atr"，后续可扩展。
+        目前支持 "ema_cross"、"ema_pullback_atr"、"turtle"，后续可扩展。
 
         Args:
             strategy_cfg: 策略配置字典（来自 YAML configs/strategies/）。
@@ -196,7 +244,22 @@ class AppFactory:
                 adx_threshold=float(params.get("adx_threshold", 20.0)),
             )
 
-        raise ValueError(f"Unsupported strategy: '{name}'. Available: ema_cross, ema_pullback_atr")
+        if name == "turtle":
+            capital_pct = params.get("capital_pct_per_trade")
+            return self.create_turtle_strategy(
+                symbol=symbol,
+                interval=interval,
+                entry_period=int(params.get("entry_period", 20)),
+                exit_period=int(params.get("exit_period", 10)),
+                atr_period=int(params.get("atr_period", 20)),
+                stop_atr_multiplier=float(params.get("stop_atr_multiplier", 2.0)),
+                unit_add_atr_step=float(params.get("unit_add_atr_step", 0.5)),
+                max_units=int(params.get("max_units", 4)),
+                trade_size=Decimal(str(params.get("trade_size", "0.01"))),
+                capital_pct_per_trade=float(capital_pct) if capital_pct is not None else None,
+            )
+
+        raise ValueError(f"Unsupported strategy: '{name}'. Available: ema_cross, ema_pullback_atr, turtle")
 
     # ------ 交易所适配器工厂 ------
 

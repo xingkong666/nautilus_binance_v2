@@ -22,7 +22,9 @@ from src.cache.redis_client import RedisClient
 from src.core.events import EventBus
 from src.exchange.binance_adapter import BinanceAdapter, BinanceAdapterConfig
 from src.execution.fill_handler import FillHandler
+from src.execution.order_router import OrderRouter
 from src.execution.rate_limiter import RateLimiter
+from src.execution.signal_processor import SignalProcessor
 from src.monitoring.alerting import AlertManager, build_alert_manager
 from src.monitoring.health_server import HealthServer
 from src.monitoring.metrics import EVENT_BUS_EVENTS
@@ -68,6 +70,8 @@ class Container:
         self._circuit_breaker: CircuitBreaker | None = None
         self._drawdown_controller: DrawdownController | None = None
         self._fill_handler: FillHandler | None = None
+        self._order_router: OrderRouter | None = None
+        self._signal_processor: SignalProcessor | None = None
         self._alert_manager: AlertManager | None = None
         self._watchers: list[BaseWatcher] = []
         self._health_server: HealthServer | None = None
@@ -204,6 +208,11 @@ class Container:
         self._fill_handler = FillHandler(
             event_bus=self._event_bus,
             persistence=self._persistence,
+        )
+        self._order_router = OrderRouter(event_bus=self._event_bus)
+        self._signal_processor = SignalProcessor(
+            event_bus=self._event_bus,
+            order_router=self._order_router,
         )
 
         # 7. 告警
@@ -429,6 +438,28 @@ class Container:
         self._ensure_built()
         assert self._alert_manager is not None
         return self._alert_manager
+
+    @property
+    def order_router(self) -> OrderRouter:
+        """返回订单路由器.
+
+        Raises:
+            RuntimeError: 容器未 build。
+        """
+        self._ensure_built()
+        assert self._order_router is not None
+        return self._order_router
+
+    @property
+    def signal_processor(self) -> SignalProcessor:
+        """返回信号处理器.
+
+        Raises:
+            RuntimeError: 容器未 build。
+        """
+        self._ensure_built()
+        assert self._signal_processor is not None
+        return self._signal_processor
 
     @property
     def health_server(self) -> HealthServer | None:
