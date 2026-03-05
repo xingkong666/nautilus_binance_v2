@@ -61,7 +61,7 @@ TELEGRAM_CHAT_ID=your_chat_id
 uv run python scripts/smoke_testnet.py
 ```
 
-验证：行情接收 → 市价单 → 成交 → 节点停止。
+验证：行情接收 → 开仓成交 → reduce-only 平仓成交 → 节点停止 → 进程正常退出（无事件循环报错）。
 
 ### 4. 回测
 

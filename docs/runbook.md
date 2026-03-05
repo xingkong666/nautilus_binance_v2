@@ -129,9 +129,10 @@ uv run python scripts/smoke_testnet.py
 ```
 ✅ TradingNode 启动成功
 ✅ 行情 tick 接收（WebSocket 连接正常）
-✅ 市价单 Submitted → Accepted → Filled
-✅ PositionOpened
+✅ 开仓市价单 Submitted → Accepted → Filled
+✅ reduce-only 平仓单 Submitted → Accepted → Filled
 ✅ 节点优雅停止
+✅ 进程退出码为 0（无 `Event loop stopped before Future completed`）
 ```
 
 如有失败，先检查：
@@ -139,6 +140,11 @@ uv run python scripts/smoke_testnet.py
 1. `.env` 中 Testnet API Key 是否正确
 2. Testnet 账户余额是否足够（最小名义 100 USDT）
 3. 网络是否能访问 `stream.binancefuture.com`
+
+补充说明（2026-03-05 更新）：
+
+1. 脚本在平仓成交后会主动触发节点停止，并在主流程统一 `dispose`，用于避免事件循环提前停止报错。
+2. 若日志出现 `Residual Position(...)`，通常是测试账户里已有历史仓位，不代表本次冒烟单未平。
 
 ---
 

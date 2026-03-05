@@ -6,7 +6,7 @@
 3. 注入一个 SmokeStrategy（NautilusTrader Strategy 子类）
 4. SmokeStrategy.on_start() 内：订阅 BTCUSDT QuoteTick
 5. SmokeStrategy.on_quote_tick() 内：收到首个 tick → 挂市价单 → 等成交
-6. 成交后打印结果，调用 node.stop()
+6. 平仓成交后触发停机请求，主线程退出 node.run()
 
 用法::
 
@@ -14,13 +14,15 @@
     source .venv/bin/activate
     python scripts/smoke_testnet.py
 """
+# ruff: noqa: E402,I001
 
 from __future__ import annotations
 
-import asyncio
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from threading import Timer
 
 # ── 路径 & 环境变量 ──────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,17 +57,18 @@ from nautilus_trader.config import (
     StrategyConfig,
     TradingNodeConfig,
 )
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.live.node import TradingNode
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.enums import OrderSide, TimeInForce
-from nautilus_trader.model.identifiers import InstrumentId, ClientOrderId
+from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
 # ── 配置 ─────────────────────────────────────────────────────────────────────
 SYMBOL = "BTCUSDT-PERP.BINANCE"
 ORDER_QTY = "0.002"   # BTC 约 68k，0.002 × 68k = 136 USDT > 最小名义价值 100 USDT
+SHUTDOWN_TIMEOUT_SECONDS = 180.0
+_REQUEST_STOP: Callable[[], None] | None = None
 
 
 # ── 冒烟策略 ──────────────────────────────────────────────────────────────────
@@ -84,6 +87,9 @@ class SmokeStrategy(Strategy):
         self.order_qty = config.order_qty
         self._order_submitted = False
         self._done = False
+        self._entry_filled = False
+        self._entry_client_order_id: ClientOrderId | None = None
+        self._close_client_order_id: ClientOrderId | None = None
 
     def on_start(self) -> None:
         """订阅合约行情."""
@@ -115,6 +121,7 @@ class SmokeStrategy(Strategy):
             time_in_force=TimeInForce.GTC,
             reduce_only=False,
         )
+        self._entry_client_order_id = order.client_order_id
         self.submit_order(order)
         self.log.info(f"   订单已提交: {order.client_order_id}")
 
@@ -122,21 +129,49 @@ class SmokeStrategy(Strategy):
         """成交事件处理."""
         if self._done:
             return
-        self._done = True
 
-        self.log.info("=" * 50)
-        self.log.info("🎉 成交成功！")
-        self.log.info(f"   Client Order ID : {event.client_order_id}")
-        self.log.info(f"   Venue Order ID  : {event.venue_order_id}")
-        self.log.info(f"   成交均价        : {event.last_px}")
-        self.log.info(f"   成交量          : {event.last_qty}")
-        self.log.info(f"   成交时间 (ns)   : {event.ts_event}")
-        self.log.info("=" * 50)
-        self.log.info("🛑 冒烟完成，2s 后停止节点 ...")
+        # 第一笔：开仓成交
+        if (
+            not self._entry_filled
+            and self._entry_client_order_id is not None
+            and event.client_order_id == self._entry_client_order_id
+        ):
+            self._entry_filled = True
+            self.log.info("=" * 50)
+            self.log.info("🎉 开仓成交成功！")
+            self.log.info(f"   Client Order ID : {event.client_order_id}")
+            self.log.info(f"   Venue Order ID  : {event.venue_order_id}")
+            self.log.info(f"   成交均价        : {event.last_px}")
+            self.log.info(f"   成交量          : {event.last_qty}")
+            self.log.info(f"   成交时间 (ns)   : {event.ts_event}")
+            self.log.info("=" * 50)
+            self.log.info("📤 提交 reduce-only 反向市价单，清理本次测试仓位 ...")
 
-        # 用 asyncio 调度停止，避免在事件回调里直接调用阻塞操作
-        loop = asyncio.get_event_loop()
-        loop.call_later(2.0, loop.stop)
+            close_order = self.order_factory.market(
+                instrument_id=self.instrument_id,
+                order_side=OrderSide.SELL,
+                quantity=event.last_qty,
+                time_in_force=TimeInForce.GTC,
+                reduce_only=True,
+            )
+            self._close_client_order_id = close_order.client_order_id
+            self.submit_order(close_order)
+            self.log.info(f"   平仓单已提交: {close_order.client_order_id}")
+            return
+
+        # 第二笔：平仓成交
+        if self._close_client_order_id is not None and event.client_order_id == self._close_client_order_id:
+            self._done = True
+            self.log.info("=" * 50)
+            self.log.info("✅ 平仓成交成功，本次测试仓位已清理")
+            self.log.info(f"   Client Order ID : {event.client_order_id}")
+            self.log.info(f"   Venue Order ID  : {event.venue_order_id}")
+            self.log.info(f"   成交均价        : {event.last_px}")
+            self.log.info(f"   成交量          : {event.last_qty}")
+            self.log.info(f"   成交时间 (ns)   : {event.ts_event}")
+            self.log.info("=" * 50)
+            self.log.info("🛑 冒烟完成，触发节点停止 ...")
+            _request_node_stop()
 
 
 # ── 构建节点 ──────────────────────────────────────────────────────────────────
@@ -201,29 +236,50 @@ def build_node() -> TradingNode:
 
 # ── 主入口 ────────────────────────────────────────────────────────────────────
 
+def _request_node_stop() -> None:
+    global _REQUEST_STOP
+    request_stop = _REQUEST_STOP
+    if request_stop is None:
+        return
+
+    _REQUEST_STOP = None
+    request_stop()
+
+
 def main() -> None:
+    global _REQUEST_STOP
+
     print("=" * 60)
     print("🚀 Binance Futures Testnet 冒烟测试 v2")
     print(f"   合约: {SYMBOL}")
-    print(f"   环境: TESTNET  (testnet.binancefuture.com)")
+    print("   环境: TESTNET  (testnet.binancefuture.com)")
     print(f"   下单量: {ORDER_QTY} BTC")
     print("=" * 60)
 
     node = build_node()
+    _REQUEST_STOP = node.stop
+    timeout_timer = Timer(
+        SHUTDOWN_TIMEOUT_SECONDS,
+        lambda: (print(f"\n⚠️ 超时（>{SHUTDOWN_TIMEOUT_SECONDS:.0f}s），触发停止节点"), _request_node_stop()),
+    )
+    timeout_timer.daemon = True
+    timeout_timer.start()
+
     try:
-        node.run()   # 阻塞直到 loop.stop() 被调用
+        node.run()
     except KeyboardInterrupt:
         print("\n⚠️  用户中断")
+        _request_node_stop()
     finally:
+        timeout_timer.cancel()
+        _REQUEST_STOP = None
         try:
-            node.stop()
             node.dispose()
         except Exception as e:
             print(f"停止时报错（可忽略）: {e}")
-
-    print("\n" + "=" * 60)
-    print("冒烟测试结束")
-    print("=" * 60)
+        print("\n" + "=" * 60)
+        print("冒烟测试结束")
+        print("=" * 60)
 
 
 if __name__ == "__main__":
