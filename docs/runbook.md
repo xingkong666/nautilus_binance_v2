@@ -68,6 +68,28 @@ uv run python scripts/run_backtest.py \
 # 报告输出到 experiments/reports/
 ```
 
+Vegas 隧道回测示例：
+
+```bash
+uv run python scripts/run_backtest.py \
+  --env dev \
+  --strategy vegas_tunnel \
+  --symbols BTCUSDT \
+  --start 2024-01-01 \
+  --end 2024-06-30 \
+  --vegas-fast-ema 12 \
+  --vegas-slow-ema 36 \
+  --tunnel-ema-1 144 \
+  --tunnel-ema-2 169 \
+  --vegas-stop-atr-multiplier 1.0
+```
+
+Vegas 端到端冒烟快照（2026-03）：
+
+- 结果目录：`experiments/reports/vegas_tunnel_smoke_20240101_20240630`
+- Run ID：`e87209cd-9164-4b7e-9802-1a91e525f4bf`
+- 关键指标：`total_orders=224`、`total_positions=54`、`PnL=+585.1334 USDT`
+
 ### 参数扫描（2024H2 默认窗口）
 
 ```bash

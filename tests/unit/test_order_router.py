@@ -37,6 +37,7 @@ def make_intent(
     side: str = "BUY",
     quantity: str = "0.01",
     order_type: str = "MARKET",
+    price: str | None = None,
     reduce_only: bool = False,
 ) -> OrderIntent:
     """构造测试用 OrderIntent。"""
@@ -45,6 +46,7 @@ def make_intent(
         side=side,
         quantity=Decimal(quantity),
         order_type=order_type,
+        price=Decimal(price) if price is not None else None,
         reduce_only=reduce_only,
     )
 
@@ -58,11 +60,13 @@ def make_mock_strategy(instrument_id: str = "BTCUSDT-PERP.BINANCE") -> MagicMock
     instrument.id = MagicMock()
     instrument.id.__str__ = lambda self: instrument_id
     instrument.make_qty = lambda qty: qty  # 直接透传
+    instrument.make_price = lambda price: price  # 直接透传
     strategy.cache.instrument.return_value = instrument
 
     # mock order_factory.market() 返回一个假订单
     fake_order = MagicMock()
     strategy.order_factory.market.return_value = fake_order
+    strategy.order_factory.limit.return_value = fake_order
 
     # submit_order 默认不抛异常
     strategy.submit_order.return_value = None
@@ -109,6 +113,15 @@ class TestOrderRouterBasic:
         router.route(make_intent(order_type="MARKET"))
 
         strategy.order_factory.market.assert_called_once()
+
+    def test_route_limit_calls_order_factory_limit(self, router):
+        strategy = make_mock_strategy()
+        router.bind_strategy(strategy)
+
+        router.route(make_intent(order_type="LIMIT", price="50000"))
+
+        strategy.order_factory.limit.assert_called_once()
+        strategy.order_factory.market.assert_not_called()
 
     def test_route_instrument_not_found_returns_false(self, router):
         """cache.instrument() 返回 None 时，route() 返回 False。"""
@@ -162,6 +175,112 @@ class TestOrderSideMapping:
         call_kwargs = strategy.order_factory.market.call_args
         assert call_kwargs.kwargs["reduce_only"] is True
 
+    def test_limit_post_only_passed_through(self, router):
+        strategy = make_mock_strategy()
+        router.bind_strategy(strategy)
+
+        intent = make_intent(order_type="LIMIT", price="50000")
+        intent = OrderIntent(
+            instrument_id=intent.instrument_id,
+            side=intent.side,
+            quantity=intent.quantity,
+            order_type=intent.order_type,
+            price=intent.price,
+            metadata={"post_only": True},
+        )
+        router.route(intent)
+
+        call_kwargs = strategy.order_factory.limit.call_args
+        assert call_kwargs.kwargs["post_only"] is True
+
+    def test_limit_without_price_returns_false(self, router):
+        strategy = make_mock_strategy()
+        router.bind_strategy(strategy)
+
+        result = router.route(make_intent(order_type="LIMIT"))
+
+        assert result is False
+        strategy.submit_order.assert_not_called()
+
+    def test_limit_chase_ticks_adjusts_price(self, router):
+        strategy = make_mock_strategy()
+        strategy.cache.instrument.return_value.price_increment = "0.5"
+        router.bind_strategy(strategy)
+
+        intent = make_intent(order_type="LIMIT", price="50000")
+        intent = OrderIntent(
+            instrument_id=intent.instrument_id,
+            side="BUY",
+            quantity=intent.quantity,
+            order_type=intent.order_type,
+            price=intent.price,
+            metadata={"chase_ticks": 2},
+        )
+        router.route(intent)
+
+        call_kwargs = strategy.order_factory.limit.call_args
+        assert str(call_kwargs.kwargs["price"]) == "50001.0"
+
+    def test_limit_ttl_maps_to_ioc_when_not_post_only(self, router):
+        from nautilus_trader.model.enums import TimeInForce
+
+        strategy = make_mock_strategy()
+        router.bind_strategy(strategy)
+
+        intent = make_intent(order_type="LIMIT", price="50000")
+        intent = OrderIntent(
+            instrument_id=intent.instrument_id,
+            side="BUY",
+            quantity=intent.quantity,
+            order_type=intent.order_type,
+            price=intent.price,
+            metadata={"limit_ttl_ms": 2500, "post_only": False},
+        )
+        router.route(intent)
+
+        call_kwargs = strategy.order_factory.limit.call_args
+        assert call_kwargs.kwargs["time_in_force"] == TimeInForce.IOC
+
+    def test_limit_ttl_ignored_when_post_only(self, router):
+        from nautilus_trader.model.enums import TimeInForce
+
+        strategy = make_mock_strategy()
+        router.bind_strategy(strategy)
+
+        intent = make_intent(order_type="LIMIT", price="50000")
+        intent = OrderIntent(
+            instrument_id=intent.instrument_id,
+            side=intent.side,
+            quantity=intent.quantity,
+            order_type=intent.order_type,
+            price=intent.price,
+            metadata={"limit_ttl_ms": 2500, "post_only": True},
+        )
+        router.route(intent)
+
+        call_kwargs = strategy.order_factory.limit.call_args
+        assert call_kwargs.kwargs["time_in_force"] == TimeInForce.GTC
+
+    def test_quantity_normalized_to_size_increment(self, router):
+        strategy = make_mock_strategy()
+        strategy.cache.instrument.return_value.size_increment = "0.001"
+        router.bind_strategy(strategy)
+
+        router.route(make_intent(quantity="0.0014"))
+
+        call_kwargs = strategy.order_factory.market.call_args
+        assert str(call_kwargs.kwargs["quantity"]) == "0.001"
+
+    def test_quantity_below_size_increment_rejected(self, router):
+        strategy = make_mock_strategy()
+        strategy.cache.instrument.return_value.size_increment = "0.001"
+        router.bind_strategy(strategy)
+
+        result = router.route(make_intent(quantity="0.0004"))
+
+        assert result is False
+        strategy.submit_order.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # 事件发布
@@ -213,6 +332,45 @@ class TestOrderRouterEvents:
         router.route(make_intent())
 
         assert len(received) == 0
+
+    def test_quantity_normalization_publishes_warning_alert(self, router, event_bus):
+        from src.core.events import EventType
+
+        alerts = []
+        event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
+
+        strategy = make_mock_strategy()
+        strategy.cache.instrument.return_value.size_increment = "0.001"
+        router.bind_strategy(strategy)
+
+        result = router.route(make_intent(quantity="0.0014"))
+
+        assert result is True
+        assert len(alerts) == 1
+        alert = alerts[0]
+        assert alert.level == "WARNING"
+        assert alert.rule_name == "order_router_quantity_normalized"
+        assert alert.details["raw_quantity"] == "0.0014"
+        assert alert.details["normalized_quantity"] == "0.001"
+
+    def test_quantity_below_step_publishes_error_alert(self, router, event_bus):
+        from src.core.events import EventType
+
+        alerts = []
+        event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
+
+        strategy = make_mock_strategy()
+        strategy.cache.instrument.return_value.size_increment = "0.001"
+        router.bind_strategy(strategy)
+
+        result = router.route(make_intent(quantity="0.0004"))
+
+        assert result is False
+        assert len(alerts) == 1
+        alert = alerts[0]
+        assert alert.level == "ERROR"
+        assert alert.rule_name == "order_router_quantity_below_step"
+        assert alert.details["raw_quantity"] == "0.0004"
 
 
 # ---------------------------------------------------------------------------

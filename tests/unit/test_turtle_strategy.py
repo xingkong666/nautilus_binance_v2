@@ -34,6 +34,10 @@ class _FakeAtr:
         self.value = 0.0
 
 
+class _StepInstrument:
+    size_increment = "0.001"
+
+
 def make_strategy() -> TurtleStrategy:
     cfg = TurtleConfig(
         instrument_id=INSTRUMENT_ID,
@@ -155,3 +159,16 @@ def test_on_reset_clears_internal_state() -> None:
     assert strategy._unit_qty is None
     assert strategy._last_add_price is None
     assert strategy._stop_price is None
+
+
+def test_unit_quantity_uses_base_step_splitting() -> None:
+    strategy = make_strategy()
+    strategy.instrument = _StepInstrument()  # type: ignore[assignment]
+    strategy._resolve_order_quantity = lambda _bar: _FakeQty(Decimal("0.001"))  # type: ignore[method-assign]
+    _prefill_history(strategy)
+
+    signal = strategy.generate_signal(make_bar(102.0, 106.0, 101.0, 105.0))
+
+    assert signal == SignalDirection.LONG
+    assert strategy._pending_order is not None
+    assert strategy._pending_order.qty == Decimal("0.001")

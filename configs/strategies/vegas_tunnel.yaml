@@ -1,0 +1,38 @@
+# Vegas Tunnel 策略配置（经典版）
+strategy:
+  name: vegas_tunnel
+  class_path: strategy.vegas_tunnel:VegasTunnelStrategy
+
+  params:
+    fast_ema_period: 12
+    slow_ema_period: 36
+    tunnel_ema_period_1: 144
+    tunnel_ema_period_2: 169
+    signal_cooldown_bars: 3
+    atr_filter_min_ratio: 0.0
+    stop_atr_multiplier: 1.0
+
+    tp_fib_1: 1.0
+    tp_fib_2: 1.618
+    tp_fib_3: 2.618
+
+    tp_split_1: 0.4
+    tp_split_2: 0.3
+    tp_split_3: 0.3
+
+    trade_size: 0.01
+    # capital_pct_per_trade: 10.0  # 可选：按账户权益百分比下单
+
+  instruments:
+    - BTCUSDT-PERP.BINANCE
+
+  # 默认 1h 周期
+  bar_type: "{instrument_id}-1-HOUR-LAST-INTERNAL@1-MINUTE-EXTERNAL"
+
+  subscribe:
+    bars: true
+    trade_ticks: false
+    quote_ticks: false
+
+  close_positions_on_stop: true
+  reduce_only_on_stop: true

@@ -39,6 +39,10 @@ class SignalProcessor:
         metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
         raw_qty = metadata.get("order_qty")
         raw_side = metadata.get("order_side")
+        raw_order_type = str(metadata.get("order_type", "MARKET")).upper()
+        raw_tif = str(metadata.get("time_in_force", "GTC")).upper()
+        raw_price = metadata.get("order_price", metadata.get("price"))
+        price = self._parse_qty(raw_price) if raw_price is not None else None
 
         if raw_qty is not None and raw_side is not None:
             qty = self._parse_qty(raw_qty)
@@ -49,11 +53,24 @@ class SignalProcessor:
             if side not in {"BUY", "SELL"}:
                 logger.warning("signal_ignored_invalid_side", source=signal.source, raw_side=raw_side)
                 return None
+            if raw_order_type not in {"MARKET", "LIMIT"}:
+                logger.warning("signal_ignored_invalid_order_type", source=signal.source, raw_order_type=raw_order_type)
+                return None
+            if raw_order_type == "LIMIT" and (price is None or price <= 0):
+                logger.warning(
+                    "signal_ignored_invalid_limit_price",
+                    source=signal.source,
+                    raw_price=raw_price,
+                )
+                return None
 
             return OrderIntent(
                 instrument_id=signal.instrument_id,
                 side=side,
                 quantity=qty,
+                order_type=raw_order_type,
+                price=price,
+                time_in_force=raw_tif,
                 reduce_only=bool(metadata.get("reduce_only", False)),
                 strategy_id=signal.source,
                 metadata=metadata,
@@ -64,12 +81,25 @@ class SignalProcessor:
         if default_qty is None or default_qty <= 0:
             logger.warning("signal_ignored_default_qty_invalid", source=signal.source)
             return None
+        if raw_order_type not in {"MARKET", "LIMIT"}:
+            logger.warning("signal_ignored_invalid_order_type", source=signal.source, raw_order_type=raw_order_type)
+            return None
+        if raw_order_type == "LIMIT" and (price is None or price <= 0):
+            logger.warning(
+                "signal_ignored_invalid_limit_price",
+                source=signal.source,
+                raw_price=raw_price,
+            )
+            return None
 
         return OrderIntent.from_signal(
             instrument_id=signal.instrument_id,
             direction=signal.direction,
             quantity=default_qty,
             strategy_id=signal.source,
+            order_type=raw_order_type,
+            price=price,
+            time_in_force=raw_tif,
             metadata=metadata,
         )
 

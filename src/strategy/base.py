@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.config import StrategyConfig
@@ -210,6 +210,31 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
             return None
         return qty
 
+    def _resolve_order_quantity_decimal(
+        self,
+        bar: Bar,
+        fallback_trade_size: bool = True,
+    ) -> Decimal | None:
+        """解析下单数量并返回 Decimal，自动按最小步进对齐。
+
+        Args:
+            bar: 当前 Bar。
+            fallback_trade_size: 当主路径解析失败时是否回退到 trade_size。
+        """
+        qty = self._resolve_order_quantity(bar)
+        if qty is not None and qty.as_decimal() > 0:
+            value = self._split_quantity_by_ratios_strict_step(qty.as_decimal(), [Decimal("1")])[0]
+            return value if value > 0 else None
+
+        if not fallback_trade_size:
+            return None
+
+        value = self._split_quantity_by_ratios_strict_step(
+            total_qty=Decimal(str(self.config.trade_size)),
+            ratios=[Decimal("1")],
+        )[0]
+        return value if value > 0 else None
+
     def _resolve_qty_from_capital_pct(self, capital_pct: float, close_price: float) -> Quantity | None:
         """按账户总权益百分比计算下单量."""
         if self.instrument is None:
@@ -248,6 +273,131 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         if qty.as_decimal() <= 0:
             return None
         return qty
+
+    def _quantity_step(self) -> Decimal:
+        """返回当前 instrument 的最小下单步进。"""
+        if self.instrument is not None and hasattr(self.instrument, "size_increment"):
+            step = Decimal(str(self.instrument.size_increment))
+            if step > 0:
+                return step
+        return Decimal("0.00000001")
+
+    def _normalize_ratios(self, ratios: list[Decimal]) -> list[Decimal]:
+        if not ratios:
+            return []
+
+        normalized = [r if r > 0 else Decimal("0") for r in ratios]
+        ratio_sum = sum(normalized, start=Decimal("0"))
+        if ratio_sum <= 0:
+            normalized = [Decimal("1")] * len(ratios)
+            ratio_sum = Decimal(str(len(ratios)))
+
+        return [r / ratio_sum for r in normalized]
+
+    def _split_quantity_by_ratios_preserve_total(
+        self,
+        total_qty: Decimal,
+        ratios: list[Decimal],
+        step: Decimal | None = None,
+    ) -> list[Decimal]:
+        """按比例切分数量，优先保证总量守恒。
+
+        Args:
+            total_qty: 总数量。
+            ratios: 比例列表（允许任意非负值，内部自动归一化）。
+            step: 最小数量步进；None 时自动读取 instrument 步进。
+
+        Returns:
+            与 ratios 同长度的切分数量，和等于 total_qty。
+        """
+        norm = self._normalize_ratios(ratios)
+        if not norm:
+            return []
+
+        if step is None:
+            step = self._quantity_step()
+
+        if step <= 0:
+            chunks = [total_qty * n for n in norm]
+            chunks[-1] = total_qty - sum(chunks[:-1], start=Decimal("0"))
+            return chunks
+
+        total_steps = int((total_qty / step).to_integral_value(rounding=ROUND_FLOOR))
+        if total_steps <= 0:
+            zeros = [Decimal("0")] * len(ratios)
+            zeros[-1] = total_qty
+            return zeros
+
+        raw_targets = [Decimal(total_steps) * n for n in norm]
+        step_counts = [int(x.to_integral_value(rounding=ROUND_FLOOR)) for x in raw_targets]
+        remains = total_steps - sum(step_counts)
+
+        if remains > 0:
+            frac_order = sorted(
+                range(len(ratios)),
+                key=lambda i: (raw_targets[i] - Decimal(step_counts[i]), -i),
+                reverse=True,
+            )
+            for i in range(remains):
+                step_counts[frac_order[i % len(ratios)]] += 1
+
+        chunks = [step * Decimal(c) for c in step_counts]
+        chunks[-1] = total_qty - sum(chunks[:-1], start=Decimal("0"))
+        return chunks
+
+    def _split_quantity_by_ratios_strict_step(
+        self,
+        total_qty: Decimal,
+        ratios: list[Decimal],
+        step: Decimal | None = None,
+    ) -> list[Decimal]:
+        """按比例切分数量，严格满足每一段都是 step 的整数倍。
+
+        返回值总和 <= total_qty；若 total_qty 不是 step 整数倍，尾差会被舍弃。
+        """
+        norm = self._normalize_ratios(ratios)
+        if not norm:
+            return []
+
+        if step is None:
+            step = self._quantity_step()
+
+        if step <= 0:
+            chunks = [total_qty * n for n in norm]
+            chunks[-1] = total_qty - sum(chunks[:-1], start=Decimal("0"))
+            return chunks
+
+        total_steps = int((total_qty / step).to_integral_value(rounding=ROUND_FLOOR))
+        if total_steps <= 0:
+            return [Decimal("0")] * len(ratios)
+
+        raw_targets = [Decimal(total_steps) * n for n in norm]
+        step_counts = [int(x.to_integral_value(rounding=ROUND_FLOOR)) for x in raw_targets]
+        remains = total_steps - sum(step_counts)
+
+        if remains > 0:
+            frac_order = sorted(
+                range(len(ratios)),
+                key=lambda i: (raw_targets[i] - Decimal(step_counts[i]), -i),
+                reverse=True,
+            )
+            for i in range(remains):
+                step_counts[frac_order[i % len(ratios)]] += 1
+
+        return [step * Decimal(c) for c in step_counts]
+
+    def _split_quantity_by_ratios(
+        self,
+        total_qty: Decimal,
+        ratios: list[Decimal],
+        step: Decimal | None = None,
+    ) -> list[Decimal]:
+        """兼容旧调用：等价于 preserve_total 模式。"""
+        return self._split_quantity_by_ratios_preserve_total(
+            total_qty=total_qty,
+            ratios=ratios,
+            step=step,
+        )
 
     # ------------------------------------------------------------------
     # Bracket 止损/���盈管理

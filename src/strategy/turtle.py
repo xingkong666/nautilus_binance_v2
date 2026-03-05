@@ -211,10 +211,9 @@ class TurtleStrategy(BaseStrategy):
         return None
 
     def _build_unit_quantity(self, bar: Bar) -> Decimal | None:
-        qty = self._resolve_order_quantity(bar)
-        if qty is None:
+        value = self._resolve_order_quantity_decimal(bar, fallback_trade_size=False)
+        if value is None:
             return None
-        value = qty.as_decimal()
         if value <= 0:
             return None
         return value
@@ -231,7 +230,10 @@ class TurtleStrategy(BaseStrategy):
                 direction=SignalDirection.FLAT,
             )
 
-        qty = self._unit_qty * Decimal(str(self._units_held))
+        qty = self._split_quantity_by_ratios_strict_step(
+            total_qty=self._unit_qty * Decimal(str(self._units_held)),
+            ratios=[Decimal("1")],
+        )[0]
         side = "SELL" if self._position_side == "long" else "BUY"
         self._reset_position_state()
         return self._set_pending(

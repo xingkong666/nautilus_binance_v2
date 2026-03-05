@@ -28,7 +28,9 @@ from src.exchange.binance_adapter import BinanceAdapter, build_binance_adapter
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
 from src.strategy.ema_pullback_atr import EMAPullbackATRConfig, EMAPullbackATRStrategy
+from src.strategy.micro_scalp import MicroScalpConfig, MicroScalpStrategy
 from src.strategy.turtle import TurtleConfig, TurtleStrategy
+from src.strategy.vegas_tunnel import VegasTunnelConfig, VegasTunnelStrategy
 
 logger = structlog.get_logger()
 
@@ -194,6 +196,132 @@ class AppFactory:
         )
         return TurtleStrategy, config
 
+    def create_micro_scalp_strategy(
+        self,
+        symbol: str,
+        interval: Interval = Interval.MINUTE_1,
+        trade_size: Decimal = Decimal("0.01"),
+        capital_pct_per_trade: float | None = None,
+        fast_ema: int = 8,
+        slow_ema: int = 21,
+        rsi_period: int = 7,
+        adx_period: int = 14,
+        trend_adx_threshold: float = 18.0,
+        entry_pullback_atr: float = 0.35,
+        oversold_level: float = 24.0,
+        overbought_level: float = 76.0,
+        signal_cooldown_bars: int = 2,
+        atr_sl_multiplier: float = 0.45,
+        atr_tp_multiplier: float = 0.8,
+        maker_offset_ticks: int = 1,
+        limit_ttl_ms: int = 2500,
+        chase_ticks: int = 2,
+        post_only: bool = True,
+    ) -> tuple[type[MicroScalpStrategy], MicroScalpConfig]:
+        """创建 micro scalp 策略及其配置."""
+        instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
+        nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
+        if interval == Interval.MINUTE_1:
+            bar_type = BarType.from_str(f"{instrument_id}-{nautilus_interval}-LAST-EXTERNAL")
+        else:
+            bar_type = BarType.from_str(
+                f"{instrument_id}-{nautilus_interval}-LAST-INTERNAL@1-MINUTE-EXTERNAL",
+            )
+
+        config = MicroScalpConfig(
+            instrument_id=instrument_id,
+            bar_type=bar_type,
+            trade_size=trade_size,
+            capital_pct_per_trade=capital_pct_per_trade,
+            fast_ema_period=fast_ema,
+            slow_ema_period=slow_ema,
+            rsi_period=rsi_period,
+            adx_period=adx_period,
+            trend_adx_threshold=trend_adx_threshold,
+            entry_pullback_atr=entry_pullback_atr,
+            oversold_level=oversold_level,
+            overbought_level=overbought_level,
+            signal_cooldown_bars=signal_cooldown_bars,
+            atr_sl_multiplier=atr_sl_multiplier,
+            atr_tp_multiplier=atr_tp_multiplier,
+            maker_offset_ticks=maker_offset_ticks,
+            limit_ttl_ms=limit_ttl_ms,
+            chase_ticks=chase_ticks,
+            post_only=post_only,
+        )
+        logger.info(
+            "strategy_created",
+            strategy="MicroScalp",
+            symbol=symbol,
+            interval=interval.value,
+            fast_ema=fast_ema,
+            slow_ema=slow_ema,
+            rsi_period=rsi_period,
+            adx_threshold=trend_adx_threshold,
+        )
+        return MicroScalpStrategy, config
+
+    def create_vegas_tunnel_strategy(
+        self,
+        symbol: str,
+        interval: Interval = Interval.HOUR_1,
+        trade_size: Decimal = Decimal("0.01"),
+        capital_pct_per_trade: float | None = None,
+        fast_ema: int = 12,
+        slow_ema: int = 36,
+        tunnel_ema_1: int = 144,
+        tunnel_ema_2: int = 169,
+        signal_cooldown_bars: int = 3,
+        atr_filter_min_ratio: float = 0.0,
+        stop_atr_multiplier: float = 1.0,
+        tp_fib_1: float = 1.0,
+        tp_fib_2: float = 1.618,
+        tp_fib_3: float = 2.618,
+        tp_split_1: float = 0.4,
+        tp_split_2: float = 0.3,
+        tp_split_3: float = 0.3,
+    ) -> tuple[type[VegasTunnelStrategy], VegasTunnelConfig]:
+        """创建 Vegas Tunnel 策略及其配置."""
+        instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
+        nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
+        if interval == Interval.MINUTE_1:
+            bar_type = BarType.from_str(f"{instrument_id}-{nautilus_interval}-LAST-EXTERNAL")
+        else:
+            bar_type = BarType.from_str(
+                f"{instrument_id}-{nautilus_interval}-LAST-INTERNAL@1-MINUTE-EXTERNAL",
+            )
+
+        config = VegasTunnelConfig(
+            instrument_id=instrument_id,
+            bar_type=bar_type,
+            trade_size=trade_size,
+            capital_pct_per_trade=capital_pct_per_trade,
+            fast_ema_period=fast_ema,
+            slow_ema_period=slow_ema,
+            tunnel_ema_period_1=tunnel_ema_1,
+            tunnel_ema_period_2=tunnel_ema_2,
+            signal_cooldown_bars=signal_cooldown_bars,
+            atr_filter_min_ratio=atr_filter_min_ratio,
+            stop_atr_multiplier=stop_atr_multiplier,
+            tp_fib_1=tp_fib_1,
+            tp_fib_2=tp_fib_2,
+            tp_fib_3=tp_fib_3,
+            tp_split_1=tp_split_1,
+            tp_split_2=tp_split_2,
+            tp_split_3=tp_split_3,
+        )
+        logger.info(
+            "strategy_created",
+            strategy="VegasTunnel",
+            symbol=symbol,
+            interval=interval.value,
+            fast_ema=fast_ema,
+            slow_ema=slow_ema,
+            tunnel_ema_1=tunnel_ema_1,
+            tunnel_ema_2=tunnel_ema_2,
+        )
+        return VegasTunnelStrategy, config
+
     def create_strategy_from_config(
         self,
         strategy_cfg: dict[str, Any],
@@ -203,7 +331,7 @@ class AppFactory:
         """根据 YAML 策略配置动态创建策略.
 
         从 configs/strategies/*.yaml 加载的配置字典创建对应策略。
-        目前支持 "ema_cross"、"ema_pullback_atr"、"turtle"，后续可扩展。
+        目前支持 "ema_cross"、"ema_pullback_atr"、"turtle"、"micro_scalp"、"vegas_tunnel"，后续可扩展。
 
         Args:
             strategy_cfg: 策略配置字典（来自 YAML configs/strategies/）。
@@ -259,7 +387,56 @@ class AppFactory:
                 capital_pct_per_trade=float(capital_pct) if capital_pct is not None else None,
             )
 
-        raise ValueError(f"Unsupported strategy: '{name}'. Available: ema_cross, ema_pullback_atr, turtle")
+        if name == "micro_scalp":
+            capital_pct = params.get("capital_pct_per_trade")
+            return self.create_micro_scalp_strategy(
+                symbol=symbol,
+                interval=interval,
+                trade_size=Decimal(str(params.get("trade_size", "0.01"))),
+                capital_pct_per_trade=float(capital_pct) if capital_pct is not None else None,
+                fast_ema=int(params.get("fast_ema_period", 8)),
+                slow_ema=int(params.get("slow_ema_period", 21)),
+                rsi_period=int(params.get("rsi_period", 7)),
+                adx_period=int(params.get("adx_period", 14)),
+                trend_adx_threshold=float(params.get("trend_adx_threshold", 18.0)),
+                entry_pullback_atr=float(params.get("entry_pullback_atr", 0.35)),
+                oversold_level=float(params.get("oversold_level", 24.0)),
+                overbought_level=float(params.get("overbought_level", 76.0)),
+                signal_cooldown_bars=int(params.get("signal_cooldown_bars", 2)),
+                atr_sl_multiplier=float(params.get("atr_sl_multiplier", 0.45)),
+                atr_tp_multiplier=float(params.get("atr_tp_multiplier", 0.8)),
+                maker_offset_ticks=int(params.get("maker_offset_ticks", 1)),
+                limit_ttl_ms=int(params.get("limit_ttl_ms", 2500)),
+                chase_ticks=int(params.get("chase_ticks", 2)),
+                post_only=bool(params.get("post_only", True)),
+            )
+
+        if name == "vegas_tunnel":
+            capital_pct = params.get("capital_pct_per_trade")
+            return self.create_vegas_tunnel_strategy(
+                symbol=symbol,
+                interval=interval,
+                trade_size=Decimal(str(params.get("trade_size", "0.01"))),
+                capital_pct_per_trade=float(capital_pct) if capital_pct is not None else None,
+                fast_ema=int(params.get("fast_ema_period", 12)),
+                slow_ema=int(params.get("slow_ema_period", 36)),
+                tunnel_ema_1=int(params.get("tunnel_ema_period_1", 144)),
+                tunnel_ema_2=int(params.get("tunnel_ema_period_2", 169)),
+                signal_cooldown_bars=int(params.get("signal_cooldown_bars", 3)),
+                atr_filter_min_ratio=float(params.get("atr_filter_min_ratio", 0.0)),
+                stop_atr_multiplier=float(params.get("stop_atr_multiplier", 1.0)),
+                tp_fib_1=float(params.get("tp_fib_1", 1.0)),
+                tp_fib_2=float(params.get("tp_fib_2", 1.618)),
+                tp_fib_3=float(params.get("tp_fib_3", 2.618)),
+                tp_split_1=float(params.get("tp_split_1", 0.4)),
+                tp_split_2=float(params.get("tp_split_2", 0.3)),
+                tp_split_3=float(params.get("tp_split_3", 0.3)),
+            )
+
+        raise ValueError(
+            "Unsupported strategy: "
+            f"'{name}'. Available: ema_cross, ema_pullback_atr, turtle, micro_scalp, vegas_tunnel"
+        )
 
     # ------ 交易所适配器工厂 ------
 

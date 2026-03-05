@@ -1,6 +1,8 @@
 # 告警配置
 alerting:
   enabled: true
+  # RiskAlert 去重冷却窗口（同 rule_name + instrument_id），单位秒
+  risk_alert_cooldown_seconds: 60
 
   channels:
     - type: telegram

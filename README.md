@@ -93,6 +93,24 @@ uv run python scripts/run_backtest.py \
   --max-units 4
 ```
 
+Vegas 隧道策略示例：
+
+```bash
+uv run python scripts/run_backtest.py \
+  --strategy vegas_tunnel \
+  --symbols BTCUSDT \
+  --start 2024-01-01 \
+  --end 2024-06-30 \
+  --vegas-fast-ema 12 \
+  --vegas-slow-ema 36 \
+  --tunnel-ema-1 144 \
+  --tunnel-ema-2 169 \
+  --vegas-stop-atr-multiplier 1.0 \
+  --vegas-fib-1 1.0 \
+  --vegas-fib-2 1.618 \
+  --vegas-fib-3 2.618
+```
+
 ### 5. 实盘
 
 ```bash
@@ -135,7 +153,7 @@ nautilus_binance_v2/
 │   ├── app/                #   应用组装（Container / Factory / Bootstrap）
 │   ├── core/               #   基础设施（Config / Events / Logging）
 │   ├── data/               #   数据加载与特征
-│   ├── strategy/           #   策略基类 + EMA / RSI / Turtle
+│   ├── strategy/           #   策略基类 + EMA / RSI / Turtle / VegasTunnel
 │   ├── execution/          #   执行层（OrderRouter / AlgoExecution）
 │   ├── risk/               #   风控全链路
 │   ├── portfolio/          #   多策略分配
@@ -202,4 +220,5 @@ docker compose up -d
 | [risk.md](docs/risk.md) | 风控体系详解 |
 | [monitoring.md](docs/monitoring.md) | 监控 & 告警配置 |
 | [runbook.md](docs/runbook.md) | 运维操作手册 |
+| [vegas_tunnel_rollout_2026_03.md](docs/vegas_tunnel_rollout_2026_03.md) | Vegas 策略与执行安全增强变更记录 |
 | [turtle_backtest_4h_sensitivity.md](docs/turtle_backtest_4h_sensitivity.md) | Turtle 4h 参数敏感性与样本外验证 |

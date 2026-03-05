@@ -1,0 +1,36 @@
+# Micro scalp strategy config
+strategy:
+  name: micro_scalp
+  class_path: strategy.micro_scalp:MicroScalpStrategy
+
+  params:
+    fast_ema_period: 8
+    slow_ema_period: 21
+    rsi_period: 7
+    adx_period: 14
+    trend_adx_threshold: 18.0
+    entry_pullback_atr: 0.35
+    oversold_level: 24.0
+    overbought_level: 76.0
+    signal_cooldown_bars: 2
+    atr_sl_multiplier: 0.45
+    atr_tp_multiplier: 0.8
+    maker_offset_ticks: 1
+    limit_ttl_ms: 2500
+    chase_ticks: 2
+    post_only: true
+    trade_size: 0.01
+    # capital_pct_per_trade: 10.0  # optional: use equity percentage sizing
+
+  instruments:
+    - BTCUSDT-PERP.BINANCE
+
+  bar_type: "{instrument_id}-1-MINUTE-LAST-EXTERNAL"
+
+  subscribe:
+    bars: true
+    trade_ticks: false
+    quote_ticks: false
+
+  close_positions_on_stop: true
+  reduce_only_on_stop: true

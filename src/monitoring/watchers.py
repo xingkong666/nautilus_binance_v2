@@ -70,10 +70,24 @@ class RiskAlertWatcher(BaseWatcher):
     不做额外规则判断（熔断、风控拦截等已在来源模块中格式化好）。
     """
 
+    def __init__(
+        self,
+        event_bus: EventBus,
+        alert_manager: AlertManager,
+        cooldown_seconds: float = 60.0,
+    ) -> None:
+        self._cooldown_seconds = max(0.0, cooldown_seconds)
+        self._last_alert_ts: dict[str, float] = {}
+        super().__init__(event_bus, alert_manager)
+
     def _register(self) -> None:
         """订阅 RISK_ALERT 事件."""
         self._event_bus.subscribe(EventType.RISK_ALERT, self._on_risk_alert)
-        logger.info("watcher_registered", watcher="RiskAlertWatcher")
+        logger.info(
+            "watcher_registered",
+            watcher="RiskAlertWatcher",
+            cooldown_seconds=self._cooldown_seconds,
+        )
 
     def _on_risk_alert(self, event: Event) -> None:
         """处理风控告警事件，直接转发给 AlertManager.
@@ -83,6 +97,23 @@ class RiskAlertWatcher(BaseWatcher):
         """
         if not isinstance(event, RiskAlertEvent):
             return
+
+        now = time.time()
+        instrument_id = ""
+        if isinstance(event.details, dict):
+            instrument_id = str(event.details.get("instrument_id", ""))
+
+        dedupe_key = f"{event.rule_name}:{instrument_id}"
+        last = self._last_alert_ts.get(dedupe_key, 0.0)
+        if now - last < self._cooldown_seconds:
+            logger.debug(
+                "risk_alert_suppressed_by_cooldown",
+                rule_name=event.rule_name,
+                instrument_id=instrument_id,
+                cooldown_seconds=self._cooldown_seconds,
+            )
+            return
+        self._last_alert_ts[dedupe_key] = now
 
         self._alert_manager.send_direct(
             level=event.level,
@@ -290,7 +321,8 @@ def build_watchers(
     rules = {r["name"] for r in alerting_config.get("rules", [])}
 
     # RiskAlertWatcher 始终启用（对接熔断/风控模块）
-    watchers.append(RiskAlertWatcher(event_bus, alert_manager))
+    risk_alert_cooldown = float(alerting_config.get("risk_alert_cooldown_seconds", 60.0))
+    watchers.append(RiskAlertWatcher(event_bus, alert_manager, cooldown_seconds=risk_alert_cooldown))
 
     # 回撤监视器
     if "drawdown_warning" in rules:

@@ -22,6 +22,9 @@ class _DummyQty:
 
 
 class _DummyInstrument:
+    def __init__(self, size_increment: str = "0.001") -> None:
+        self.size_increment = size_increment
+
     @staticmethod
     def make_qty(value: Decimal) -> _DummyQty:
         return _DummyQty(value)
@@ -63,3 +66,81 @@ def test_capital_pct_sizing_overrides_fixed_trade_size() -> None:
     assert qty is not None
     # 10000 * 10% / 50000 = 0.02
     assert qty.as_decimal() == Decimal("0.02")
+
+
+def test_split_quantity_by_ratios_preserves_total() -> None:
+    strategy = _make_strategy(capital_pct=None)
+    strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
+
+    chunks = strategy._split_quantity_by_ratios(
+        total_qty=Decimal("1.0"),
+        ratios=[Decimal("0.4"), Decimal("0.3"), Decimal("0.3")],
+    )
+
+    assert len(chunks) == 3
+    assert sum(chunks, start=Decimal("0")) == Decimal("1.0")
+    assert all(c >= 0 for c in chunks)
+
+
+def test_split_quantity_by_ratios_respects_step_for_tiny_qty() -> None:
+    strategy = _make_strategy(capital_pct=None)
+    strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
+
+    chunks = strategy._split_quantity_by_ratios(
+        total_qty=Decimal("0.001"),
+        ratios=[Decimal("0.4"), Decimal("0.3"), Decimal("0.3")],
+    )
+
+    assert sum(chunks, start=Decimal("0")) == Decimal("0.001")
+    assert all(c % Decimal("0.001") == Decimal("0") for c in chunks)
+    assert sum(1 for c in chunks if c > 0) == 1
+
+
+def test_split_quantity_preserve_total_keeps_remainder_on_last_chunk() -> None:
+    strategy = _make_strategy(capital_pct=None)
+    strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
+
+    chunks = strategy._split_quantity_by_ratios_preserve_total(
+        total_qty=Decimal("0.1234"),
+        ratios=[Decimal("1")],
+    )
+
+    assert chunks == [Decimal("0.1234")]
+
+
+def test_split_quantity_strict_step_discards_non_step_remainder() -> None:
+    strategy = _make_strategy(capital_pct=None)
+    strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
+
+    chunks = strategy._split_quantity_by_ratios_strict_step(
+        total_qty=Decimal("0.1234"),
+        ratios=[Decimal("1")],
+    )
+
+    assert chunks == [Decimal("0.123")]
+
+
+def test_resolve_order_quantity_decimal_primary_path() -> None:
+    strategy = _make_strategy(capital_pct=None)
+    strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
+    strategy._resolve_order_quantity = lambda _bar: _DummyQty(Decimal("0.1234"))  # type: ignore[method-assign]
+
+    qty = strategy._resolve_order_quantity_decimal(  # type: ignore[arg-type]
+        type("BarStub", (), {"close": 50_000.0})(),
+        fallback_trade_size=False,
+    )
+
+    assert qty == Decimal("0.123")
+
+
+def test_resolve_order_quantity_decimal_fallback_trade_size() -> None:
+    strategy = _make_strategy(capital_pct=None)
+    strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
+    strategy._resolve_order_quantity = lambda _bar: None  # type: ignore[method-assign]
+
+    qty = strategy._resolve_order_quantity_decimal(  # type: ignore[arg-type]
+        type("BarStub", (), {"close": 50_000.0})(),
+        fallback_trade_size=True,
+    )
+
+    assert qty == Decimal("0.01")

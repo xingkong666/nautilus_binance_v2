@@ -69,6 +69,22 @@ GET http://localhost:8080/health
 
 配置文件：`configs/monitoring/alerts.yaml`
 
+### RiskAlert 去重冷却
+
+`RiskAlertWatcher` 支持对重复告警做去重冷却，避免短时间告警风暴：
+
+- 配置项：`alerting.risk_alert_cooldown_seconds`
+- 去重键：`rule_name + instrument_id`
+- 默认值：`60` 秒
+
+示例：
+
+```yaml
+alerting:
+  enabled: true
+  risk_alert_cooldown_seconds: 60
+```
+
 ### 告警级别
 
 | 级别 | 含义 | 默认渠道 |
@@ -86,6 +102,14 @@ GET http://localhost:8080/health
 | `position_limit_warning` | ERROR | 持仓 > 最大仓位 80% |
 | `order_fill_latency` | WARNING | 成交延迟 > 1000ms |
 | `reconciliation_mismatch` | CRITICAL | 对账发现不一致 |
+
+新增执行层数量安全规则：
+
+| 规则 | 级别 | 触发条件 |
+|---|---|---|
+| `order_router_quantity_normalized` | WARNING | 下单数量被向下规范化到最小步进 |
+| `order_router_quantity_below_step` | ERROR | 下单数量小于最小步进被拒绝 |
+| `order_router_quantity_invalid` | ERROR | 下单数量非正值被拒绝 |
 
 ### 添加自定义告警规则
 

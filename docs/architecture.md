@@ -79,6 +79,7 @@
 | `base.py` | 策略基类，定义 `on_bar / on_signal` 接口 |
 | `signal.py` | SignalEvent 数据类（方向、强度、元数据） |
 | `ema_cross.py` | EMA 双均线策略（fast/slow period 可配置） |
+| `vegas_tunnel.py` | Vegas 隧道策略（EMA12/36 + EMA144/169 + Fib 分批止盈） |
 
 ### `src/execution/` — 执行层
 
