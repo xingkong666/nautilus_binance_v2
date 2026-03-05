@@ -114,12 +114,19 @@ uv run python scripts/run_backtest.py \
 ### 5. 实盘
 
 ```bash
+# Testnet（模拟盘，真实策略）
+uv run python scripts/run_live_testnet_strategy.py \
+  --strategy-config configs/strategies/vegas_tunnel.yaml \
+  --symbol BTCUSDT
+
 # Testnet
 uv run python -m src.app.bootstrap --env configs/env/dev.yaml
 
 # 生产
 uv run python -m src.app.bootstrap --env configs/env/prod.yaml
 ```
+
+说明：`bootstrap` 只负责容器初始化；要在模拟盘真正跑策略，请使用 `run_live_testnet_strategy.py`。
 
 ---
 
@@ -147,6 +154,7 @@ nautilus_binance_v2/
 ├── experiments/            # 实验产物（报告 / 模型 / artifacts）
 ├── scripts/                # 入口脚本
 │   ├── smoke_testnet.py    #   Testnet 冒烟
+│   ├── run_live_testnet_strategy.py  # Testnet 模拟盘策略运行
 │   ├── run_backtest.py     #   批量回测
 │   └── download_data.py    #   数据下载
 ├── src/                    # 核心代码

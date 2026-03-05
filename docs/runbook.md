@@ -146,6 +146,21 @@ uv run python scripts/smoke_testnet.py
 1. 脚本在平仓成交后会主动触发节点停止，并在主流程统一 `dispose`，用于避免事件循环提前停止报错。
 2. 若日志出现 `Residual Position(...)`，通常是测试账户里已有历史仓位，不代表本次冒烟单未平。
 
+## Testnet 模拟盘（真实策略）
+
+按策略 YAML 在 Testnet 直接运行：
+
+```bash
+uv run python scripts/run_live_testnet_strategy.py \
+  --strategy-config configs/strategies/vegas_tunnel.yaml \
+  --symbol BTCUSDT
+```
+
+常用参数：
+
+1. `--strategy-config`：可切换为 `configs/strategies/turtle.yaml` / `micro_scalp.yaml` 等。
+2. `--timeout-seconds 3600`：运行 1 小时后自动停机（不传则持续运行，Ctrl+C 停止）。
+
 ---
 
 ## 数据下载
