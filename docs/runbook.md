@@ -175,6 +175,46 @@ uv run python scripts/download_data.py \
 # 数据存到 data/raw/，处理后的 catalog 在 data/processed/
 ```
 
+Funding Rate 下载：
+
+```bash
+uv run python scripts/download_funding_rates.py \
+  --symbol BTCUSDT \
+  --start 2024-01-01 \
+  --end 2025-12-31
+
+uv run python scripts/download_funding_rates.py \
+  --symbol ETHUSDT \
+  --start 2024-01-01 \
+  --end 2025-12-31
+```
+
+输出位置：
+
+- 原始 CSV：`data/raw/funding/`
+- 标准化 parquet：`data/features/`
+
+组合 walk-forward：
+
+```bash
+uv run python scripts/run_portfolio_walkforward.py \
+  --config configs/strategies/vegas_ema_combo_multi_grid.yaml
+```
+
+当前最佳场景不是整个网格，而是：
+
+- `experiments/walkforward/vegas_ema_combo_multi_grid/score_0/`
+
+如需复现已验证但未胜出的 regime 实验，可使用：
+
+```bash
+uv run python scripts/run_portfolio_walkforward.py \
+  --config configs/strategies/vegas_ema_combo_multi_best_strategy_regime.yaml
+
+uv run python scripts/run_portfolio_walkforward.py \
+  --config configs/strategies/vegas_ema_combo_multi_best_strategy_regime_relaxed_gate.yaml
+```
+
 ### 代理与网络环境
 
 若你所在环境需要代理访问 Binance，建议显式配置：

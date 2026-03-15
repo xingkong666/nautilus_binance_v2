@@ -32,7 +32,10 @@ class BaseStrategyConfig(StrategyConfig, frozen=True):
         bar_type: K 线类型。
         close_positions_on_stop: 策略停止时是否平仓，默认 True。
         trade_size: 每次下单数量（币数），默认 0.01（固定数量模式）。
+        margin_pct_per_trade: 每笔使用账户权益多少百分比作为保证金，再乘 sizing_leverage 得到目标名义敞口。
+        gross_exposure_pct_per_trade: 每笔目标名义敞口占账户权益百分比，可大于 100。
         capital_pct_per_trade: 每笔使用账户总权益的百分比（0-100），设置后优先于 trade_size。
+        sizing_leverage: sizing 计算使用的杠杆倍数；margin_pct_per_trade 模式下生效。
         stop_loss_pct: 止损百分比（如 0.02 = 2%）；None 表示不设止损。
         take_profit_pct: 止盈百分比（如 0.04 = 4%）；None 表示不设止盈。
         atr_period: 计算 ATR 所用的周期长度（如果采用 ATR 止盈止损），默认 14。
@@ -44,7 +47,10 @@ class BaseStrategyConfig(StrategyConfig, frozen=True):
     bar_type: BarType
     close_positions_on_stop: bool = True
     trade_size: Decimal = Decimal("0.01")
+    margin_pct_per_trade: float | None = None
+    gross_exposure_pct_per_trade: float | None = None
     capital_pct_per_trade: float | None = None
+    sizing_leverage: float = 1.0
     stop_loss_pct: float | None = None
     take_profit_pct: float | None = None
     atr_period: int = 14
@@ -190,19 +196,45 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         )
 
     def _resolve_order_quantity(self, bar: Bar) -> Quantity | None:
-        """解析下单数量（优先资金占比，其次固定数量）."""
+        """解析下单数量（优先保证金/名义敞口 sizing，其次固定数量）."""
         if self.instrument is None:
             return None
 
-        capital_pct = self.config.capital_pct_per_trade
-        if capital_pct is not None and capital_pct > 0:
-            qty = self._resolve_qty_from_capital_pct(capital_pct, float(bar.close))
+        margin_pct = self.config.margin_pct_per_trade
+        if margin_pct is not None and margin_pct > 0:
+            qty = self._resolve_qty_from_margin_pct(
+                margin_pct=margin_pct,
+                sizing_leverage=float(self.config.sizing_leverage),
+                close_price=float(bar.close),
+            )
             if qty is not None and qty.as_decimal() > 0:
                 return qty
 
             self.log.warning(
-                "capital_pct_per_trade sizing failed, fallback to fixed trade_size",
-                capital_pct_per_trade=capital_pct,
+                "margin_pct_per_trade sizing failed, fallback to lower-priority sizing "
+                f"(margin_pct_per_trade={margin_pct}, sizing_leverage={float(self.config.sizing_leverage)})"
+            )
+
+        gross_exposure_pct = self.config.gross_exposure_pct_per_trade
+        if gross_exposure_pct is not None and gross_exposure_pct > 0:
+            qty = self._resolve_qty_from_notional_pct(gross_exposure_pct, float(bar.close))
+            if qty is not None and qty.as_decimal() > 0:
+                return qty
+
+            self.log.warning(
+                "gross_exposure_pct_per_trade sizing failed, fallback to lower-priority sizing "
+                f"(gross_exposure_pct_per_trade={gross_exposure_pct})"
+            )
+
+        capital_pct = self.config.capital_pct_per_trade
+        if capital_pct is not None and capital_pct > 0:
+            qty = self._resolve_qty_from_notional_pct(capital_pct, float(bar.close))
+            if qty is not None and qty.as_decimal() > 0:
+                return qty
+
+            self.log.warning(
+                "capital_pct_per_trade sizing failed, fallback to fixed trade_size "
+                f"(capital_pct_per_trade={capital_pct})"
             )
 
         qty = self.instrument.make_qty(self.config.trade_size)
@@ -235,11 +267,9 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         )[0]
         return value if value > 0 else None
 
-    def _resolve_qty_from_capital_pct(self, capital_pct: float, close_price: float) -> Quantity | None:
-        """按账户总权益百分比计算下单量."""
+    def _resolve_equity(self) -> Decimal | None:
+        """读取账户总权益."""
         if self.instrument is None:
-            return None
-        if close_price <= 0:
             return None
 
         venue = getattr(self.config.instrument_id, "venue", None)
@@ -263,16 +293,66 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         equity = balance.as_decimal()
         if equity <= 0:
             return None
+        return equity
 
-        notional = equity * Decimal(str(capital_pct / 100.0))
+    def _resolve_qty_from_notional_pct(self, notional_pct: float, close_price: float) -> Quantity | None:
+        """按账户权益百分比换算目标名义敞口."""
+        if self.instrument is None:
+            return None
+        if close_price <= 0:
+            return None
+
+        equity = self._resolve_equity()
+        if equity is None:
+            return None
+
+        notional = equity * Decimal(str(notional_pct / 100.0))
         if notional <= 0:
             return None
 
         qty_decimal = notional / Decimal(str(close_price))
-        qty = self.instrument.make_qty(qty_decimal)
+        try:
+            qty = self.instrument.make_qty(qty_decimal)
+        except ValueError:
+            return None
         if qty.as_decimal() <= 0:
             return None
         return qty
+
+    def _resolve_qty_from_capital_pct(self, capital_pct: float, close_price: float) -> Quantity | None:
+        """兼容旧命名：按账户权益百分比换算目标名义敞口."""
+        return self._resolve_qty_from_notional_pct(capital_pct, close_price)
+
+    def _resolve_qty_from_margin_pct(
+        self,
+        margin_pct: float,
+        sizing_leverage: float,
+        close_price: float,
+    ) -> Quantity | None:
+        """按保证金百分比 * sizing_leverage 计算目标名义敞口."""
+        if close_price <= 0:
+            return None
+
+        equity = self._resolve_equity()
+        if equity is None:
+            return None
+
+        leverage = max(0.0, sizing_leverage)
+        if leverage <= 0:
+            return None
+
+        margin = equity * Decimal(str(margin_pct / 100.0))
+        if margin <= 0:
+            return None
+
+        notional = margin * Decimal(str(leverage))
+        if notional <= 0:
+            return None
+
+        return self._resolve_qty_from_notional_pct(
+            notional_pct=float((notional / equity) * Decimal("100")),
+            close_price=close_price,
+        )
 
     def _quantity_step(self) -> Decimal:
         """返回当前 instrument 的最小下单步进。"""

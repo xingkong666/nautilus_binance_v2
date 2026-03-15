@@ -94,10 +94,28 @@ def parse_args() -> argparse.Namespace:
         help="固定下单数量（币数，默认：0.01；当设置 capital_pct_per_trade 时作为回退值）",
     )
     parser.add_argument(
+        "--margin-pct-per-trade",
+        type=float,
+        default=None,
+        help="按账户权益百分比占用保证金，再乘 sizing_leverage 计算名义仓位",
+    )
+    parser.add_argument(
+        "--gross-exposure-pct-per-trade",
+        type=float,
+        default=None,
+        help="按账户权益百分比指定目标名义敞口，可大于 100",
+    )
+    parser.add_argument(
         "--capital-pct-per-trade",
         type=float,
         default=None,
         help="按账户总权益百分比下单（0-100），设置后优先于 trade_size",
+    )
+    parser.add_argument(
+        "--sizing-leverage",
+        type=float,
+        default=None,
+        help="margin_pct_per_trade 模式的 sizing 杠杆；默认跟随 --leverage",
     )
     parser.add_argument("--fast-ema", type=int, default=10, help="快线 EMA 周期（默认：10）")
     parser.add_argument("--slow-ema", type=int, default=20, help="慢线 EMA 周期（默认：20）")
@@ -228,6 +246,7 @@ def build_strategy(
 ) -> tuple[type[BaseStrategy], BaseStrategyConfig]:
     """根据参数构建策略类与策略配置."""
     instrument_id, bar_type = build_bar_type(symbol, interval)
+    sizing_leverage = args.sizing_leverage if args.sizing_leverage is not None else args.leverage
 
     if args.strategy == "ema_cross":
         config: BaseStrategyConfig = EMACrossConfig(
@@ -238,7 +257,10 @@ def build_strategy(
             entry_min_atr_ratio=args.entry_min_atr_ratio,
             signal_cooldown_bars=args.signal_cooldown_bars,
             trade_size=Decimal(args.trade_size),
+            margin_pct_per_trade=args.margin_pct_per_trade,
+            gross_exposure_pct_per_trade=args.gross_exposure_pct_per_trade,
             capital_pct_per_trade=args.capital_pct_per_trade,
+            sizing_leverage=sizing_leverage,
             atr_sl_multiplier=args.atr_sl,
             atr_tp_multiplier=args.atr_tp,
         )
@@ -254,7 +276,10 @@ def build_strategy(
             min_trend_gap_ratio=args.min_trend_gap_ratio,
             signal_cooldown_bars=args.signal_cooldown_bars,
             trade_size=Decimal(args.trade_size),
+            margin_pct_per_trade=args.margin_pct_per_trade,
+            gross_exposure_pct_per_trade=args.gross_exposure_pct_per_trade,
             capital_pct_per_trade=args.capital_pct_per_trade,
+            sizing_leverage=sizing_leverage,
             atr_period=14,
             atr_sl_multiplier=args.atr_sl,
             atr_tp_multiplier=args.atr_tp,
@@ -274,7 +299,10 @@ def build_strategy(
             unit_add_atr_step=args.unit_add_atr_step,
             max_units=args.max_units,
             trade_size=Decimal(args.trade_size),
+            margin_pct_per_trade=args.margin_pct_per_trade,
+            gross_exposure_pct_per_trade=args.gross_exposure_pct_per_trade,
             capital_pct_per_trade=args.capital_pct_per_trade,
+            sizing_leverage=sizing_leverage,
         )
         return TurtleStrategy, config
 
@@ -283,7 +311,10 @@ def build_strategy(
             instrument_id=instrument_id,
             bar_type=bar_type,
             trade_size=Decimal(args.trade_size),
+            margin_pct_per_trade=args.margin_pct_per_trade,
+            gross_exposure_pct_per_trade=args.gross_exposure_pct_per_trade,
             capital_pct_per_trade=args.capital_pct_per_trade,
+            sizing_leverage=sizing_leverage,
             fast_ema_period=args.fast_ema,
             slow_ema_period=args.slow_ema,
             rsi_period=args.rsi_period,
@@ -307,7 +338,10 @@ def build_strategy(
             instrument_id=instrument_id,
             bar_type=bar_type,
             trade_size=Decimal(args.trade_size),
+            margin_pct_per_trade=args.margin_pct_per_trade,
+            gross_exposure_pct_per_trade=args.gross_exposure_pct_per_trade,
             capital_pct_per_trade=args.capital_pct_per_trade,
+            sizing_leverage=sizing_leverage,
             fast_ema_period=args.vegas_fast_ema,
             slow_ema_period=args.vegas_slow_ema,
             tunnel_ema_period_1=args.tunnel_ema_1,
@@ -374,7 +408,16 @@ def main() -> None:
     print(f"  Period   : {start} ~ {end}")
     print(f"  Interval : {interval.value}")
     print(f"  Balance  : {args.balance:,} USDT  Leverage: {args.leverage}x")
-    if args.capital_pct_per_trade is not None and args.capital_pct_per_trade > 0:
+    if args.margin_pct_per_trade is not None and args.margin_pct_per_trade > 0:
+        sizing_leverage = args.sizing_leverage if args.sizing_leverage is not None else args.leverage
+        print(
+            "  Sizing   : "
+            f"margin_pct_per_trade={args.margin_pct_per_trade}% "
+            f"sizing_leverage={sizing_leverage}x"
+        )
+    elif args.gross_exposure_pct_per_trade is not None and args.gross_exposure_pct_per_trade > 0:
+        print(f"  Sizing   : gross_exposure_pct_per_trade={args.gross_exposure_pct_per_trade}%")
+    elif args.capital_pct_per_trade is not None and args.capital_pct_per_trade > 0:
         print(f"  Sizing   : capital_pct_per_trade={args.capital_pct_per_trade}%")
     else:
         print(f"  Sizing   : fixed trade_size={args.trade_size}")

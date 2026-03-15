@@ -67,6 +67,7 @@ class ExecutionConfig(BaseModel):
     default_order_type: str = "MARKET"
     slippage: dict[str, Any] = {}
     cost: dict[str, Any] = {}
+    funding: dict[str, Any] = {}
     rate_limit: dict[str, Any] = {}
     algo: dict[str, Any] = {}
 

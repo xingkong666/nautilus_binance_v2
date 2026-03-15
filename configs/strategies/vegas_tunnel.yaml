@@ -21,7 +21,10 @@ strategy:
     tp_split_3: 0.3
 
     trade_size: 0.01
+    # margin_pct_per_trade: 8.0
+    # gross_exposure_pct_per_trade: 80.0
     # capital_pct_per_trade: 10.0  # 可选：按账户权益百分比下单
+    # sizing_leverage: 10.0
 
   instruments:
     - BTCUSDT-PERP.BINANCE

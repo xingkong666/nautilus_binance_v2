@@ -1,0 +1,138 @@
+# 多标的最优组合 + strategy-level regime veto
+portfolio:
+  name: vegas_ema_combo_multi_best_strategy_regime
+
+  backtest:
+    interval: 1h
+    starting_balance_usdt: 10000
+    leverage: 10
+
+  allocation:
+    mode: risk_parity
+    reserve_pct: 20.0
+    min_allocation: 100
+    score_weighting:
+      method: sqrt
+
+  walkforward:
+    start: 2024-01-01
+    end: 2025-12-31
+    train_months: 6
+    test_months: 3
+    step_months: 3
+    selection_metric: pnl_pct_after_costs
+    selection_min_score: 0.0
+    min_active_strategies: 2
+    regime_filter:
+      enabled: true
+      veto_strategy_names:
+        - vegas_tunnel
+      slope_ema_span: 24
+      gap_ema_span: 72
+      slope_lookback_bars: 24
+      min_abs_slope_ratio: 0.005
+      min_abs_gap_ratio: 0.002
+      min_adx: 25.0
+      funding_lookback_days: 7
+      max_abs_funding_rate: 0.00008
+      funding_slope_override_ratio: 0.007
+
+  strategies:
+    - strategy_id: vegas_btc
+      name: vegas_tunnel
+      symbol: BTCUSDT
+      enabled: true
+      params:
+        fast_ema_period: 12
+        slow_ema_period: 36
+        tunnel_ema_period_1: 144
+        tunnel_ema_period_2: 169
+        signal_cooldown_bars: 3
+        atr_filter_min_ratio: 0.0008
+        stop_atr_multiplier: 1.0
+        tp_fib_1: 1.0
+        tp_fib_2: 1.618
+        tp_fib_3: 2.618
+        tp_split_1: 0.4
+        tp_split_2: 0.3
+        tp_split_3: 0.3
+        margin_pct_per_trade: 4.0
+        sizing_leverage: 10.0
+        trade_size: 0.01
+      param_candidates:
+        - id: base
+          params: {}
+        - id: filtered
+          params:
+            atr_filter_min_ratio: 0.0012
+            signal_cooldown_bars: 4
+
+    - strategy_id: pullback_btc
+      name: ema_pullback_atr
+      symbol: BTCUSDT
+      enabled: true
+      params:
+        fast_ema_period: 20
+        slow_ema_period: 50
+        pullback_atr_multiplier: 1.0
+        min_trend_gap_ratio: 0.0003
+        signal_cooldown_bars: 3
+        adx_period: 14
+        adx_threshold: 35.0
+        atr_period: 14
+        margin_pct_per_trade: 3.0
+        sizing_leverage: 10.0
+        trade_size: 0.01
+      param_candidates:
+        - id: adx35
+          params:
+            adx_threshold: 35.0
+
+    - strategy_id: vegas_eth
+      name: vegas_tunnel
+      symbol: ETHUSDT
+      enabled: true
+      params:
+        fast_ema_period: 12
+        slow_ema_period: 36
+        tunnel_ema_period_1: 144
+        tunnel_ema_period_2: 169
+        signal_cooldown_bars: 3
+        atr_filter_min_ratio: 0.001
+        stop_atr_multiplier: 1.0
+        tp_fib_1: 1.0
+        tp_fib_2: 1.618
+        tp_fib_3: 2.618
+        tp_split_1: 0.4
+        tp_split_2: 0.3
+        tp_split_3: 0.3
+        margin_pct_per_trade: 4.0
+        sizing_leverage: 10.0
+        trade_size: 0.05
+      param_candidates:
+        - id: base
+          params: {}
+
+    - strategy_id: pullback_eth
+      name: ema_pullback_atr
+      symbol: ETHUSDT
+      enabled: true
+      params:
+        fast_ema_period: 20
+        slow_ema_period: 50
+        pullback_atr_multiplier: 1.0
+        min_trend_gap_ratio: 0.0003
+        signal_cooldown_bars: 3
+        adx_period: 14
+        adx_threshold: 25.0
+        atr_period: 14
+        margin_pct_per_trade: 3.0
+        sizing_leverage: 10.0
+        trade_size: 0.05
+      param_candidates:
+        - id: adx25
+          params:
+            adx_threshold: 25.0
+        - id: adx35
+          params:
+            adx_threshold: 35.0

@@ -80,6 +80,8 @@ class BacktestReporter:
             "total_positions": r.total_positions,
             "pnl": r.stats_pnls,
             "returns": r.stats_returns,
+            "analysis": self._run.analysis,
+            "metadata": self._run.metadata,
         }
 
     def print_summary(self) -> None:
@@ -94,6 +96,9 @@ class BacktestReporter:
         print(f"  Period       : {s['period']}")
         print(f"  Symbols      : {', '.join(s['symbols'])}")
         print(f"  Interval     : {s['interval']}")
+        strategy_names = s.get("metadata", {}).get("strategy_names", [])
+        if strategy_names:
+            print(f"  Strategies   : {', '.join(strategy_names)}")
         print(f"  Init Balance : {s['starting_balance']:,} USDT")
         print(f"  Elapsed      : {s['elapsed_time']}s")
         print(f"  Iterations   : {s['iterations']:,}")
@@ -123,6 +128,28 @@ class BacktestReporter:
                 else:
                     print(f"    {k:<37}: {v}")
         print(sep)
+
+        cost_analysis = s.get("analysis", {}).get("costs")
+        if isinstance(cost_analysis, dict):
+            print("  💸 Cost Analysis:")
+            for key in (
+                "commissions_total",
+                "modeled_fee_cost",
+                "modeled_slippage_cost",
+                "funding_cost",
+                "additional_cost_applied",
+                "pnl_after_costs",
+                "pnl_pct_after_costs",
+                "ending_balance_after_costs",
+            ):
+                if key not in cost_analysis:
+                    continue
+                value = cost_analysis[key]
+                if isinstance(value, float):
+                    print(f"    {key:<37}: {value:.4f}")
+                else:
+                    print(f"    {key:<37}: {value}")
+            print(sep)
 
         # 订单/仓位报告摘要
         self._print_report_summary()
@@ -196,5 +223,12 @@ class BacktestReporter:
             s["returns"] = {
                 k: round(v, 4) if isinstance(v, float) else v
                 for k, v in s["returns"].items()
+            }
+        analysis = s.get("analysis", {})
+        costs = analysis.get("costs")
+        if isinstance(costs, dict):
+            analysis["costs"] = {
+                k: round(v, 4) if isinstance(v, float) else v
+                for k, v in costs.items()
             }
         return s

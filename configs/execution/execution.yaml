@@ -14,6 +14,10 @@ execution:
     maker_fee_bps: 2
     taker_fee_bps: 4
 
+  # 资金费率分析
+  funding:
+    enabled: true
+
   # 速率限制
   rate_limit:
     max_orders_per_second: 5

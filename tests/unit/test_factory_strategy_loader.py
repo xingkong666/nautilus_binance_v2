@@ -107,3 +107,29 @@ def test_create_strategy_from_config_supports_vegas_tunnel() -> None:
     assert cfg.tunnel_ema_period_1 == 144
     assert cfg.tunnel_ema_period_2 == 169
     assert str(cfg.trade_size) == "0.03"
+
+
+def test_create_strategy_from_config_loads_leverage_aware_sizing() -> None:
+    factory = AppFactory(container=_DummyContainer())  # type: ignore[arg-type]
+    strategy_cfg = {
+        "name": "ema_pullback_atr",
+        "params": {
+            "fast_ema_period": 20,
+            "slow_ema_period": 50,
+            "margin_pct_per_trade": 8.0,
+            "gross_exposure_pct_per_trade": 120.0,
+            "capital_pct_per_trade": 15.0,
+            "sizing_leverage": 10.0,
+        },
+    }
+
+    _, cfg = factory.create_strategy_from_config(
+        strategy_cfg=strategy_cfg,
+        symbol="BTCUSDT",
+        interval=Interval.HOUR_1,
+    )
+
+    assert cfg.margin_pct_per_trade == 8.0
+    assert cfg.gross_exposure_pct_per_trade == 120.0
+    assert cfg.capital_pct_per_trade == 15.0
+    assert cfg.sizing_leverage == 10.0

@@ -22,12 +22,39 @@ class _DummyQty:
 
 
 class _DummyInstrument:
-    def __init__(self, size_increment: str = "0.001") -> None:
+    def __init__(self, size_increment: str = "0.001", min_qty: str | None = None) -> None:
         self.size_increment = size_increment
+        self.quote_currency = "USDT"
+        self.min_qty = Decimal(min_qty) if min_qty is not None else None
 
-    @staticmethod
-    def make_qty(value: Decimal) -> _DummyQty:
+    def make_qty(self, value: Decimal) -> _DummyQty:
+        if self.min_qty is not None and value < self.min_qty:
+            raise ValueError("quantity rounded to zero")
         return _DummyQty(value)
+
+
+class _DummyBalance:
+    def __init__(self, value: Decimal) -> None:
+        self._value = value
+
+    def as_decimal(self) -> Decimal:
+        return self._value
+
+
+class _DummyAccount:
+    def __init__(self, equity: Decimal) -> None:
+        self._equity = equity
+
+    def balance_total(self, _quote_ccy=None) -> _DummyBalance:
+        return _DummyBalance(self._equity)
+
+
+class _DummyPortfolio:
+    def __init__(self, equity: Decimal) -> None:
+        self._account = _DummyAccount(equity)
+
+    def account(self, venue=None) -> _DummyAccount:
+        return self._account
 
 
 def _make_strategy(capital_pct: float | None) -> EMACrossStrategy:
@@ -56,7 +83,7 @@ def test_fixed_trade_size_used_when_no_capital_pct() -> None:
 def test_capital_pct_sizing_overrides_fixed_trade_size() -> None:
     strategy = _make_strategy(capital_pct=10.0)
     strategy.instrument = _DummyInstrument()  # type: ignore[assignment]
-    strategy._resolve_qty_from_capital_pct = (  # type: ignore[method-assign]
+    strategy._resolve_qty_from_notional_pct = (  # type: ignore[method-assign]
         lambda _capital_pct, _close: _DummyQty(Decimal("0.02"))
     )
     qty = strategy._resolve_order_quantity(  # type: ignore[arg-type]
@@ -66,6 +93,59 @@ def test_capital_pct_sizing_overrides_fixed_trade_size() -> None:
     assert qty is not None
     # 10000 * 10% / 50000 = 0.02
     assert qty.as_decimal() == Decimal("0.02")
+
+
+def test_gross_exposure_pct_sizing_uses_notional_pct() -> None:
+    cfg = EMACrossConfig(
+        instrument_id=INSTRUMENT_ID,
+        bar_type=BAR_TYPE,
+        fast_ema_period=5,
+        slow_ema_period=20,
+        trade_size=Decimal("0.01"),
+        gross_exposure_pct_per_trade=250.0,
+    )
+    strategy = EMACrossStrategy(config=cfg)
+    strategy.instrument = _DummyInstrument()  # type: ignore[assignment]
+    strategy._resolve_equity = lambda: Decimal("1000")  # type: ignore[method-assign]
+
+    qty = strategy._resolve_order_quantity(  # type: ignore[arg-type]
+        type("BarStub", (), {"close": 100.0})(),
+    )
+
+    assert qty is not None
+    assert qty.as_decimal() == Decimal("25")
+
+
+def test_margin_pct_sizing_uses_sizing_leverage() -> None:
+    cfg = EMACrossConfig(
+        instrument_id=INSTRUMENT_ID,
+        bar_type=BAR_TYPE,
+        fast_ema_period=5,
+        slow_ema_period=20,
+        trade_size=Decimal("0.01"),
+        margin_pct_per_trade=10.0,
+        sizing_leverage=5.0,
+    )
+    strategy = EMACrossStrategy(config=cfg)
+    strategy.instrument = _DummyInstrument()  # type: ignore[assignment]
+    strategy._resolve_equity = lambda: Decimal("1000")  # type: ignore[method-assign]
+
+    qty = strategy._resolve_order_quantity(  # type: ignore[arg-type]
+        type("BarStub", (), {"close": 100.0})(),
+    )
+
+    assert qty is not None
+    assert qty.as_decimal() == Decimal("5")
+
+
+def test_notional_pct_sizing_returns_none_when_below_min_increment() -> None:
+    strategy = _make_strategy(capital_pct=0.001)
+    strategy.instrument = _DummyInstrument(size_increment="0.001", min_qty="0.001")  # type: ignore[assignment]
+    strategy._resolve_equity = lambda: Decimal("1000")  # type: ignore[method-assign]
+
+    qty = strategy._resolve_qty_from_notional_pct(0.001, 50_000.0)
+
+    assert qty is None
 
 
 def test_split_quantity_by_ratios_preserves_total() -> None:

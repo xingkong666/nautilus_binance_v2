@@ -59,7 +59,10 @@ class AppFactory:
         fast_ema: int = 10,
         slow_ema: int = 20,
         trade_size: Decimal = Decimal("0.01"),
+        margin_pct_per_trade: float | None = None,
+        gross_exposure_pct_per_trade: float | None = None,
         capital_pct_per_trade: float | None = None,
+        sizing_leverage: float = 1.0,
     ) -> tuple[type[EMACrossStrategy], EMACrossConfig]:
         """创建 EMA 交叉策略及其配置.
 
@@ -89,7 +92,10 @@ class AppFactory:
             fast_ema_period=fast_ema,
             slow_ema_period=slow_ema,
             trade_size=trade_size,
+            margin_pct_per_trade=margin_pct_per_trade,
+            gross_exposure_pct_per_trade=gross_exposure_pct_per_trade,
             capital_pct_per_trade=capital_pct_per_trade,
+            sizing_leverage=sizing_leverage,
         )
 
         logger.info(
@@ -110,7 +116,10 @@ class AppFactory:
         slow_ema: int = 50,
         pullback_atr_multiplier: float = 1.0,
         trade_size: Decimal = Decimal("0.01"),
+        margin_pct_per_trade: float | None = None,
+        gross_exposure_pct_per_trade: float | None = None,
         capital_pct_per_trade: float | None = None,
+        sizing_leverage: float = 1.0,
         adx_period: int = 14,
         adx_threshold: float = 20.0,
     ) -> tuple[type[EMAPullbackATRStrategy], EMAPullbackATRConfig]:
@@ -131,7 +140,10 @@ class AppFactory:
             slow_ema_period=slow_ema,
             pullback_atr_multiplier=pullback_atr_multiplier,
             trade_size=trade_size,
+            margin_pct_per_trade=margin_pct_per_trade,
+            gross_exposure_pct_per_trade=gross_exposure_pct_per_trade,
             capital_pct_per_trade=capital_pct_per_trade,
+            sizing_leverage=sizing_leverage,
             adx_period=adx_period,
             adx_threshold=adx_threshold,
         )
@@ -160,7 +172,10 @@ class AppFactory:
         unit_add_atr_step: float = 0.5,
         max_units: int = 4,
         trade_size: Decimal = Decimal("0.01"),
+        margin_pct_per_trade: float | None = None,
+        gross_exposure_pct_per_trade: float | None = None,
         capital_pct_per_trade: float | None = None,
+        sizing_leverage: float = 1.0,
     ) -> tuple[type[TurtleStrategy], TurtleConfig]:
         """创建海龟交易策略及其配置."""
         instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
@@ -182,7 +197,10 @@ class AppFactory:
             unit_add_atr_step=unit_add_atr_step,
             max_units=max_units,
             trade_size=trade_size,
+            margin_pct_per_trade=margin_pct_per_trade,
+            gross_exposure_pct_per_trade=gross_exposure_pct_per_trade,
             capital_pct_per_trade=capital_pct_per_trade,
+            sizing_leverage=sizing_leverage,
         )
         logger.info(
             "strategy_created",
@@ -201,7 +219,10 @@ class AppFactory:
         symbol: str,
         interval: Interval = Interval.MINUTE_1,
         trade_size: Decimal = Decimal("0.01"),
+        margin_pct_per_trade: float | None = None,
+        gross_exposure_pct_per_trade: float | None = None,
         capital_pct_per_trade: float | None = None,
+        sizing_leverage: float = 1.0,
         fast_ema: int = 8,
         slow_ema: int = 21,
         rsi_period: int = 7,
@@ -232,7 +253,10 @@ class AppFactory:
             instrument_id=instrument_id,
             bar_type=bar_type,
             trade_size=trade_size,
+            margin_pct_per_trade=margin_pct_per_trade,
+            gross_exposure_pct_per_trade=gross_exposure_pct_per_trade,
             capital_pct_per_trade=capital_pct_per_trade,
+            sizing_leverage=sizing_leverage,
             fast_ema_period=fast_ema,
             slow_ema_period=slow_ema,
             rsi_period=rsi_period,
@@ -266,7 +290,10 @@ class AppFactory:
         symbol: str,
         interval: Interval = Interval.HOUR_1,
         trade_size: Decimal = Decimal("0.01"),
+        margin_pct_per_trade: float | None = None,
+        gross_exposure_pct_per_trade: float | None = None,
         capital_pct_per_trade: float | None = None,
+        sizing_leverage: float = 1.0,
         fast_ema: int = 12,
         slow_ema: int = 36,
         tunnel_ema_1: int = 144,
@@ -295,7 +322,10 @@ class AppFactory:
             instrument_id=instrument_id,
             bar_type=bar_type,
             trade_size=trade_size,
+            margin_pct_per_trade=margin_pct_per_trade,
+            gross_exposure_pct_per_trade=gross_exposure_pct_per_trade,
             capital_pct_per_trade=capital_pct_per_trade,
+            sizing_leverage=sizing_leverage,
             fast_ema_period=fast_ema,
             slow_ema_period=slow_ema,
             tunnel_ema_period_1=tunnel_ema_1,
@@ -348,6 +378,8 @@ class AppFactory:
         params = strategy_cfg.get("params", {})
 
         if name == "ema_cross":
+            margin_pct = params.get("margin_pct_per_trade")
+            gross_exposure_pct = params.get("gross_exposure_pct_per_trade")
             capital_pct = params.get("capital_pct_per_trade")
             return self.create_ema_cross_strategy(
                 symbol=symbol,
@@ -355,10 +387,15 @@ class AppFactory:
                 fast_ema=params.get("fast_ema_period", 10),
                 slow_ema=params.get("slow_ema_period", 20),
                 trade_size=Decimal(str(params.get("trade_size", "0.01"))),
+                margin_pct_per_trade=float(margin_pct) if margin_pct is not None else None,
+                gross_exposure_pct_per_trade=float(gross_exposure_pct) if gross_exposure_pct is not None else None,
                 capital_pct_per_trade=float(capital_pct) if capital_pct is not None else None,
+                sizing_leverage=float(params.get("sizing_leverage", 1.0)),
             )
 
         if name == "ema_pullback_atr":
+            margin_pct = params.get("margin_pct_per_trade")
+            gross_exposure_pct = params.get("gross_exposure_pct_per_trade")
             capital_pct = params.get("capital_pct_per_trade")
             return self.create_ema_pullback_atr_strategy(
                 symbol=symbol,
@@ -367,12 +404,17 @@ class AppFactory:
                 slow_ema=params.get("slow_ema_period", 50),
                 pullback_atr_multiplier=float(params.get("pullback_atr_multiplier", 1.0)),
                 trade_size=Decimal(str(params.get("trade_size", "0.01"))),
+                margin_pct_per_trade=float(margin_pct) if margin_pct is not None else None,
+                gross_exposure_pct_per_trade=float(gross_exposure_pct) if gross_exposure_pct is not None else None,
                 capital_pct_per_trade=float(capital_pct) if capital_pct is not None else None,
+                sizing_leverage=float(params.get("sizing_leverage", 1.0)),
                 adx_period=int(params.get("adx_period", 14)),
                 adx_threshold=float(params.get("adx_threshold", 20.0)),
             )
 
         if name == "turtle":
+            margin_pct = params.get("margin_pct_per_trade")
+            gross_exposure_pct = params.get("gross_exposure_pct_per_trade")
             capital_pct = params.get("capital_pct_per_trade")
             return self.create_turtle_strategy(
                 symbol=symbol,
@@ -384,16 +426,24 @@ class AppFactory:
                 unit_add_atr_step=float(params.get("unit_add_atr_step", 0.5)),
                 max_units=int(params.get("max_units", 4)),
                 trade_size=Decimal(str(params.get("trade_size", "0.01"))),
+                margin_pct_per_trade=float(margin_pct) if margin_pct is not None else None,
+                gross_exposure_pct_per_trade=float(gross_exposure_pct) if gross_exposure_pct is not None else None,
                 capital_pct_per_trade=float(capital_pct) if capital_pct is not None else None,
+                sizing_leverage=float(params.get("sizing_leverage", 1.0)),
             )
 
         if name == "micro_scalp":
+            margin_pct = params.get("margin_pct_per_trade")
+            gross_exposure_pct = params.get("gross_exposure_pct_per_trade")
             capital_pct = params.get("capital_pct_per_trade")
             return self.create_micro_scalp_strategy(
                 symbol=symbol,
                 interval=interval,
                 trade_size=Decimal(str(params.get("trade_size", "0.01"))),
+                margin_pct_per_trade=float(margin_pct) if margin_pct is not None else None,
+                gross_exposure_pct_per_trade=float(gross_exposure_pct) if gross_exposure_pct is not None else None,
                 capital_pct_per_trade=float(capital_pct) if capital_pct is not None else None,
+                sizing_leverage=float(params.get("sizing_leverage", 1.0)),
                 fast_ema=int(params.get("fast_ema_period", 8)),
                 slow_ema=int(params.get("slow_ema_period", 21)),
                 rsi_period=int(params.get("rsi_period", 7)),
@@ -412,12 +462,17 @@ class AppFactory:
             )
 
         if name == "vegas_tunnel":
+            margin_pct = params.get("margin_pct_per_trade")
+            gross_exposure_pct = params.get("gross_exposure_pct_per_trade")
             capital_pct = params.get("capital_pct_per_trade")
             return self.create_vegas_tunnel_strategy(
                 symbol=symbol,
                 interval=interval,
                 trade_size=Decimal(str(params.get("trade_size", "0.01"))),
+                margin_pct_per_trade=float(margin_pct) if margin_pct is not None else None,
+                gross_exposure_pct_per_trade=float(gross_exposure_pct) if gross_exposure_pct is not None else None,
                 capital_pct_per_trade=float(capital_pct) if capital_pct is not None else None,
+                sizing_leverage=float(params.get("sizing_leverage", 1.0)),
                 fast_ema=int(params.get("fast_ema_period", 12)),
                 slow_ema=int(params.get("slow_ema_period", 36)),
                 tunnel_ema_1=int(params.get("tunnel_ema_period_1", 144)),

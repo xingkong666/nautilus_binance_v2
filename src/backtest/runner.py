@@ -30,6 +30,7 @@ from nautilus_trader.model.instruments import CryptoPerpetual
 from nautilus_trader.model.objects import Money
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
+from src.backtest.costs import BacktestCostAnalyzer
 from src.core.config import AppConfig
 from src.core.enums import INTERVAL_TO_NAUTILUS, Interval
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
@@ -128,33 +129,44 @@ class BacktestRunner:
             balance=bt.starting_balance_usdt,
         )
 
-        # 1. 构建引擎
+        return self.run_many(
+            strategy_specs=[(strategy_cls, strategy_config)],
+            metadata={"strategy_names": [strategy_cls.__name__]},
+        )
+
+    def run_many(
+        self,
+        strategy_specs: list[tuple[type[BaseStrategy], BaseStrategyConfig]],
+        metadata: dict[str, Any] | None = None,
+    ) -> BacktestRunResult:
+        """执行多策略回测."""
+        bt = self._bt_cfg
+        if not strategy_specs:
+            raise ValueError("strategy_specs 不能为空")
+
         engine = self._build_engine()
 
-        # 2. 加载 instrument
         instruments = self._load_instruments(bt.symbols)
         for inst in instruments:
             engine.add_instrument(inst)
 
-        # 3. 加载 Bar 数据
         total_bars = self._add_bar_data(engine, instruments)
         if total_bars == 0:
             raise ValueError(f"No bar data found in catalog for {bt.symbols} [{bt.start} ~ {bt.end}]")
 
         logger.info("backtest_data_loaded", total_bars=total_bars)
 
-        # 4. 注册策略
-        engine.add_strategy(strategy=strategy_cls(config=strategy_config))
+        strategy_names: list[str] = []
+        for strategy_cls, strategy_config in strategy_specs:
+            engine.add_strategy(strategy=strategy_cls(config=strategy_config))
+            strategy_names.append(strategy_cls.__name__)
 
-        # 5. 排序数据（时间序确保正确）
         engine.sort_data()
-
-        # 6. 运行
         engine.run(start=self._to_datetime(bt.start), end=self._to_datetime(bt.end, end_of_day=True))
 
-        # 7. 收集结果
         result = engine.get_result()
         reports = self._collect_reports(engine)
+        analysis = self._build_analysis(reports, result)
 
         logger.info(
             "backtest_done",
@@ -162,14 +174,21 @@ class BacktestRunner:
             iterations=result.iterations,
             total_orders=result.total_orders,
             total_positions=result.total_positions,
+            strategy_count=len(strategy_specs),
         )
 
         engine.dispose()
+
+        merged_metadata = {"strategy_names": strategy_names}
+        if metadata:
+            merged_metadata.update(metadata)
 
         return BacktestRunResult(
             result=result,
             reports=reports,
             config=bt,
+            analysis=analysis,
+            metadata=merged_metadata,
         )
 
     # ------ 构建引擎 ------
@@ -317,6 +336,30 @@ class BacktestRunner:
 
         return reports
 
+    def _build_analysis(self, reports: dict[str, Any], result: Any) -> dict[str, Any]:
+        analysis: dict[str, Any] = {}
+
+        pnl_stats: dict[str, Any] | None = None
+        if isinstance(result.stats_pnls, dict):
+            raw_pnl_stats = result.stats_pnls.get("USDT")
+            if isinstance(raw_pnl_stats, dict):
+                pnl_stats = raw_pnl_stats
+
+        cost_analyzer = BacktestCostAnalyzer(
+            execution_config=self._app_cfg.execution,
+            raw_dir=self._app_cfg.data.raw_dir,
+            features_dir=self._app_cfg.data.features_dir,
+        )
+        cost_analysis = cost_analyzer.analyze(
+            reports=reports,
+            starting_balance=self._bt_cfg.starting_balance_usdt,
+            pnl_stats=pnl_stats,
+        )
+        if cost_analysis is not None:
+            analysis["costs"] = cost_analysis.to_dict()
+
+        return analysis
+
     # ------ 工具方法 ------
 
     @staticmethod
@@ -367,3 +410,5 @@ class BacktestRunResult:
     result: Any  # nautilus_trader.backtest.results.BacktestResult
     reports: dict[str, Any]
     config: BacktestConfig
+    analysis: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)

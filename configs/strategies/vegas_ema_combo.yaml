@@ -1,0 +1,60 @@
+# Vegas Tunnel + EMA Pullback 组合研究配置
+portfolio:
+  name: vegas_ema_combo
+
+  backtest:
+    interval: 1h
+    starting_balance_usdt: 10000
+    leverage: 10
+
+  allocation:
+    mode: risk_parity
+    reserve_pct: 20.0
+    min_allocation: 100
+
+  walkforward:
+    start: 2023-01-01
+    end: 2025-12-31
+    train_months: 6
+    test_months: 3
+    step_months: 3
+
+  strategies:
+    - name: vegas_tunnel
+      strategy_id: vegas_btc
+      symbol: BTCUSDT
+      enabled: true
+      params:
+        fast_ema_period: 12
+        slow_ema_period: 36
+        tunnel_ema_period_1: 144
+        tunnel_ema_period_2: 169
+        signal_cooldown_bars: 3
+        atr_filter_min_ratio: 0.0008
+        stop_atr_multiplier: 1.0
+        tp_fib_1: 1.0
+        tp_fib_2: 1.618
+        tp_fib_3: 2.618
+        tp_split_1: 0.4
+        tp_split_2: 0.3
+        tp_split_3: 0.3
+        margin_pct_per_trade: 8.0
+        sizing_leverage: 10.0
+        trade_size: 0.01
+
+    - name: ema_pullback_atr
+      strategy_id: pullback_btc
+      symbol: BTCUSDT
+      enabled: true
+      params:
+        fast_ema_period: 20
+        slow_ema_period: 50
+        pullback_atr_multiplier: 1.0
+        min_trend_gap_ratio: 0.0003
+        signal_cooldown_bars: 3
+        adx_period: 14
+        adx_threshold: 25.0
+        atr_period: 14
+        margin_pct_per_trade: 6.0
+        sizing_leverage: 10.0
+        trade_size: 0.01

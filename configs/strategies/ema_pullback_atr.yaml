@@ -10,7 +10,10 @@ strategy:
     min_trend_gap_ratio: 0.0005
     signal_cooldown_bars: 3
     trade_size: 0.01
+    # margin_pct_per_trade: 8.0
+    # gross_exposure_pct_per_trade: 80.0
     # capital_pct_per_trade: 10.0  # 可选：按账户权益 10% 下单（优先于 trade_size）
+    # sizing_leverage: 10.0
     atr_period: 14
     adx_period: 14
     adx_threshold: 20.0
