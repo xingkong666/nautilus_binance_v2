@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -28,6 +29,8 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from src.core.events import Event, EventType
+from src.state.reconciliation import ReconciliationEngine, ReconciliationResult
+from src.state.snapshot import SystemSnapshot
 
 if TYPE_CHECKING:
     from src.app.container import Container
@@ -101,7 +104,15 @@ class SyncResult:
     positions: list[PositionSnapshot] = field(default_factory=list)
     error: str = ""
     duration_ms: float = 0.0
+    reconciliation_matched: bool | None = None
+    mismatch_count: int = 0
     timestamp_ns: int = field(default_factory=time.time_ns)
+
+
+AccountSnapshotProvider = Callable[
+    [],
+    tuple[list[AccountBalance], list[PositionSnapshot]],
+]
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +141,7 @@ class AccountSync:
         container: Container,
         interval_sec: float = 30.0,
         redis_client: RedisClient | None = None,
+        exchange_snapshot_provider: AccountSnapshotProvider | None = None,
     ) -> None:
         """初始化 AccountSync.
 
@@ -141,9 +153,11 @@ class AccountSync:
         self._container = container
         self._interval = interval_sec
         self._redis = redis_client
+        self._exchange_snapshot_provider = exchange_snapshot_provider
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._last_result: SyncResult | None = None
+        self._reconciler = ReconciliationEngine(container.event_bus)
 
         # 统计
         self._sync_count = 0
@@ -254,11 +268,11 @@ class AccountSync:
         """
         t0 = time.monotonic()
         try:
-            # TODO: 接入真实 BinanceAdapter 后替换此处
             balances, positions = self._fetch_from_exchange()
+            self._mark_external_open_orders()
 
             # 与本地 state 对账
-            self._reconcile_with_local(balances, positions)
+            reconciliation = self._reconcile_with_local(positions)
 
             duration_ms = (time.monotonic() - t0) * 1000
             result = SyncResult(
@@ -266,6 +280,8 @@ class AccountSync:
                 balances=balances,
                 positions=positions,
                 duration_ms=duration_ms,
+                reconciliation_matched=reconciliation.matched if reconciliation is not None else None,
+                mismatch_count=len(reconciliation.mismatches) if reconciliation is not None else 0,
             )
 
             # 发布对账事件
@@ -280,12 +296,68 @@ class AccountSync:
                 duration_ms=duration_ms,
             )
 
+    def _mark_external_open_orders(self) -> None:
+        adapter = getattr(self._container, "binance_adapter", None)
+        ignored_registry = getattr(self._container, "ignored_instruments", None)
+        if adapter is None or ignored_registry is None:
+            return
+
+        fetch_open_orders = getattr(adapter, "fetch_open_orders", None)
+        if not callable(fetch_open_orders):
+            return
+
+        try:
+            exchange_open_orders = fetch_open_orders()
+        except Exception:
+            logger.exception("account_sync_open_orders_fetch_failed")
+            return
+
+        known_client_order_ids = self._known_open_client_order_ids()
+        for order in exchange_open_orders:
+            client_order_id = str(order.get("clientOrderId", "")).strip()
+            if client_order_id and client_order_id in known_client_order_ids:
+                continue
+
+            symbol = str(order.get("symbol", "")).strip()
+            if not symbol:
+                continue
+            ignored_registry.ignore(
+                instrument_id=f"{symbol}-PERP.BINANCE",
+                reason="external_open_order_detected_during_sync",
+                source="account_sync",
+                details={"client_order_id": client_order_id},
+            )
+
+    def _known_open_client_order_ids(self) -> set[str]:
+        adapter = getattr(self._container, "binance_adapter", None)
+        if adapter is None:
+            return set()
+
+        try:
+            node = adapter.node
+        except Exception:
+            return set()
+        if node is None:
+            return set()
+
+        cache = getattr(node, "cache", None)
+        if cache is None:
+            return set()
+
+        client_order_ids_open = getattr(cache, "client_order_ids_open", None)
+        if not callable(client_order_ids_open):
+            return set()
+
+        try:
+            return {str(client_order_id) for client_order_id in client_order_ids_open()}
+        except Exception:
+            logger.exception("account_sync_known_open_orders_load_failed")
+            return set()
+
     def _fetch_from_exchange(
         self,
     ) -> tuple[list[AccountBalance], list[PositionSnapshot]]:
         """从交易所拉取账户余额和持仓.
-
-        当 exchange adapter 尚未实现时，返回空列表（软降级）。
 
         Returns:
             (balances, positions) 元组。
@@ -293,75 +365,64 @@ class AccountSync:
         Raises:
             Exception: 交易所 API 调用失败时向上抛出。
         """
-        try:
-            from src.exchange.binance_adapter import BinanceAdapter  # noqa: PLC0415
-
-            adapter: BinanceAdapter = BinanceAdapter.get_instance()  # type: ignore[attr-defined]
-            raw_balance = adapter.fetch_balance()  # type: ignore[attr-defined]
-            raw_positions = adapter.fetch_positions()  # type: ignore[attr-defined]
-
-            balances = [
-                AccountBalance(
-                    asset=b["asset"],
-                    wallet_balance=Decimal(str(b["walletBalance"])),
-                    available_balance=Decimal(str(b["availableBalance"])),
-                    unrealized_pnl=Decimal(str(b.get("unrealizedProfit", 0))),
-                )
-                for b in raw_balance
-                if Decimal(str(b.get("walletBalance", 0))) != 0
-            ]
-
-            positions = [
-                PositionSnapshot(
-                    symbol=p["symbol"],
-                    side=p.get("positionSide", "BOTH"),
-                    quantity=Decimal(str(abs(float(p["positionAmt"])))),
-                    entry_price=Decimal(str(p.get("entryPrice", 0))),
-                    unrealized_pnl=Decimal(str(p.get("unrealizedProfit", 0))),
-                    leverage=int(p.get("leverage", 1)),
-                )
-                for p in raw_positions
-                if Decimal(str(p.get("positionAmt", 0))) != 0
-            ]
-
-            return balances, positions
-
-        except ImportError:
-            # exchange adapter 尚未实现，软降级
-            logger.debug("binance_adapter_not_available_using_mock")
-            return [], []
+        provider = self._exchange_snapshot_provider or self._resolve_container_snapshot_provider()
+        if provider is None:
+            raise RuntimeError("exchange_snapshot_provider_unavailable")
+        return provider()
 
     def _reconcile_with_local(
         self,
-        balances: list[AccountBalance],
         positions: list[PositionSnapshot],
-    ) -> None:
+    ) -> ReconciliationResult | None:
         """将交易所快照与本地 state 进行对账.
 
-        当前实现：仅记录日志；后续接入 state.reconciliation 模块做差异检测。
-
         Args:
-            balances: 从交易所拉取的余额列表。
             positions: 从交易所拉取的持仓列表。
         """
-        # TODO: 接入 src.state.reconciliation 做本地持仓差异检测
-        if balances:
-            usdt = next(
-                (b for b in balances if b.asset == "USDT"), None
-            )
-            if usdt:
-                logger.debug(
-                    "account_balance",
-                    wallet=float(usdt.wallet_balance),
-                    available=float(usdt.available_balance),
-                    unrealized_pnl=float(usdt.unrealized_pnl),
-                )
+        local_positions = self._load_local_positions()
+        exchange_positions = self._to_reconciliation_positions(positions)
 
-        if positions:
-            logger.debug(
-                "open_positions",
-                count=len(positions),
-                symbols=[p.symbol for p in positions],
+        result = self._reconciler.reconcile(
+            local_positions=local_positions,
+            exchange_positions=exchange_positions,
+        )
+        self._mark_ignored_instruments(result)
+        logger.info(
+            "account_sync_reconciled",
+            matched=result.matched,
+            mismatch_count=len(result.mismatches),
+            local_position_count=len(local_positions),
+            exchange_position_count=len(exchange_positions),
+        )
+        return result
+
+    def _mark_ignored_instruments(self, result: ReconciliationResult) -> None:
+        ignored_registry = getattr(self._container, "ignored_instruments", None)
+        if ignored_registry is None:
+            return
+
+        exchange_instruments = {
+            str(position.get("instrument_id", "")).strip(): position
+            for position in result.exchange_positions
+            if str(position.get("instrument_id", "")).strip()
+        }
+        for instrument_id, position in exchange_instruments.items():
+            ignored_registry.ignore(
+                instrument_id=instrument_id,
+                reason="exchange_position_detected_during_sync",
+                source="account_sync",
+                details={"side": str(position.get("side", "BOTH"))},
+            )
+
+        for mismatch in result.mismatches:
+            instrument_id = str(mismatch.get("instrument_id", "")).strip()
+            if not instrument_id:
+                continue
+            ignored_registry.ignore(
+                instrument_id=instrument_id,
+                reason=f"reconciliation_{mismatch.get('type', 'mismatch')}",
+                source="account_sync",
+                details={"side": str(mismatch.get("side", "BOTH"))},
             )
 
     def _publish_reconciliation(self, result: SyncResult) -> None:
@@ -375,6 +436,8 @@ class AccountSync:
             "balance_count": len(result.balances),
             "position_count": len(result.positions),
             "duration_ms": result.duration_ms,
+            "reconciliation_matched": result.reconciliation_matched,
+            "mismatch_count": result.mismatch_count,
         }
 
         # 将余额汇总加入 payload
@@ -448,3 +511,101 @@ class AccountSync:
             )
         except Exception as exc:
             logger.warning("account_sync_redis_cache_failed", error=str(exc))
+
+    def _resolve_container_snapshot_provider(self) -> AccountSnapshotProvider | None:
+        adapter = self._container.binance_adapter
+        if adapter is None:
+            return None
+
+        fetch_account_snapshot = getattr(adapter, "fetch_account_snapshot", None)
+        if callable(fetch_account_snapshot):
+            return self._wrap_raw_snapshot_provider(fetch_account_snapshot)
+
+        fetch_balance = getattr(adapter, "fetch_balance", None)
+        fetch_positions = getattr(adapter, "fetch_positions", None)
+        if callable(fetch_balance) and callable(fetch_positions):
+            return self._wrap_raw_snapshot_provider(
+                lambda: (fetch_balance(), fetch_positions())
+            )
+
+        return None
+
+    def _wrap_raw_snapshot_provider(
+        self,
+        raw_provider: Callable[[], tuple[list[dict[str, Any]], list[dict[str, Any]]]],
+    ) -> AccountSnapshotProvider:
+        def _provider() -> tuple[list[AccountBalance], list[PositionSnapshot]]:
+            raw_balances, raw_positions = raw_provider()
+            return (
+                self._normalize_raw_balances(raw_balances),
+                self._normalize_raw_positions(raw_positions),
+            )
+
+        return _provider
+
+    @staticmethod
+    def _normalize_raw_balances(raw_balances: list[dict[str, Any]]) -> list[AccountBalance]:
+        return [
+            AccountBalance(
+                asset=str(balance["asset"]),
+                wallet_balance=Decimal(str(balance["walletBalance"])),
+                available_balance=Decimal(str(balance["availableBalance"])),
+                unrealized_pnl=Decimal(str(balance.get("unrealizedProfit", 0))),
+            )
+            for balance in raw_balances
+            if Decimal(str(balance.get("walletBalance", 0))) != 0
+        ]
+
+    @staticmethod
+    def _normalize_raw_positions(raw_positions: list[dict[str, Any]]) -> list[PositionSnapshot]:
+        return [
+            PositionSnapshot(
+                symbol=str(position["symbol"]),
+                side=str(position.get("positionSide", "BOTH")),
+                quantity=Decimal(str(abs(float(position["positionAmt"])))),
+                entry_price=Decimal(str(position.get("entryPrice", 0))),
+                unrealized_pnl=Decimal(str(position.get("unrealizedProfit", 0))),
+                leverage=int(position.get("leverage", 1)),
+            )
+            for position in raw_positions
+            if Decimal(str(position.get("positionAmt", 0))) != 0
+        ]
+
+    def _load_local_positions(self) -> list[dict[str, str]]:
+        snapshot = self._load_latest_snapshot()
+        if snapshot is None:
+            return []
+        return [
+            {
+                "instrument_id": position.instrument_id,
+                "side": position.side,
+                "quantity": position.quantity,
+                "avg_entry_price": position.avg_entry_price,
+                "unrealized_pnl": position.unrealized_pnl,
+                "realized_pnl": position.realized_pnl,
+            }
+            for position in snapshot.positions
+        ]
+
+    def _load_latest_snapshot(self) -> SystemSnapshot | None:
+        try:
+            return self._container.snapshot_manager.load_latest()
+        except Exception:
+            logger.exception("account_sync_snapshot_load_failed")
+            return None
+
+    @staticmethod
+    def _to_reconciliation_positions(
+        positions: list[PositionSnapshot],
+    ) -> list[dict[str, str]]:
+        return [
+            {
+                "instrument_id": f"{position.symbol}-PERP.BINANCE",
+                "side": position.side,
+                "quantity": str(position.quantity),
+                "entry_price": str(position.entry_price),
+                "unrealized_pnl": str(position.unrealized_pnl),
+                "leverage": str(position.leverage),
+            }
+            for position in positions
+        ]

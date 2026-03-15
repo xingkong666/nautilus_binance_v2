@@ -58,7 +58,7 @@
 |---|---|
 | `container.py` | 依赖注入容器，组装所有模块实例，管理生命周期 |
 | `factory.py` | 创建 BinanceAdapter、策略等组件的工厂函数 |
-| `bootstrap.py` | 入口：读配置 → 构建 Container → 启动 TradingNode |
+| `bootstrap.py` | 标准 live 入口：读配置 → 恢复状态 → 标记忽略交易对 → 启动 TradingNode |
 
 ### `src/core/` — 基础设施
 
@@ -88,6 +88,7 @@
 ```
 SignalEvent
     → OrderIntent（意图，含仓位大小）
+    → IgnoredInstrumentRegistry（外部活动交易对过滤）
     → PreTradeRisk 校验
     → OrderRouter（路由到 BinanceAdapter）
     → AlgoExecution（TWAP / 市价 等算法）
@@ -122,9 +123,9 @@ PostTradeRisk   → 成交后分析（滑点 / PnL 归因）
 | 文件 | 职责 |
 |---|---|
 | `persistence.py` | SQLite 持久化（订单 / 成交 / 仓位） |
-| `snapshot.py` | 内存状态快照，定期序列化到磁盘 |
+| `snapshot.py` | 内存状态快照，按环境隔离序列化到磁盘 |
 | `reconciliation.py` | 本地状态 vs 交易所实际状态对账，输出差异报告 |
-| `recovery.py` | 节点重启时从快照 + 对账结果恢复状态 |
+| `recovery.py` | 节点重启时从快照 / 交易所真值恢复状态 |
 
 ### `src/live/` — 实盘守护
 
@@ -132,7 +133,7 @@ PostTradeRisk   → 成交后分析（滑点 / PnL 归因）
 |---|---|
 | `supervisor.py` | 实盘守护核心，状态机（IDLE→RUNNING→DEGRADED→STOPPED） |
 | `watchdog.py` | 心跳检测，超时自动重启 |
-| `account_sync.py` | 定期同步账户余额与持仓 |
+| `account_sync.py` | 定期同步账户余额 / 持仓 / open orders，并识别外部活动交易对 |
 | `health.py` | 系统健康状态聚合 |
 
 ### `src/monitoring/` — 可观测性
@@ -153,6 +154,8 @@ PostTradeRisk   → 成交后分析（滑点 / PnL 归因）
 - 支持 `LIVE / TESTNET / DEMO` 三种环境
 - API Key 从环境变量读取，支持 fallback
 - 异步 `start() / stop()`，干净的生命周期管理
+- 可查询账户真实持仓、余额与当前 open orders
+- 启动前自动探测 Binance 账户模式；若为 Hedge Mode，则关闭 `reduce_only`
 - 启动时自动执行对账（`reconciliation=True`）
 
 ---
@@ -173,6 +176,7 @@ Binance WS (tick/bar)
 
 ```
 SignalEvent
+    → IgnoredInstrumentRegistry（若该交易对存在外部持仓/外部挂单则直接丢弃）
     → PortfolioAllocator（仓位分配）
     → PreTradeRisk（准入校验）
     → OrderIntent（意图构建）
@@ -193,6 +197,18 @@ RealTimeRisk 监控 (每个 bar / tick)
     → Supervisor 接收 → 状态 DEGRADED
     → OrderRouter 拒绝新订单
     → Alerting → Telegram 推送
+```
+
+### 启动恢复 → 外部活动隔离
+
+```
+bootstrap
+    → 查询账户模式（Hedge / One-way）
+    → 拉取交易所余额 / 持仓 / open orders
+    → RecoveryManager 以交易所真值恢复快照
+    → IgnoredInstrumentRegistry 标记外部活动交易对
+    → TradingNode 启动
+    → SignalProcessor 对被忽略交易对拒绝下单
 ```
 
 ---

@@ -19,9 +19,11 @@ import structlog
 from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
 
 from src.cache.redis_client import RedisClient
+from src.core.config import EnvSettings
 from src.core.events import EventBus
 from src.exchange.binance_adapter import BinanceAdapter, BinanceAdapterConfig
 from src.execution.fill_handler import FillHandler
+from src.execution.ignored_instruments import IgnoredInstrumentRegistry
 from src.execution.order_router import OrderRouter
 from src.execution.rate_limiter import RateLimiter
 from src.execution.signal_processor import SignalProcessor
@@ -65,6 +67,7 @@ class Container:
         self._persistence: TradePersistence | None = None
         self._snapshot_manager: SnapshotManager | None = None
         self._rate_limiter: RateLimiter | None = None
+        self._ignored_instruments: IgnoredInstrumentRegistry | None = None
         self._position_sizer: PositionSizer | None = None
         self._pre_trade_risk: PreTradeRiskManager | None = None
         self._circuit_breaker: CircuitBreaker | None = None
@@ -101,7 +104,7 @@ class Container:
             database_url=cfg.data.database_url
         )
         self._snapshot_manager = SnapshotManager(
-            snapshot_dir=cfg.data.catalog_dir.parent / "snapshots"
+            snapshot_dir=cfg.data.catalog_dir.parent / "snapshots" / cfg.env
         )
 
         # 初始化 Redis（失败时打 WARNING 不中断启动）
@@ -115,6 +118,7 @@ class Container:
 
         # 2. 执行层
         self._rate_limiter = RateLimiter(cfg.execution.rate_limit, redis_client=self._redis_client)
+        self._ignored_instruments = IgnoredInstrumentRegistry(event_bus=self._event_bus)
         self._position_sizer = PositionSizer(
             config=cfg.execution.algo if cfg.execution.algo else {"mode": "fixed"}
         )
@@ -170,10 +174,7 @@ class Container:
                 )
 
         # 5. 交易所适配器（仅实盘环境，dev/testnet 可跳过）
-        exchange_cfg = cfg.strategies.get("exchange", {})
-        if not exchange_cfg:
-            # 尝试从顶层 exchange 配置读取（YAML 中可单独配置 exchange: 节）
-            exchange_cfg = getattr(cfg, "exchange", {}) or {}
+        exchange_cfg = cfg.exchange or cfg.strategies.get("exchange", {})
         if exchange_cfg or cfg.env in ("prod", "staging"):
             env_settings = self._get_env_settings()
             # 优先读 YAML 中的 environment 字段，其次按 env 推断
@@ -184,15 +185,18 @@ class Container:
             except KeyError:
                 logger.warning("unknown_binance_environment", value=env_str, fallback="TESTNET")
                 binance_env = BinanceEnvironment.TESTNET
+            default_api_key, default_api_secret = self._resolve_binance_credentials(env_settings, binance_env)
 
             self._binance_adapter = BinanceAdapter(
                 BinanceAdapterConfig(
-                    api_key=exchange_cfg.get("api_key") or env_settings.get("binance_api_key"),
-                    api_secret=exchange_cfg.get("api_secret") or env_settings.get("binance_api_secret"),
+                    api_key=exchange_cfg.get("api_key") or default_api_key or None,
+                    api_secret=exchange_cfg.get("api_secret") or default_api_secret or None,
                     environment=binance_env,
                     instrument_ids=exchange_cfg.get("instrument_ids", []),
                     futures_leverages=exchange_cfg.get("futures_leverages"),
                     proxy_url=exchange_cfg.get("proxy_url"),
+                    use_reduce_only=bool(exchange_cfg.get("use_reduce_only", True)),
+                    use_position_ids=bool(exchange_cfg.get("use_position_ids", True)),
                     max_retries=exchange_cfg.get("max_retries"),
                     retry_delay_initial_ms=exchange_cfg.get("retry_delay_initial_ms"),
                     retry_delay_max_ms=exchange_cfg.get("retry_delay_max_ms"),
@@ -213,6 +217,9 @@ class Container:
         self._signal_processor = SignalProcessor(
             event_bus=self._event_bus,
             order_router=self._order_router,
+            pre_trade_risk=self._pre_trade_risk,
+            rate_limiter=self._rate_limiter,
+            ignored_instruments=self._ignored_instruments,
         )
 
         # 7. 告警
@@ -244,6 +251,18 @@ class Container:
         """
         logger.info("container_teardown")
 
+        if self._alert_manager is not None:
+            try:
+                self._alert_manager.stop()
+            except Exception:
+                logger.exception("alert_manager_stop_failed")
+
+        if self._health_server is not None:
+            try:
+                self._health_server.stop()
+            except Exception:
+                logger.exception("health_server_stop_failed")
+
         if self._binance_adapter and self._binance_adapter.is_started:
             # adapter.stop() 是 async；同步 teardown 中仅记录警告，
             # 调用方应在事件循环中先 await adapter.stop() 再调用 teardown()。
@@ -263,6 +282,9 @@ class Container:
                 self._redis_client.close()
             except Exception:
                 logger.exception("redis_close_failed")
+
+        if self._event_bus is not None:
+            self._event_bus.clear()
 
         self._built = False
         logger.info("container_teardown_done")
@@ -284,15 +306,40 @@ class Container:
         Returns:
             包含 telegram_bot_token / telegram_chat_id 等字段的字典。
         """
-        from src.core.config import EnvSettings
         try:
             s = EnvSettings()
             return {
+                "binance_api_key": s.binance_api_key,
+                "binance_api_secret": s.binance_api_secret,
+                "binance_testnet_api_key": s.binance_testnet_api_key,
+                "binance_testnet_api_secret": s.binance_testnet_api_secret,
+                "binance_demo_api_key": s.binance_demo_api_key,
+                "binance_demo_api_secret": s.binance_demo_api_secret,
                 "telegram_bot_token": s.telegram_bot_token,
                 "telegram_chat_id": s.telegram_chat_id,
             }
         except Exception:
             return {}
+
+    @staticmethod
+    def _resolve_binance_credentials(
+        env_settings: dict[str, str],
+        environment: BinanceEnvironment,
+    ) -> tuple[str, str]:
+        if environment == BinanceEnvironment.TESTNET:
+            return (
+                env_settings.get("binance_testnet_api_key", ""),
+                env_settings.get("binance_testnet_api_secret", ""),
+            )
+        if environment == BinanceEnvironment.DEMO:
+            return (
+                env_settings.get("binance_demo_api_key", ""),
+                env_settings.get("binance_demo_api_secret", ""),
+            )
+        return (
+            env_settings.get("binance_api_key", ""),
+            env_settings.get("binance_api_secret", ""),
+        )
 
     def _build_event_bus(self) -> EventBus:
         """构建 EventBus 并挂载全局监控 handler.
@@ -383,6 +430,13 @@ class Container:
         self._ensure_built()
         assert self._position_sizer is not None
         return self._position_sizer
+
+    @property
+    def ignored_instruments(self) -> IgnoredInstrumentRegistry:
+        """返回运行期交易对忽略注册表."""
+        self._ensure_built()
+        assert self._ignored_instruments is not None
+        return self._ignored_instruments
 
     @property
     def pre_trade_risk(self) -> PreTradeRiskManager:

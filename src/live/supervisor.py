@@ -124,11 +124,16 @@ class LiveSupervisor:
         self._stop_event.set()
 
         if self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(self._async_stop(), self._loop)
+            future = asyncio.run_coroutine_threadsafe(self._async_stop(), self._loop)
+            try:
+                future.result(timeout=timeout)
+            except Exception:
+                logger.exception("supervisor_async_stop_failed")
 
         if self._thread:
             self._thread.join(timeout=timeout)
 
+        self._force_stop_services()
         self._state = SupervisorState.STOPPED
         logger.info("supervisor_stopped")
 
@@ -157,6 +162,7 @@ class LiveSupervisor:
             logger.exception("supervisor_fatal_error")
             self._state = SupervisorState.STOPPED
         finally:
+            self._force_stop_services()
             self._loop.close()
 
     async def _async_main(self) -> None:
@@ -217,6 +223,22 @@ class LiveSupervisor:
                     logger.info("service_stopped", service=svc_name)
                 except Exception:
                     logger.exception("service_stop_failed", service=svc_name)
+
+    def _force_stop_services(self) -> None:
+        """兜底同步停止，避免后台线程泄漏."""
+        for svc_name, svc in [
+            ("watchdog", self._watchdog),
+            ("account_sync", self._account_sync),
+            ("health_probe", self._health_probe),
+        ]:
+            if svc is None:
+                continue
+            try:
+                if getattr(svc, "is_running", False):
+                    svc.stop()
+                    logger.info("service_force_stopped", service=svc_name)
+            except Exception:
+                logger.exception("service_force_stop_failed", service=svc_name)
 
     # ------------------------------------------------------------------
     # 事件处理

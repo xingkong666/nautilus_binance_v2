@@ -102,6 +102,8 @@ alerting:
 | `position_limit_warning` | ERROR | 持仓 > 最大仓位 80% |
 | `order_fill_latency` | WARNING | 成交延迟 > 1000ms |
 | `reconciliation_mismatch` | CRITICAL | 对账发现不一致 |
+| `instrument_ignored_external_activity` | WARNING | 启动或同步时发现外部持仓 / 外部挂单，交易对被加入 ignored |
+| `ignored_instrument` | WARNING | 某交易对已在 ignored 列表中，信号被执行层主动丢弃 |
 
 新增执行层数量安全规则：
 

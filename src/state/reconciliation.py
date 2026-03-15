@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import structlog
@@ -35,6 +36,7 @@ class ReconciliationEngine:
         self,
         local_positions: list[dict[str, Any]],
         exchange_positions: list[dict[str, Any]],
+        publish_alerts: bool = True,
     ) -> ReconciliationResult:
         """执行对账.
 
@@ -45,38 +47,43 @@ class ReconciliationEngine:
         Returns:
             对账结果
         """
-        local_map = {p["instrument_id"]: p for p in local_positions}
-        exchange_map = {p["instrument_id"]: p for p in exchange_positions}
+        local_map = {self._position_key(p): p for p in local_positions}
+        exchange_map = {self._position_key(p): p for p in exchange_positions}
 
         mismatches: list[dict[str, Any]] = []
 
         # 检查本地有但交易所没有的
-        for inst_id, local_pos in local_map.items():
-            if inst_id not in exchange_map:
+        for position_key, local_pos in local_map.items():
+            inst_id = str(local_pos["instrument_id"])
+            if position_key not in exchange_map:
                 mismatches.append(
                     {
                         "instrument_id": inst_id,
+                        "side": local_pos.get("side", "BOTH"),
                         "type": "local_only",
                         "local": local_pos,
                         "exchange": None,
                     }
                 )
-            elif local_pos.get("quantity") != exchange_map[inst_id].get("quantity"):
+            elif not self._quantities_match(local_pos.get("quantity"), exchange_map[position_key].get("quantity")):
                 mismatches.append(
                     {
                         "instrument_id": inst_id,
+                        "side": local_pos.get("side", "BOTH"),
                         "type": "quantity_mismatch",
                         "local": local_pos,
-                        "exchange": exchange_map[inst_id],
+                        "exchange": exchange_map[position_key],
                     }
                 )
 
         # 检查交易所有但本地没有的
-        for inst_id, ex_pos in exchange_map.items():
-            if inst_id not in local_map:
+        for position_key, ex_pos in exchange_map.items():
+            inst_id = str(ex_pos["instrument_id"])
+            if position_key not in local_map:
                 mismatches.append(
                     {
                         "instrument_id": inst_id,
+                        "side": ex_pos.get("side", "BOTH"),
                         "type": "exchange_only",
                         "local": None,
                         "exchange": ex_pos,
@@ -92,15 +99,31 @@ class ReconciliationEngine:
 
         if not result.matched:
             logger.error("reconciliation_mismatch", mismatch_count=len(mismatches), details=mismatches)
-            self._event_bus.publish(
-                RiskAlertEvent(
-                    level="CRITICAL",
-                    rule_name="reconciliation_mismatch",
-                    message=f"对账不一致: {len(mismatches)} 笔",
-                    details={"mismatches": mismatches},
+            if publish_alerts:
+                self._event_bus.publish(
+                    RiskAlertEvent(
+                        level="CRITICAL",
+                        rule_name="reconciliation_mismatch",
+                        message=f"对账不一致: {len(mismatches)} 笔",
+                        details={"mismatches": mismatches},
+                    )
                 )
-            )
         else:
             logger.info("reconciliation_ok", position_count=len(local_positions))
 
         return result
+
+    @staticmethod
+    def _position_key(position: dict[str, Any]) -> str:
+        instrument_id = str(position.get("instrument_id", ""))
+        side = str(position.get("side", "BOTH")).upper()
+        if side and side != "BOTH":
+            return f"{instrument_id}:{side}"
+        return instrument_id
+
+    @staticmethod
+    def _quantities_match(left: Any, right: Any) -> bool:
+        try:
+            return Decimal(str(left)) == Decimal(str(right))
+        except (InvalidOperation, ValueError, TypeError):
+            return left == right

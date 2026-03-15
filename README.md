@@ -11,6 +11,7 @@
 - **多策略支持** — PortfolioAllocator 统一管理，equal / weight / risk_parity 三种分配模式
 - **完整风控链路** — 事前（PreTradeRisk）→ 实时（DrawdownController + CircuitBreaker）→ 事后（PostTradeRisk）
 - **状态持久化** — 快照 + 对账 + 崩溃恢复，节点重启自动续跑
+- **外部活动隔离** — 检测到外部持仓 / 外部挂单时，自动忽略对应交易对，避免与人工或其他系统冲突
 - **可观测性** — Prometheus 指标 + Telegram/Slack 告警 + HTTP HealthCheck
 - **Testnet 验证** — 全链路冒烟脚本，上实盘前在 Testnet 跑通
 
@@ -114,19 +115,25 @@ uv run python scripts/run_backtest.py \
 ### 5. 实盘
 
 ```bash
-# Testnet（模拟盘，真实策略）
-uv run python scripts/run_live_testnet_strategy.py \
+# Testnet（标准 live 入口）
+uv run python -m src.app.bootstrap \
+  --env configs/env/dev.yaml \
   --strategy-config configs/strategies/vegas_tunnel.yaml \
   --symbol BTCUSDT
 
-# Testnet
-uv run python -m src.app.bootstrap --env configs/env/dev.yaml
-
-# 生产
-uv run python -m src.app.bootstrap --env configs/env/prod.yaml
+# 生产（标准 live 入口）
+uv run python -m src.app.bootstrap \
+  --env configs/env/prod.yaml \
+  --strategy-config configs/strategies/vegas_tunnel.yaml \
+  --symbol BTCUSDT
 ```
 
-说明：`bootstrap` 只负责容器初始化；要在模拟盘真正跑策略，请使用 `run_live_testnet_strategy.py`。
+当前 live 启动行为：
+
+- `bootstrap` 会实际启动 `TradingNode`、挂载策略并运行 live，不再只是初始化容器。
+- 启动前会先查询账户模式；若账户为 Binance Hedge Mode，会自动关闭 `reduce_only`，避免启动时报错。
+- 启动前会拉取交易所真实持仓和 open orders，按环境隔离快照目录（`snapshots/dev`、`snapshots/prod` 等）做恢复。
+- 若发现某交易对存在外部持仓或外部挂单，该交易对会加入运行期忽略列表，后续本系统不会再对其下单。
 
 ---
 

@@ -10,9 +10,12 @@ from typing import Any
 
 import structlog
 
-from src.core.events import EventType, SignalEvent
+from src.core.events import EventType, OrderIntentEvent, RiskAlertEvent, SignalEvent
+from src.execution.ignored_instruments import IgnoredInstrumentRegistry
 from src.execution.order_intent import OrderIntent
 from src.execution.order_router import OrderRouter
+from src.execution.rate_limiter import RateLimiter
+from src.risk.pre_trade import PreTradeRiskManager
 
 logger = structlog.get_logger()
 
@@ -20,9 +23,19 @@ logger = structlog.get_logger()
 class SignalProcessor:
     """将 SignalEvent 转换为 OrderIntent 的桥接器."""
 
-    def __init__(self, event_bus: Any, order_router: OrderRouter) -> None:
+    def __init__(
+        self,
+        event_bus: Any,
+        order_router: OrderRouter,
+        pre_trade_risk: PreTradeRiskManager | None = None,
+        rate_limiter: RateLimiter | None = None,
+        ignored_instruments: IgnoredInstrumentRegistry | None = None,
+    ) -> None:
         self._event_bus = event_bus
         self._order_router = order_router
+        self._pre_trade_risk = pre_trade_risk
+        self._rate_limiter = rate_limiter
+        self._ignored_instruments = ignored_instruments
         self._event_bus.subscribe(EventType.SIGNAL, self._on_signal)
 
     def _on_signal(self, event: Any) -> None:
@@ -32,8 +45,42 @@ class SignalProcessor:
         intent = self._to_intent(event)
         if intent is None:
             return
+        if self._is_ignored(intent):
+            return
 
-        self._order_router.route(intent)
+        if not self._check_rate_limit(intent):
+            return
+        if not self._check_pre_trade_risk(intent):
+            return
+
+        if self._order_router.route(intent) and self._rate_limiter is not None:
+            self._rate_limiter.record()
+
+    def _is_ignored(self, intent: OrderIntent) -> bool:
+        if self._ignored_instruments is None or not self._ignored_instruments.is_ignored(intent.instrument_id):
+            return False
+
+        ignored = self._ignored_instruments.get(intent.instrument_id) or {}
+        logger.warning(
+            "signal_rejected_ignored_instrument",
+            instrument=intent.instrument_id,
+            strategy=intent.strategy_id,
+            reason=ignored.get("reason", ""),
+        )
+        self._event_bus.publish(
+            RiskAlertEvent(
+                level="WARNING",
+                rule_name="ignored_instrument",
+                message="Signal rejected because instrument is ignored",
+                details={
+                    "instrument_id": intent.instrument_id,
+                    "strategy_id": intent.strategy_id,
+                    "reason": ignored.get("reason", ""),
+                },
+                source="signal_processor",
+            )
+        )
+        return True
 
     def _to_intent(self, signal: SignalEvent) -> OrderIntent | None:
         metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
@@ -109,3 +156,69 @@ class SignalProcessor:
             return Decimal(str(raw))
         except (InvalidOperation, ValueError, TypeError):
             return None
+
+    def _check_rate_limit(self, intent: OrderIntent) -> bool:
+        if self._rate_limiter is None:
+            return True
+        if self._rate_limiter.can_proceed():
+            return True
+
+        logger.warning("signal_rejected_rate_limit", instrument=intent.instrument_id, strategy=intent.strategy_id)
+        self._event_bus.publish(
+            RiskAlertEvent(
+                level="ERROR",
+                rule_name="rate_limit",
+                message="Order rejected by rate limiter",
+                details={
+                    "instrument_id": intent.instrument_id,
+                    "strategy_id": intent.strategy_id,
+                },
+                source="signal_processor",
+            )
+        )
+        return False
+
+    def _check_pre_trade_risk(self, intent: OrderIntent) -> bool:
+        if self._pre_trade_risk is None:
+            return True
+
+        risk_event = OrderIntentEvent(
+            instrument_id=intent.instrument_id,
+            side=intent.side,
+            quantity=intent.quantity,
+            order_type=intent.order_type,
+            price=intent.price,
+            stop_loss=intent.stop_loss,
+            take_profit=intent.take_profit,
+            metadata=intent.metadata,
+            source=intent.strategy_id,
+        )
+        metadata = intent.metadata if isinstance(intent.metadata, dict) else {}
+        current_price = (
+            intent.price
+            or self._parse_qty(metadata.get("order_price"))
+            or self._parse_qty(metadata.get("price"))
+            or self._parse_qty(metadata.get("bar_close"))
+            or Decimal("0")
+        )
+        current_position_usd = self._parse_qty(metadata.get("current_position_usd")) or Decimal("0")
+        current_open_orders_raw = metadata.get("current_open_orders", 0)
+        try:
+            current_open_orders = int(current_open_orders_raw)
+        except (TypeError, ValueError):
+            current_open_orders = 0
+
+        result = self._pre_trade_risk.check(
+            intent=risk_event,
+            current_position_usd=current_position_usd,
+            current_open_orders=current_open_orders,
+            current_price=current_price,
+        )
+        if not result.passed:
+            logger.warning(
+                "signal_rejected_pre_trade_risk",
+                instrument=intent.instrument_id,
+                strategy=intent.strategy_id,
+                reason=result.reason,
+            )
+        return result.passed

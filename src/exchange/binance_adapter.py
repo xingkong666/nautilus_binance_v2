@@ -29,12 +29,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
 from nautilus_trader.adapters.binance import config as binance_config
 from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
+from nautilus_trader.adapters.binance.common.urls import get_http_base_url
 from nautilus_trader.adapters.binance.config import (
     BinanceDataClientConfig,
     BinanceExecClientConfig,
@@ -44,6 +46,9 @@ from nautilus_trader.adapters.binance.factories import (
     BinanceLiveDataClientFactory,
     BinanceLiveExecClientFactory,
 )
+from nautilus_trader.adapters.binance.futures.http.account import BinanceFuturesAccountHttpAPI
+from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
+from nautilus_trader.common.component import LiveClock
 from nautilus_trader.config import (
     LiveDataEngineConfig,
     LiveExecEngineConfig,
@@ -52,6 +57,8 @@ from nautilus_trader.config import (
     TradingNodeConfig,
 )
 from nautilus_trader.live.node import TradingNode
+
+from src.core.config import EnvSettings
 
 logger = structlog.get_logger(__name__)
 _DEFAULT_BINANCE_ACCOUNT_TYPE = getattr(
@@ -154,6 +161,8 @@ class BinanceAdapter:
         self.config = config
         self._node: TradingNode | None = None
         self._started = False
+        self._pending_strategies: list[Any] = []
+        self._hedge_mode: bool | None = None
 
     # ------------------------------------------------------------------
     # Properties
@@ -161,13 +170,13 @@ class BinanceAdapter:
 
     @property
     def node(self) -> TradingNode:
-        """已启动的 TradingNode 实例.
+        """已构建的 TradingNode 实例.
 
         Raises:
-            RuntimeError: 若 start() 尚未调用或未成功完成。
+            RuntimeError: 若尚未 build/start。
         """
         if self._node is None:
-            raise RuntimeError("BinanceAdapter not started. Call await adapter.start() first.")
+            raise RuntimeError("BinanceAdapter node not created. Call build_node()/run()/start() first.")
         return self._node
 
     @property
@@ -183,6 +192,44 @@ class BinanceAdapter:
     # ------------------------------------------------------------------
     # 生命周期
     # ------------------------------------------------------------------
+
+    def register_strategy(self, strategy: Any) -> None:
+        """在启动前注册策略到 TradingNode."""
+        if self._node is not None:
+            raise RuntimeError("Cannot register strategy after TradingNode is built.")
+        instrument_id = getattr(getattr(strategy, "config", None), "instrument_id", None)
+        if instrument_id is not None:
+            instrument_text = str(instrument_id)
+            if instrument_text not in self.config.instrument_ids:
+                self.config.instrument_ids.append(instrument_text)
+        self._pending_strategies.append(strategy)
+
+    def build_node(self) -> TradingNode:
+        """构建 TradingNode 并挂载预注册策略."""
+        if self._node is not None:
+            return self._node
+
+        node_config = self._build_node_config()
+        self._node = TradingNode(config=node_config)
+        self._node.add_data_client_factory("BINANCE", BinanceLiveDataClientFactory)
+        self._node.add_exec_client_factory("BINANCE", BinanceLiveExecClientFactory)
+
+        for strategy in self._pending_strategies:
+            self._node.trader.add_strategy(strategy)
+
+        self._node.build()
+        logger.info("binance_adapter_node_built", strategy_count=len(self._pending_strategies))
+        return self._node
+
+    def run(self) -> None:
+        """同步阻塞运行 TradingNode."""
+        node = self.build_node()
+        self._started = True
+        logger.info("binance_adapter_running")
+        try:
+            node.run()
+        finally:
+            self._started = False
 
     async def start(self) -> None:
         """构建并启动 TradingNode，连接 Binance 数据和执行通道.
@@ -204,21 +251,25 @@ class BinanceAdapter:
             environment=self.config.environment.value,
             account_type=self.config.account_type.value,
         )
-
-        node_config = self._build_node_config()
-        self._node = TradingNode(config=node_config)
-
-        # 注册工厂
-        self._node.add_data_client_factory("BINANCE", BinanceLiveDataClientFactory)
-        self._node.add_exec_client_factory("BINANCE", BinanceLiveExecClientFactory)
-
-        self._node.build()
-        logger.info("binance_adapter_node_built")
-
-        await self._node.run_async()
+        node = self.build_node()
+        await node.run_async()
 
         self._started = True
         logger.info("binance_adapter_started")
+
+    def request_stop(self) -> None:
+        """请求 TradingNode 停止运行."""
+        if self._node is None:
+            return
+        self._node.stop()
+
+    def dispose(self) -> None:
+        """释放 TradingNode 资源."""
+        if self._node is None:
+            return
+        self._node.dispose()
+        self._started = False
+        logger.info("binance_adapter_disposed")
 
     async def stop(self) -> None:
         """优雅停止 TradingNode，断开所有连接并清理资源.
@@ -231,14 +282,90 @@ class BinanceAdapter:
 
         logger.info("binance_adapter_stopping")
         try:
-            self._node.stop()
-            await asyncio.sleep(0.5)  # 留给 NT 内部清理时间
-            self._node.dispose()
+            if self._started:
+                self.request_stop()
+                await asyncio.sleep(0.5)  # 留给 NT 内部清理时间
+            self.dispose()
         except Exception as exc:
             logger.warning("binance_adapter_stop_error", error=str(exc))
         finally:
             self._started = False
             logger.info("binance_adapter_stopped")
+
+    async def fetch_account_snapshot_async(self) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+        """异步拉取 Binance 账户余额和持仓快照."""
+        account_api = self._build_account_http_api()
+        account_info = await account_api.query_futures_account_info(
+            recv_window=str(self.config.recv_window_ms),
+        )
+        position_risks = await account_api.query_futures_position_risk(
+            recv_window=str(self.config.recv_window_ms),
+        )
+        return (
+            self._serialize_account_balances(account_info.assets),
+            self._serialize_position_risks(position_risks),
+        )
+
+    def fetch_account_snapshot(self) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+        """同步拉取 Binance 账户余额和持仓快照."""
+        return self._run_async_blocking(self.fetch_account_snapshot_async())
+
+    def fetch_balance(self) -> list[dict[str, str]]:
+        """兼容接口：返回账户余额快照."""
+        balances, _positions = self.fetch_account_snapshot()
+        return balances
+
+    def fetch_positions(self) -> list[dict[str, str]]:
+        """兼容接口：返回持仓快照."""
+        _balances, positions = self.fetch_account_snapshot()
+        return positions
+
+    async def fetch_open_orders_async(self, symbol: str | None = None) -> list[dict[str, str]]:
+        """异步拉取 Binance 当前挂单."""
+        account_api = self._build_account_http_api()
+        open_orders = await account_api.query_open_orders(
+            symbol=symbol,
+            recv_window=str(self.config.recv_window_ms),
+        )
+        return self._serialize_open_orders(open_orders)
+
+    def fetch_open_orders(self, symbol: str | None = None) -> list[dict[str, str]]:
+        """同步拉取 Binance 当前挂单."""
+        return self._run_async_blocking(self.fetch_open_orders_async(symbol=symbol))
+
+    async def query_hedge_mode_async(self) -> bool:
+        """异步查询 Binance Futures 是否启用 Hedge Mode."""
+        account_api = self._build_account_http_api()
+        response = await account_api.query_futures_hedge_mode(
+            recv_window=str(self.config.recv_window_ms),
+        )
+        self._hedge_mode = bool(response.dualSidePosition)
+        return self._hedge_mode
+
+    def query_hedge_mode(self) -> bool:
+        """同步查询 Binance Futures 是否启用 Hedge Mode."""
+        return bool(self._run_async_blocking(self.query_hedge_mode_async()))
+
+    def prepare_runtime_config(self) -> None:
+        """按真实账户模式修正运行期配置."""
+        try:
+            self._hedge_mode = self.query_hedge_mode()
+        except Exception as exc:
+            logger.warning("binance_adapter_hedge_mode_probe_failed", error=str(exc))
+            return
+
+        if self._hedge_mode and self.config.use_reduce_only:
+            self.config.use_reduce_only = False
+            logger.warning(
+                "binance_adapter_reduce_only_disabled_for_hedge_mode",
+                environment=self.config.environment.value,
+            )
+        else:
+            logger.info(
+                "binance_adapter_runtime_config_ready",
+                hedge_mode=self._hedge_mode,
+                use_reduce_only=self.config.use_reduce_only,
+            )
 
     # ------------------------------------------------------------------
     # 内部：解析凭证
@@ -260,7 +387,18 @@ class BinanceAdapter:
             BinanceEnvironment.TESTNET: "BINANCE_TESTNET_API_KEY",
             BinanceEnvironment.DEMO: "BINANCE_DEMO_API_KEY",
         }
-        return os.environ.get(env_map[self.config.environment])
+        env_value = os.environ.get(env_map[self.config.environment])
+        if env_value:
+            return env_value
+        try:
+            settings = EnvSettings()
+        except Exception:
+            return None
+        if self.config.environment == BinanceEnvironment.TESTNET:
+            return settings.binance_testnet_api_key or None
+        if self.config.environment == BinanceEnvironment.DEMO:
+            return settings.binance_demo_api_key or None
+        return settings.binance_api_key or None
 
     def _resolve_api_secret(self) -> str | None:
         """解析 API Secret，优先 config，其次按环境读取标准环境变量.
@@ -275,7 +413,18 @@ class BinanceAdapter:
             BinanceEnvironment.TESTNET: "BINANCE_TESTNET_API_SECRET",
             BinanceEnvironment.DEMO: "BINANCE_DEMO_API_SECRET",
         }
-        return os.environ.get(env_map[self.config.environment])
+        env_value = os.environ.get(env_map[self.config.environment])
+        if env_value:
+            return env_value
+        try:
+            settings = EnvSettings()
+        except Exception:
+            return None
+        if self.config.environment == BinanceEnvironment.TESTNET:
+            return settings.binance_testnet_api_secret or None
+        if self.config.environment == BinanceEnvironment.DEMO:
+            return settings.binance_demo_api_secret or None
+        return settings.binance_api_secret or None
 
     # ------------------------------------------------------------------
     # 内部：构建配置
@@ -397,6 +546,98 @@ class BinanceAdapter:
             risk_engine=LiveRiskEngineConfig(**risk_engine_defaults),
             logging=LoggingConfig(**logging_defaults),
         )
+
+    def _build_account_http_api(self) -> BinanceFuturesAccountHttpAPI:
+        api_key = self._resolve_api_key()
+        api_secret = self._resolve_api_secret()
+        if not api_key or not api_secret:
+            raise RuntimeError("Binance API credentials are required for account snapshot queries.")
+
+        http_client = BinanceHttpClient(
+            clock=LiveClock(),
+            api_key=api_key,
+            api_secret=api_secret,
+            base_url=self.config.base_url_http or get_http_base_url(
+                account_type=self.config.account_type,
+                environment=self.config.environment,
+                is_us=False,
+            ),
+            proxy_url=self.config.proxy_url,
+        )
+        return BinanceFuturesAccountHttpAPI(
+            client=http_client,
+            clock=LiveClock(),
+            account_type=self.config.account_type,
+        )
+
+    @staticmethod
+    def _serialize_account_balances(balances: list[Any]) -> list[dict[str, str]]:
+        return [
+            {
+                "asset": str(balance.asset),
+                "walletBalance": str(balance.walletBalance),
+                "availableBalance": str(balance.availableBalance),
+                "unrealizedProfit": str(balance.unrealizedProfit),
+            }
+            for balance in balances
+            if str(balance.walletBalance) != "0"
+        ]
+
+    @staticmethod
+    def _serialize_position_risks(position_risks: list[Any]) -> list[dict[str, str]]:
+        return [
+            {
+                "symbol": str(position.symbol),
+                "positionSide": str(getattr(position.positionSide, "value", position.positionSide)),
+                "positionAmt": str(position.positionAmt),
+                "entryPrice": str(position.entryPrice),
+                "unrealizedProfit": str(position.unRealizedProfit),
+                "leverage": str(position.leverage or "1"),
+            }
+            for position in position_risks
+            if str(position.positionAmt) not in {"0", "0.0", "0.00000000"}
+        ]
+
+    @staticmethod
+    def _serialize_open_orders(open_orders: list[Any]) -> list[dict[str, str]]:
+        return [
+            {
+                "symbol": str(order.symbol),
+                "clientOrderId": str(order.clientOrderId),
+                "orderId": str(order.orderId),
+                "status": str(getattr(order.status, "value", order.status or "")),
+                "side": str(getattr(order.side, "value", order.side or "")),
+                "type": str(getattr(order.type, "value", order.type or "")),
+                "positionSide": str(order.positionSide or "BOTH"),
+                "reduceOnly": str(bool(order.reduceOnly)),
+            }
+            for order in open_orders
+        ]
+
+    @staticmethod
+    def _run_async_blocking(coro: Any) -> Any:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+
+        result: dict[str, Any] = {}
+        error: dict[str, BaseException] = {}
+
+        def _runner() -> None:
+            try:
+                result["value"] = asyncio.run(coro)
+            except BaseException as exc:  # pragma: no cover - defensive branch
+                error["value"] = exc
+
+        thread = threading.Thread(target=_runner, name="BinanceAdapterAsyncBridge", daemon=True)
+        thread.start()
+        thread.join()
+
+        if "value" in error:
+            raise error["value"]
+
+        return result.get("value")
 
 
 # ---------------------------------------------------------------------------

@@ -45,6 +45,11 @@ def recovery_mgr(snapshot_mgr):
     return RecoveryManager(snapshot_mgr=snapshot_mgr)
 
 
+@pytest.fixture
+def recovery_mgr_with_reconciler(snapshot_mgr, reconciler):
+    return RecoveryManager(snapshot_mgr=snapshot_mgr, reconciler=reconciler)
+
+
 # ---------------------------------------------------------------------------
 # ReconciliationEngine — 完全匹配场景
 # ---------------------------------------------------------------------------
@@ -198,6 +203,27 @@ class TestRecoveryManager:
         result = recovery_mgr.recover()
         assert result is None
 
+    def test_recover_cold_starts_from_exchange_truth(self, recovery_mgr):
+        result = recovery_mgr.recover(
+            exchange_positions=[
+                {
+                    "instrument_id": "ETHUSDC-PERP.BINANCE",
+                    "side": "LONG",
+                    "quantity": "0.165",
+                    "entry_price": "2400.3",
+                    "unrealized_pnl": "-51.4",
+                    "leverage": "1",
+                }
+            ],
+            account_balance="1234.56",
+        )
+
+        assert result is not None
+        assert len(result.positions) == 1
+        assert result.account_balance == "1234.56"
+        assert result.metadata["recovery_source"] == "exchange_truth"
+        assert result.metadata["recovery_action"] == "cold_start_from_exchange"
+
     def test_recover_loads_latest_snapshot(self, recovery_mgr, snapshot_mgr):
         """有快照时，recover() 返回最新快照内容。"""
         snapshot = SystemSnapshot(
@@ -267,6 +293,115 @@ class TestRecoveryManager:
         # 应加载到 latest（snap2）
         assert result is not None
         assert result.account_balance == "9999"
+
+    def test_recover_with_matching_exchange_positions_confirms_snapshot(
+        self,
+        recovery_mgr_with_reconciler,
+        snapshot_mgr,
+    ):
+        snapshot = SystemSnapshot(
+            positions=[
+                PositionSnapshot(
+                    instrument_id="BTCUSDT-PERP.BINANCE",
+                    side="LONG",
+                    quantity="0.01",
+                    avg_entry_price="50000",
+                    unrealized_pnl="0",
+                    realized_pnl="0",
+                )
+            ],
+            account_balance="10000",
+        )
+        snapshot_mgr.save(snapshot)
+
+        result = recovery_mgr_with_reconciler.recover(
+            exchange_positions=[
+                {
+                    "instrument_id": "BTCUSDT-PERP.BINANCE",
+                    "side": "LONG",
+                    "quantity": "0.01",
+                }
+            ]
+        )
+
+        assert result is not None
+        assert result.metadata["reconciliation_matched"] is True
+        assert result.metadata["needs_reconciliation"] is False
+        assert result.metadata["recovery_action"] == "snapshot_confirmed"
+
+    def test_recover_with_mismatch_replaces_positions_from_exchange(
+        self,
+        recovery_mgr_with_reconciler,
+        snapshot_mgr,
+    ):
+        snapshot = SystemSnapshot(
+            positions=[
+                PositionSnapshot(
+                    instrument_id="BTCUSDT-PERP.BINANCE",
+                    side="LONG",
+                    quantity="0.01",
+                    avg_entry_price="50000",
+                    unrealized_pnl="0",
+                    realized_pnl="0",
+                )
+            ],
+            account_balance="10000",
+        )
+        snapshot_mgr.save(snapshot)
+
+        result = recovery_mgr_with_reconciler.recover(
+            exchange_positions=[
+                {
+                    "instrument_id": "BTCUSDT-PERP.BINANCE",
+                    "side": "LONG",
+                    "quantity": "0.02",
+                    "entry_price": "50010",
+                    "unrealized_pnl": "10",
+                }
+            ]
+        )
+
+        assert result is not None
+        assert result.metadata["reconciliation_matched"] is False
+        assert result.metadata["recovery_source"] == "exchange_truth"
+        assert result.metadata["recovery_action"] == "positions_replaced_from_exchange"
+
+    def test_recover_mismatch_does_not_publish_risk_alert(
+        self,
+        recovery_mgr_with_reconciler,
+        snapshot_mgr,
+        event_bus,
+    ):
+        snapshot = SystemSnapshot(
+            positions=[
+                PositionSnapshot(
+                    instrument_id="BTCUSDT-PERP.BINANCE",
+                    side="LONG",
+                    quantity="0.01",
+                    avg_entry_price="50000",
+                    unrealized_pnl="0",
+                    realized_pnl="0",
+                )
+            ],
+        )
+        snapshot_mgr.save(snapshot)
+        alerts = []
+        event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
+
+        result = recovery_mgr_with_reconciler.recover(
+            exchange_positions=[
+                {
+                    "instrument_id": "ETHUSDC-PERP.BINANCE",
+                    "side": "LONG",
+                    "quantity": "0.165",
+                }
+            ]
+        )
+
+        assert alerts == []
+        assert result is not None
+        assert result.positions[0].instrument_id == "ETHUSDC-PERP.BINANCE"
+        assert result.positions[0].quantity == "0.165"
 
 
 # ---------------------------------------------------------------------------

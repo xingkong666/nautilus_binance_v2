@@ -85,7 +85,18 @@ class TelegramNotifier(BaseNotifier):
             "disable_web_page_preview": True,
         }
 
-        resp = httpx.post(self._url, json=payload, timeout=self._timeout)
+        try:
+            resp = httpx.post(self._url, json=payload, timeout=self._timeout)
+        except ImportError as exc:
+            if "socksio" not in str(exc):
+                raise
+            logger.warning("telegram_proxy_fallback_direct", reason="missing_socksio")
+            resp = httpx.post(
+                self._url,
+                json=payload,
+                timeout=self._timeout,
+                trust_env=False,
+            )
         resp.raise_for_status()
 
         logger.debug("telegram_sent", chat_id=self._chat_id, rule=alert.rule_name)

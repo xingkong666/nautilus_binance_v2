@@ -44,6 +44,10 @@ class EnvSettings(BaseSettings):
     env: str = "dev"
     binance_api_key: str = ""
     binance_api_secret: str = ""
+    binance_testnet_api_key: str = ""
+    binance_testnet_api_secret: str = ""
+    binance_demo_api_key: str = ""
+    binance_demo_api_secret: str = ""
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     prometheus_port: int = 9090
@@ -78,6 +82,14 @@ class MonitoringConfig(BaseModel):
     enabled: bool = False
     prometheus_port: int = 9090
     alerting: dict[str, Any] = {}
+
+
+class LiveConfig(BaseModel):
+    """实盘启动配置."""
+
+    strategy_config: str = ""
+    symbol: str = ""
+    timeout_seconds: float = 0.0
 
 
 class AccountConfig(BaseModel):
@@ -128,7 +140,9 @@ class AppConfig(BaseModel):
     risk: RiskConfig = RiskConfig()
     execution: ExecutionConfig = ExecutionConfig()
     monitoring: MonitoringConfig = MonitoringConfig()
+    live: LiveConfig = LiveConfig()
     account: AccountConfig = AccountConfig()
+    exchange: dict[str, Any] = {}
     strategies: dict[str, Any] = {}
 
 
@@ -171,5 +185,8 @@ def load_app_config(env: str | None = None) -> AppConfig:
         risk=RiskConfig(**merged_risk) if merged_risk else RiskConfig(),
         execution=ExecutionConfig(**exec_cfg) if exec_cfg else ExecutionConfig(),
         monitoring=MonitoringConfig(**merged_monitoring) if merged_monitoring else MonitoringConfig(),
+        live=LiveConfig(**env_cfg.get("live", {})) if env_cfg.get("live") else LiveConfig(),
         account=AccountConfig(**account_cfg) if account_cfg else AccountConfig(),
+        exchange=dict(env_cfg.get("exchange", {})),
+        strategies=dict(env_cfg.get("strategies", {})),
     )

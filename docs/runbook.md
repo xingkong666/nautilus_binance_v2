@@ -10,20 +10,33 @@
 
 ```bash
 # Testnet（开发 / 验证）
-uv run python -m src.app.bootstrap --env configs/env/dev.yaml
+uv run python -m src.app.bootstrap \
+  --env configs/env/dev.yaml \
+  --strategy-config configs/strategies/vegas_tunnel.yaml \
+  --symbol BTCUSDT
 
 # 生产
-uv run python -m src.app.bootstrap --env configs/env/prod.yaml
+uv run python -m src.app.bootstrap \
+  --env configs/env/prod.yaml \
+  --strategy-config configs/strategies/vegas_tunnel.yaml \
+  --symbol BTCUSDT
 ```
 
 启动时会依次执行：
 
 1. 配置加载 & 校验
 2. 数据库初始化（SQLite）
-3. 快照加载（如存在）
-4. 对账（本地状态 vs 交易所）
-5. TradingNode 启动 & 行情订阅
-6. Supervisor 进入 RUNNING 状态
+3. 查询账户模式（若为 Hedge Mode，自动关闭 `reduce_only`）
+4. 拉取交易所余额 / 持仓 / open orders
+5. 按环境加载快照（`snapshots/dev`、`snapshots/prod` 等）
+6. 恢复状态并标记有外部活动的交易对为 ignored
+7. TradingNode 启动 & 行情订阅
+8. Supervisor 进入 RUNNING 状态
+
+补充说明：
+
+1. 若某交易对在启动时已存在外部持仓或外部挂单，本系统会忽略该交易对，不再继续下单。
+2. `ignored` 是运行期保护，不会自动替你撤销外部挂单或平掉外部持仓。
 
 ### 优雅停止
 
@@ -37,7 +50,7 @@ kill -SIGTERM <pid>
 
 1. Supervisor 停止接受新信号
 2. 等待在途订单完成（超时 30s 强制取消）
-3. 持仓快照写盘
+3. 持仓 / open orders 快照写盘
 4. TradingNode 优雅 dispose
 5. 监控服务停止
 
@@ -146,6 +159,11 @@ uv run python scripts/smoke_testnet.py
 1. 脚本在平仓成交后会主动触发节点停止，并在主流程统一 `dispose`，用于避免事件循环提前停止报错。
 2. 若日志出现 `Residual Position(...)`，通常是测试账户里已有历史仓位，不代表本次冒烟单未平。
 
+补充说明（2026-03-15 更新）：
+
+1. Testnet 与 prod 快照目录已按环境隔离，避免测试环境状态污染生产恢复。
+2. 若测试账户本身存在外部持仓或外部挂单，对应交易对会在 live 启动时被自动忽略。
+
 ## Testnet 模拟盘（真实策略）
 
 按策略 YAML 在 Testnet 直接运行：
@@ -239,7 +257,10 @@ export NO_PROXY=127.0.0.1,localhost
 
 ```bash
 # 直接重启，Container 会自动从快照恢复
-uv run python -m src.app.bootstrap --env configs/env/prod.yaml
+uv run python -m src.app.bootstrap \
+  --env configs/env/prod.yaml \
+  --strategy-config configs/strategies/vegas_tunnel.yaml \
+  --symbol BTCUSDT
 ```
 
 启动日志中查找：
@@ -247,9 +268,14 @@ uv run python -m src.app.bootstrap --env configs/env/prod.yaml
 ```
 [Recovery] Loaded snapshot from disk: ...
 [Reconciliation] Local vs Exchange diff: ...
+[Ignored] instrument marked ignored due to external activity: ...
 ```
 
-如果对账发现不一致，会发出 `CRITICAL` 告警并打印差异明细，**人工确认**后才会继续。
+当前恢复行为：
+
+1. 若本地无快照，会直接用交易所真值冷启动。
+2. 若本地快照与交易所不一致，会以交易所真值覆盖本地仓位。
+3. 若发现外部持仓或外部挂单，对应交易对会被加入 ignored 列表，本系统后续不会再对其下单。
 
 ### 熔断触发
 
@@ -277,8 +303,23 @@ Telegram 收到告警：`🔴 对账不一致: position mismatch on BTCUSDT-PERP
 
 1. 查看日志中的差异明细
 2. 登录 Binance 确认实际持仓
-3. 以交易所为准，手动修正本地状态（或平掉多余仓位）
-4. 重启节点重新对账
+3. 确认该交易对是否属于人工/其他系统管理
+4. 若属于外部管理，保持 ignored 状态，不要让本系统继续参与
+5. 若不属于外部管理，先清理外部仓位 / 挂单，再重启节点重新对账
+
+### 外部下单 / 外部挂单
+
+症状：
+
+- 启动日志出现 `instrument_ignored_external_activity`
+- 或信号被拒绝，日志出现 `signal_rejected_ignored_instrument`
+
+处理流程：
+
+1. 在 Binance 确认该交易对是否存在人工或其他系统的持仓 / 挂单。
+2. 若确认是外部交易，保持当前 ignored 状态，不要强行恢复本系统下单。
+3. 若要恢复本系统控制，先撤掉外部挂单、平掉外部持仓。
+4. 重启节点，让系统重新做启动恢复与交易对过滤。
 
 ### API Key 失效
 

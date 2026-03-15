@@ -82,12 +82,28 @@ class HealthServer:
 
     def __init__(self, port: int = 8080) -> None:
         self._port = port
+        self._server: HTTPServer | None = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+
         def _run() -> None:
             server = HTTPServer(("0.0.0.0", self._port), _HealthHandler)
+            self._server = server
             logger.info("health_server_started", port=self._port)
             server.serve_forever()
 
-        thread = threading.Thread(target=_run, daemon=True)
-        thread.start()
+        self._thread = threading.Thread(target=_run, daemon=True)
+        self._thread.start()
+
+    def stop(self, timeout: float = 5.0) -> None:
+        if self._server is not None:
+            self._server.shutdown()
+            self._server.server_close()
+            self._server = None
+        if self._thread is not None:
+            self._thread.join(timeout=timeout)
+            self._thread = None
+        logger.info("health_server_stopped", port=self._port)
