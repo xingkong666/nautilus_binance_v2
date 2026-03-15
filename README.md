@@ -214,7 +214,7 @@ docker compose up -d
 | 包 | 版本要求 |
 |---|---|
 | Python | >= 3.13 |
-| nautilus_trader | >= 1.223.0 |
+| nautilus_trader | >= 1.224.0 |
 | pydantic | >= 2.12.5 |
 | prometheus-client | >= 0.24.1 |
 

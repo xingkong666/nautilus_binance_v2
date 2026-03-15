@@ -328,8 +328,8 @@ curl http://localhost:8080/health | jq .
 ### 升级 nautilus_trader
 
 ```bash
-# 更新 pyproject.toml 中版本约束
-# 然后
+# 更新 pyproject.toml 中版本约束到 1.224.0
+uv lock --upgrade-package nautilus-trader
 uv sync
 
 # 跑全量测试确认兼容性
