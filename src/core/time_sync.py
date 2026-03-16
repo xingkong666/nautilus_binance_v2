@@ -21,6 +21,7 @@ async def check_binance_time_offset() -> int:
 
     Returns:
         偏差毫秒数 (正=本地快, 负=本地慢)
+
     """
     async with httpx.AsyncClient() as client:
         local_before_ms = int(time.time() * 1000)

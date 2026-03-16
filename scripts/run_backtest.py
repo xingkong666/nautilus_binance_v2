@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""回测运行脚本.
+r"""回测运行脚本.
 
 从 ParquetDataCatalog 加载历史数据，运行指定策略的回测，并输出报告。
 
@@ -67,6 +67,7 @@ def parse_args() -> argparse.Namespace:
             - save (bool): 是否保存报告到文件。
             - output_dir (str | None): 报告输出目录。
             - env (str | None): 配置环境标识。
+
     """
     parser = argparse.ArgumentParser(description="NautilusTrader 回测运行脚本")
 
@@ -227,7 +228,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_bar_type(symbol: str, interval: Interval) -> tuple[InstrumentId, BarType]:
-    """按交易对和周期构建 instrument_id 与 bar_type."""
+    """按交易对和周期构建 instrument_id 与 bar_type.
+
+    Args:
+        symbol: Trading symbol to process.
+        interval: Time interval used by the operation.
+    """
     instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
     nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
     if interval == Interval.MINUTE_1:
@@ -244,7 +250,13 @@ def build_strategy(
     symbol: str,
     interval: Interval,
 ) -> tuple[type[BaseStrategy], BaseStrategyConfig]:
-    """根据参数构建策略类与策略配置."""
+    """根据参数构建策略类与策略配置.
+
+    Args:
+        args: Parsed command-line arguments or runtime options.
+        symbol: Trading symbol to process.
+        interval: Time interval used by the operation.
+    """
     instrument_id, bar_type = build_bar_type(symbol, interval)
     sizing_leverage = args.sizing_leverage if args.sizing_leverage is not None else args.leverage
 
@@ -367,6 +379,7 @@ def main() -> None:
     Raises:
         ValueError: 日期参数不合法，或 catalog 中无对应数据。
         SystemExit: argparse 参数错误时自动触发。
+
     """
     args = parse_args()
     setup_logging(level="WARNING")  # 回测时减少日志噪音
@@ -410,11 +423,7 @@ def main() -> None:
     print(f"  Balance  : {args.balance:,} USDT  Leverage: {args.leverage}x")
     if args.margin_pct_per_trade is not None and args.margin_pct_per_trade > 0:
         sizing_leverage = args.sizing_leverage if args.sizing_leverage is not None else args.leverage
-        print(
-            "  Sizing   : "
-            f"margin_pct_per_trade={args.margin_pct_per_trade}% "
-            f"sizing_leverage={sizing_leverage}x"
-        )
+        print(f"  Sizing   : margin_pct_per_trade={args.margin_pct_per_trade}% sizing_leverage={sizing_leverage}x")
     elif args.gross_exposure_pct_per_trade is not None and args.gross_exposure_pct_per_trade > 0:
         print(f"  Sizing   : gross_exposure_pct_per_trade={args.gross_exposure_pct_per_trade}%")
     elif args.capital_pct_per_trade is not None and args.capital_pct_per_trade > 0:
@@ -423,11 +432,7 @@ def main() -> None:
         print(f"  Sizing   : fixed trade_size={args.trade_size}")
     if args.strategy == "ema_cross":
         print(f"  EMA      : fast={args.fast_ema}  slow={args.slow_ema}")
-        print(
-            "  Filter   : "
-            f"min_atr_ratio={args.entry_min_atr_ratio} "
-            f"cooldown_bars={args.signal_cooldown_bars}"
-        )
+        print(f"  Filter   : min_atr_ratio={args.entry_min_atr_ratio} cooldown_bars={args.signal_cooldown_bars}")
     elif args.strategy == "ema_pullback_atr":
         print(f"  EMA      : fast={args.fast_ema}  slow={args.slow_ema}")
         print(

@@ -23,6 +23,11 @@ class PositionSizer:
     """
 
     def __init__(self, config: dict[str, Any]) -> None:
+        """Initialize the position sizer.
+
+        Args:
+            config: Configuration values for the component.
+        """
         self._mode = config.get("mode", "fixed")
         self._fixed_size = Decimal(str(config.get("fixed_size", "0.01")))
         self._risk_pct = config.get("risk_pct", 1.0)  # 每笔风险占总资金的百分比
@@ -45,6 +50,7 @@ class PositionSizer:
 
         Returns:
             交易数量
+
         """
         if self._mode == "fixed":
             size = self._fixed_size

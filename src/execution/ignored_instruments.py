@@ -20,6 +20,11 @@ class IgnoredInstrumentRegistry:
     """线程安全的交易对忽略注册表."""
 
     def __init__(self, event_bus: EventBus) -> None:
+        """Initialize the ignored instrument registry.
+
+        Args:
+            event_bus: Event bus used for cross-module communication.
+        """
         self._event_bus = event_bus
         self._ignored: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
@@ -31,6 +36,17 @@ class IgnoredInstrumentRegistry:
         source: str,
         details: dict[str, Any] | None = None,
     ) -> bool:
+        """Run ignore.
+
+        Args:
+            instrument_id: Identifier for instrument.
+            reason: Reason.
+            source: Source.
+            details: Details.
+
+        Returns:
+            bool: Whether the condition is met.
+        """
         normalized = str(instrument_id).strip()
         if not normalized:
             return False
@@ -67,14 +83,35 @@ class IgnoredInstrumentRegistry:
         return True
 
     def is_ignored(self, instrument_id: str) -> bool:
+        """Return whether ignored.
+
+        Args:
+            instrument_id: Identifier for instrument.
+
+        Returns:
+            bool: Whether the condition is met.
+        """
         with self._lock:
             return str(instrument_id).strip() in self._ignored
 
     def get(self, instrument_id: str) -> dict[str, Any] | None:
+        """Run get.
+
+        Args:
+            instrument_id: Identifier for instrument.
+
+        Returns:
+            dict[str, Any]: Dictionary representation of the result.
+        """
         with self._lock:
             value = self._ignored.get(str(instrument_id).strip())
             return dict(value) if value is not None else None
 
     def items(self) -> dict[str, dict[str, Any]]:
+        """Run items.
+
+        Returns:
+            dict[str, dict[str, Any]]: Dictionary representation of the result.
+        """
         with self._lock:
             return {key: dict(value) for key, value in self._ignored.items()}

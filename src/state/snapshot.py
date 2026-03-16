@@ -21,6 +21,14 @@ class DecimalEncoder(json.JSONEncoder):
     """支持 Decimal 的 JSON 编码器."""
 
     def default(self, o: Any) -> Any:
+        """Run default.
+
+        Args:
+            o: O.
+
+        Returns:
+            Any: Result of default.
+        """
         if isinstance(o, Decimal):
             return str(o)
         return super().default(o)
@@ -55,11 +63,20 @@ class SnapshotManager:
     """状态快照管理器."""
 
     def __init__(self, snapshot_dir: Path) -> None:
+        """Initialize the snapshot manager.
+
+        Args:
+            snapshot_dir: Directory for snapshot.
+        """
         self._snapshot_dir = snapshot_dir
         self._snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     def save(self, snapshot: SystemSnapshot) -> Path:
-        """保存快照到磁盘."""
+        """保存快照到磁盘.
+
+        Args:
+            snapshot: Snapshot payload to persist.
+        """
         filename = f"snapshot_{snapshot.timestamp_ns}.json"
         filepath = self._snapshot_dir / filename
         with open(filepath, "w") as f:
@@ -96,7 +113,11 @@ class SnapshotManager:
         )
 
     def cleanup(self, keep_count: int = 10) -> None:
-        """清理旧快照, 只保留最近 N 个."""
+        """清理旧快照, 只保留最近 N 个.
+
+        Args:
+            keep_count: Number of historical snapshots to retain.
+        """
         snapshots = sorted(self._snapshot_dir.glob("snapshot_*.json"))
         for old in snapshots[:-keep_count]:
             old.unlink()

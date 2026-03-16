@@ -51,6 +51,12 @@ class TurtleStrategy(BaseStrategy):
     """Donchian 突破 + ATR 风控的海龟策略."""
 
     def __init__(self, config: TurtleConfig, event_bus: EventBus | None = None) -> None:
+        """Initialize the turtle strategy.
+
+        Args:
+            config: Configuration values for the component.
+            event_bus: Event bus used for cross-module communication.
+        """
         super().__init__(config, event_bus)
         if self._atr_indicator is None:
             self._atr_indicator = AverageTrueRange(config.atr_period)
@@ -70,6 +76,14 @@ class TurtleStrategy(BaseStrategy):
         """仅依赖 ATR 指标."""
 
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
+        """Generate signal.
+
+        Args:
+            bar: Bar data for the current evaluation.
+
+        Returns:
+            SignalDirection: Result of generate signal.
+        """
         self._pending_order = None
 
         if self._atr_indicator is None or not self._atr_indicator.initialized:
@@ -327,6 +341,7 @@ class TurtleStrategy(BaseStrategy):
         self.submit_order(order)
 
     def on_reset(self) -> None:
+        """Run on reset."""
         if self._atr_indicator is not None:
             self._atr_indicator.reset()
 

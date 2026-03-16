@@ -57,6 +57,7 @@ class BacktestConfig:
         trader_id: Nautilus trader_id 标识。
         bypass_logging: 是否关闭 Nautilus 内部日志（加速回测）。
         run_analysis: 是否在回测结束后运行性能分析。
+
     """
 
     start: dt.date
@@ -96,6 +97,7 @@ class BacktestRunner:
         Args:
             app_config: 应用配置（含 catalog_dir 等路径）。
             backtest_config: 回测参数配置。
+
         """
         self._app_cfg = app_config
         self._bt_cfg = backtest_config
@@ -118,6 +120,7 @@ class BacktestRunner:
         Raises:
             ValueError: catalog 中找不到所需 instrument 或数据为空。
             RuntimeError: BacktestEngine 运行异常。
+
         """
         bt = self._bt_cfg
         logger.info(
@@ -139,7 +142,12 @@ class BacktestRunner:
         strategy_specs: list[tuple[type[BaseStrategy], BaseStrategyConfig]],
         metadata: dict[str, Any] | None = None,
     ) -> BacktestRunResult:
-        """执行多策略回测."""
+        """执行多策略回测.
+
+        Args:
+            strategy_specs: Strategy specifications to execute in batch.
+            metadata: Additional metadata attached to the run.
+        """
         bt = self._bt_cfg
         if not strategy_specs:
             raise ValueError("strategy_specs 不能为空")
@@ -198,6 +206,7 @@ class BacktestRunner:
 
         Returns:
             配置好 venue 的 BacktestEngine 实例。
+
         """
         engine_cfg = BacktestEngineConfig(
             trader_id=self._bt_cfg.trader_id,
@@ -238,6 +247,7 @@ class BacktestRunner:
 
         Raises:
             ValueError: 某 symbol 在 catalog 中不存在。
+
         """
         all_instruments: list[CryptoPerpetual] = self._catalog.instruments()
         instrument_map = {inst.raw_symbol.value: inst for inst in all_instruments}
@@ -247,8 +257,7 @@ class BacktestRunner:
             inst = instrument_map.get(symbol)
             if inst is None:
                 raise ValueError(
-                    f"Instrument '{symbol}' not found in catalog. "
-                    f"Available: {list(instrument_map.keys())}"
+                    f"Instrument '{symbol}' not found in catalog. Available: {list(instrument_map.keys())}"
                 )
             result.append(inst)
 
@@ -265,6 +274,7 @@ class BacktestRunner:
 
         Returns:
             成功加载的 Bar 总条数。
+
         """
         bt = self._bt_cfg
 
@@ -310,6 +320,7 @@ class BacktestRunner:
 
         Returns:
             包含各类报告 DataFrame 的字典，键为报告名称。
+
         """
         trader = engine.trader
         reports: dict[str, Any] = {}
@@ -372,6 +383,7 @@ class BacktestRunner:
 
         Returns:
             对应的 UTC datetime 对象。
+
         """
         if end_of_day:
             return dt.datetime.combine(date, dt.time(23, 59, 59), tzinfo=dt.UTC)
@@ -387,6 +399,7 @@ class BacktestRunner:
 
         Returns:
             Unix 纳秒时间戳（int）。
+
         """
         d = BacktestRunner._to_datetime(date, end_of_day)
         return int(d.timestamp() * 1_000_000_000)
@@ -405,6 +418,7 @@ class BacktestRunResult:
         result: Nautilus 原始 BacktestResult，含 stats_pnls / stats_returns 等统计。
         reports: 各类报告 DataFrame，键: orders / order_fills / positions / account。
         config: 本次回测的参数配置。
+
     """
 
     result: Any  # nautilus_trader.backtest.results.BacktestResult

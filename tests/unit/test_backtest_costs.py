@@ -1,3 +1,5 @@
+"""Tests for test backtest costs."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -61,6 +63,11 @@ def _make_analyzer(tmp_path) -> BacktestCostAnalyzer:
 
 
 def test_cost_analyzer_uses_reported_commissions_without_double_counting(tmp_path) -> None:
+    """Verify that cost analyzer uses reported commissions without double counting.
+
+    Args:
+        tmp_path: Path for tmp.
+    """
     analyzer = _make_analyzer(tmp_path)
     reports = _make_reports("['0.04000000 USDT']")
 
@@ -77,6 +84,11 @@ def test_cost_analyzer_uses_reported_commissions_without_double_counting(tmp_pat
 
 
 def test_cost_analyzer_falls_back_to_modeled_fee_when_report_missing(tmp_path) -> None:
+    """Verify that cost analyzer falls back to modeled fee when report missing.
+
+    Args:
+        tmp_path: Path for tmp.
+    """
     analyzer = _make_analyzer(tmp_path)
     reports = _make_reports("")
 

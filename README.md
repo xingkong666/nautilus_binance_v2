@@ -118,19 +118,19 @@ uv run python scripts/run_backtest.py \
 # Testnet（标准 live 入口）
 uv run python -m src.app.bootstrap \
   --env configs/env/dev.yaml \
-  --strategy-config configs/strategies/vegas_tunnel.yaml \
-  --symbol BTCUSDT
+  --strategy-config configs/strategies/vegas_tunnel.yaml
 
 # 生产（标准 live 入口）
 uv run python -m src.app.bootstrap \
   --env configs/env/prod.yaml \
-  --strategy-config configs/strategies/vegas_tunnel.yaml \
-  --symbol BTCUSDT
+  --strategy-config configs/strategies/vegas_tunnel.yaml
 ```
 
 当前 live 启动行为：
 
 - `bootstrap` 会实际启动 `TradingNode`、挂载策略并运行 live，不再只是初始化容器。
+- 未显式传 `--symbol/--symbols` 时，会从 `configs/instruments.yaml` 按 `market_cap_rank` / 文件顺序选取前 `live.universe_top_n` 个交易对，且默认排除稳定币 base asset。
+- 可用 `--symbols BTCUSDT ETHUSDT ...` 显式覆盖默认 universe；`--symbols` 优先级高于 `--symbol`。
 - 启动前会先查询账户模式；若账户为 Binance Hedge Mode，会自动关闭 `reduce_only`，避免启动时报错。
 - 启动前会拉取交易所真实持仓和 open orders，按环境隔离快照目录（`snapshots/dev`、`snapshots/prod` 等）做恢复。
 - 若发现某交易对存在外部持仓或外部挂单，该交易对会加入运行期忽略列表，后续本系统不会再对其下单。

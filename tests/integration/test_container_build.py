@@ -28,7 +28,11 @@ PG_URL = "postgresql://admin:Longmao!666@127.0.0.1:5432/nautilus_trader"
 
 
 def make_config(tmp_path: Path) -> AppConfig:
-    """构建测试用 AppConfig，使用临时目录避免污染。"""
+    """构建测试用 AppConfig，使用临时目录避免污染。.
+
+    Args:
+        tmp_path: Temporary filesystem path provided by pytest.
+    """
     return AppConfig(
         env="dev",
         data=DataConfig(
@@ -66,7 +70,11 @@ def make_config(tmp_path: Path) -> AppConfig:
 
 @pytest.fixture
 def tmp_container(tmp_path):
-    """返回已 build 的 Container，测试后自动 teardown。"""
+    """返回已 build 的 Container，测试后自动 teardown。.
+
+    Args:
+        tmp_path: Temporary filesystem path provided by pytest.
+    """
     cfg = make_config(tmp_path)
     c = Container(cfg)
     c.build()
@@ -80,15 +88,25 @@ def tmp_container(tmp_path):
 
 
 class TestContainerBuild:
+    """Test cases for container build."""
+
     def test_build_succeeds(self, tmp_path):
-        """Container.build() 不报错。"""
+        """Container.build() 不报错。.
+
+        Args:
+            tmp_path: Temporary filesystem path provided by pytest.
+        """
         cfg = make_config(tmp_path)
         c = Container(cfg)
         c.build()
         c.teardown()
 
     def test_double_build_is_idempotent(self, tmp_path):
-        """重复调用 build() 不报错，返回同一容器。"""
+        """重复调用 build() 不报错，返回同一容器。.
+
+        Args:
+            tmp_path: Temporary filesystem path provided by pytest.
+        """
         cfg = make_config(tmp_path)
         c = Container(cfg)
         c.build()
@@ -96,14 +114,22 @@ class TestContainerBuild:
         c.teardown()
 
     def test_access_before_build_raises(self, tmp_path):
-        """build() 前访问服务属性应抛出 RuntimeError。"""
+        """build() 前访问服务属性应抛出 RuntimeError。.
+
+        Args:
+            tmp_path: Temporary filesystem path provided by pytest.
+        """
         cfg = make_config(tmp_path)
         c = Container(cfg)
         with pytest.raises(RuntimeError, match="not built"):
             _ = c.event_bus
 
     def test_all_core_services_initialized(self, tmp_container):
-        """所有核心服务属性在 build 后非 None。"""
+        """所有核心服务属性在 build 后非 None。.
+
+        Args:
+            tmp_container: Tmp container.
+        """
         c = tmp_container
         assert c.event_bus is not None
         assert c.persistence is not None
@@ -117,21 +143,39 @@ class TestContainerBuild:
         assert c.alert_manager is not None
 
     def test_no_binance_adapter_in_dev(self, tmp_container):
-        """dev 环境且无 exchange 配置时，binance_adapter 为 None。"""
+        """Dev 环境且无 exchange 配置时，binance_adapter 为 None。.
+
+        Args:
+            tmp_container: Tmp container.
+        """
         assert tmp_container.binance_adapter is None
 
     def test_no_portfolio_allocator_when_not_configured(self, tmp_container):
-        """未配置 portfolio 节时，portfolio_allocator 为 None。"""
+        """未配置 portfolio 节时，portfolio_allocator 为 None。.
+
+        Args:
+            tmp_container: Tmp container.
+        """
         assert tmp_container.portfolio_allocator is None
 
     def test_health_server_none_when_monitoring_disabled(self, tmp_container):
-        """monitoring.enabled=False 时，health_server 为 None。"""
+        """monitoring.enabled=False 时，health_server 为 None。.
+
+        Args:
+            tmp_container: Tmp container.
+        """
         assert tmp_container.health_server is None
 
 
 class TestContainerWithPortfolio:
+    """Test cases for container with portfolio."""
+
     def test_portfolio_allocator_initialized(self, tmp_path):
-        """配置了 portfolio 节时，portfolio_allocator 正确初始化。"""
+        """配置了 portfolio 节时，portfolio_allocator 正确初始化。.
+
+        Args:
+            tmp_path: Temporary filesystem path provided by pytest.
+        """
         cfg = make_config(tmp_path)
         cfg.strategies["portfolio"] = {
             "mode": "equal",
@@ -149,7 +193,11 @@ class TestContainerWithPortfolio:
         c.teardown()
 
     def test_portfolio_allocator_mode(self, tmp_path):
-        """portfolio_allocator 的模式正确加载。"""
+        """portfolio_allocator 的模式正确加载。.
+
+        Args:
+            tmp_path: Temporary filesystem path provided by pytest.
+        """
         cfg = make_config(tmp_path)
         cfg.strategies["portfolio"] = {
             "mode": "weight",

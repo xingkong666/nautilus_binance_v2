@@ -20,24 +20,47 @@ class HealthStatus:
     """健康状态聚合器."""
 
     def __init__(self) -> None:
+        """Initialize the health status."""
         self._checks: dict[str, bool] = {}
         self._last_heartbeat_ns: int = 0
 
     def set_check(self, name: str, healthy: bool) -> None:
+        """Run set check.
+
+        Args:
+            name: Name.
+            healthy: Healthy.
+        """
         self._checks[name] = healthy
 
     def heartbeat(self) -> None:
+        """Run heartbeat."""
         self._last_heartbeat_ns = time.time_ns()
 
     @property
     def is_healthy(self) -> bool:
+        """Return whether healthy.
+
+        Returns:
+            bool: Whether the condition is met.
+        """
         return all(self._checks.values()) if self._checks else True
 
     @property
     def is_ready(self) -> bool:
+        """Return whether ready.
+
+        Returns:
+            bool: Whether the condition is met.
+        """
         return self.is_healthy and len(self._checks) > 0
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the object to dict.
+
+        Returns:
+            dict[str, Any]: Dictionary representation of the result.
+        """
         return {
             "healthy": self.is_healthy,
             "ready": self.is_ready,
@@ -51,6 +74,11 @@ _health_status = HealthStatus()
 
 
 def get_health_status() -> HealthStatus:
+    """Return health status.
+
+    Returns:
+        HealthStatus: Result of get health status.
+    """
     return _health_status
 
 
@@ -81,11 +109,17 @@ class HealthServer:
     """健康检查 HTTP 服务."""
 
     def __init__(self, port: int = 8080) -> None:
+        """Initialize the health server.
+
+        Args:
+            port: Port number for the server.
+        """
         self._port = port
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
+        """Run start."""
         if self._thread is not None and self._thread.is_alive():
             return
 
@@ -99,6 +133,11 @@ class HealthServer:
         self._thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
+        """Run stop.
+
+        Args:
+            timeout: Timeout in seconds.
+        """
         if self._server is not None:
             self._server.shutdown()
             self._server.server_close()

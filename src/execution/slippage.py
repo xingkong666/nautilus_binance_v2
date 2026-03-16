@@ -17,6 +17,11 @@ class SlippageModel:
     """滑点估算模型."""
 
     def __init__(self, config: dict[str, Any]) -> None:
+        """Initialize the slippage model.
+
+        Args:
+            config: Configuration values for the component.
+        """
         self._model_type = config.get("model", "fixed")
         self._fixed_bps = Decimal(str(config.get("fixed_bps", 2)))
 
@@ -35,6 +40,7 @@ class SlippageModel:
 
         Returns:
             估算滑点 (bps)
+
         """
         if self._model_type == "fixed":
             return self._fixed_bps
@@ -60,6 +66,7 @@ class SlippageModel:
 
         Returns:
             实际滑点 (bps)
+
         """
         if expected_price == 0:
             return 0.0

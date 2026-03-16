@@ -28,11 +28,17 @@ THREE_EQUAL = [
 
 
 def make_allocator(mode="equal", strategies=None, reserve_pct=5.0, **kwargs):
+    """Build allocator.
+
+    Args:
+        mode: Mode.
+        strategies: Strategies.
+        reserve_pct: Percent value for reserve.
+        **kwargs: Additional keyword arguments forwarded to the callable.
+    """
     if strategies is None:
         strategies = TWO_STRATEGIES
-    return PortfolioAllocator(
-        {"mode": mode, "reserve_pct": reserve_pct, "strategies": strategies, **kwargs}
-    )
+    return PortfolioAllocator({"mode": mode, "reserve_pct": reserve_pct, "strategies": strategies, **kwargs})
 
 
 # ---------------------------------------------------------------------------
@@ -41,15 +47,20 @@ def make_allocator(mode="equal", strategies=None, reserve_pct=5.0, **kwargs):
 
 
 class TestInit:
+    """Test cases for init."""
+
     def test_invalid_mode_raises(self):
+        """Verify that invalid mode raises."""
         with pytest.raises(ValueError, match="无效分配模式"):
             PortfolioAllocator({"mode": "unknown", "strategies": TWO_STRATEGIES})
 
     def test_empty_strategies_raises(self):
+        """Verify that empty strategies raises."""
         with pytest.raises(ValueError, match="strategies 列表不能为空"):
             PortfolioAllocator({"strategies": []})
 
     def test_valid_modes(self):
+        """Verify that valid modes."""
         for mode in ("equal", "weight", "risk_parity"):
             a = make_allocator(mode=mode)
             assert a._mode == mode
@@ -61,7 +72,10 @@ class TestInit:
 
 
 class TestEqualMode:
+    """Test cases for equal mode."""
+
     def test_equal_split(self):
+        """Verify that equal split."""
         allocator = make_allocator(mode="equal", strategies=THREE_EQUAL, reserve_pct=0.0)
         results = allocator.allocate(Decimal("3000"))
         totals = sum(r.allocated_capital for r in results.values())
@@ -71,6 +85,7 @@ class TestEqualMode:
             assert abs(r.allocated_capital - Decimal("1000.00")) < Decimal("0.05")
 
     def test_reserve_pct_reduces_deployable(self):
+        """Verify that reserve percent reduces deployable."""
         allocator = make_allocator(mode="equal", strategies=THREE_EQUAL, reserve_pct=10.0)
         results = allocator.allocate(Decimal("3000"))
         # 可部署 = 2700，每个约 900，允许舍入误差
@@ -78,6 +93,7 @@ class TestEqualMode:
             assert abs(r.allocated_capital - Decimal("900.00")) < Decimal("0.05")
 
     def test_returns_all_enabled_strategies(self):
+        """Verify that returns all enabled strategies."""
         allocator = make_allocator(mode="equal")
         results = allocator.allocate(Decimal("10000"))
         assert set(results.keys()) == {"ema_cross", "mean_revert"}
@@ -89,8 +105,11 @@ class TestEqualMode:
 
 
 class TestWeightMode:
+    """Test cases for weight mode."""
+
     def test_weight_proportional(self):
         # weight 2:1 → ema_cross 应拿 2/3，mean_revert 拿 1/3
+        """Verify that weight proportional."""
         allocator = make_allocator(mode="weight", reserve_pct=0.0)
         results = allocator.allocate(Decimal("3000"))
         ema = results["ema_cross"].allocated_capital
@@ -100,6 +119,7 @@ class TestWeightMode:
         assert abs(mr - Decimal("1000")) < Decimal("1")
 
     def test_max_allocation_pct_cap(self):
+        """Verify that max allocation percent cap."""
         strategies = [
             {"strategy_id": "s1", "weight": 10.0, "max_allocation_pct": 30.0},
             {"strategy_id": "s2", "weight": 1.0},
@@ -116,25 +136,30 @@ class TestWeightMode:
 
 
 class TestRiskParityMode:
+    """Test cases for risk parity mode."""
+
     def test_no_vol_fallback_to_equal(self):
+        """Verify that no vol fallback to equal."""
         allocator = make_allocator(mode="risk_parity", strategies=THREE_EQUAL, reserve_pct=0.0)
         results = allocator.allocate(Decimal("3000"))
         for r in results.values():
             assert abs(r.allocated_capital - Decimal("1000.00")) < Decimal("0.05")
 
     def test_higher_vol_gets_less_allocation(self):
+        """Verify that higher vol gets less allocation."""
         strategies = [
             {"strategy_id": "low_vol"},
             {"strategy_id": "high_vol"},
         ]
         allocator = make_allocator(mode="risk_parity", strategies=strategies, reserve_pct=0.0)
-        allocator.update_volatility("low_vol", 0.1)   # 10% vol → 权重 10
+        allocator.update_volatility("low_vol", 0.1)  # 10% vol → 权重 10
         allocator.update_volatility("high_vol", 0.5)  # 50% vol → 权重 2
         results = allocator.allocate(Decimal("12000"))
         # low_vol 权重 10/(10+2) ≈ 83%，high_vol ≈ 17%
         assert results["low_vol"].allocated_capital > results["high_vol"].allocated_capital
 
     def test_update_volatility_invalid_raises(self):
+        """Verify that update volatility invalid raises."""
         allocator = make_allocator(mode="risk_parity")
         with pytest.raises(ValueError, match="波动率必须为正数"):
             allocator.update_volatility("ema_cross", 0.0)
@@ -146,27 +171,29 @@ class TestRiskParityMode:
 
 
 class TestGetAvailableCapital:
+    """Test cases for get available capital."""
+
     def test_basic(self):
+        """Verify that basic."""
         allocator = make_allocator(mode="equal", strategies=TWO_STRATEGIES, reserve_pct=0.0)
         # 两个策略等分 10000 → 各 5000
         avail = allocator.get_available_capital("ema_cross", Decimal("10000"))
         assert avail == Decimal("5000.00")
 
     def test_margin_used_reduces_available(self):
+        """Verify that margin used reduces available."""
         allocator = make_allocator(mode="equal", strategies=TWO_STRATEGIES, reserve_pct=0.0)
-        avail = allocator.get_available_capital(
-            "ema_cross", Decimal("10000"), margin_used=Decimal("2000")
-        )
+        avail = allocator.get_available_capital("ema_cross", Decimal("10000"), margin_used=Decimal("2000"))
         assert avail == Decimal("3000.00")
 
     def test_margin_exceeds_allocation_clamps_to_zero(self):
+        """Verify that margin exceeds allocation clamps to zero."""
         allocator = make_allocator(mode="equal", strategies=TWO_STRATEGIES, reserve_pct=0.0)
-        avail = allocator.get_available_capital(
-            "ema_cross", Decimal("10000"), margin_used=Decimal("9999")
-        )
+        avail = allocator.get_available_capital("ema_cross", Decimal("10000"), margin_used=Decimal("9999"))
         assert avail == Decimal("0")
 
     def test_unknown_strategy_raises(self):
+        """Verify that unknown strategy raises."""
         allocator = make_allocator()
         with pytest.raises(KeyError, match="未知策略"):
             allocator.get_available_capital("nonexistent", Decimal("10000"))
@@ -178,6 +205,8 @@ class TestGetAvailableCapital:
 
 
 class TestRebalance:
+    """Test cases for rebalance."""
+
     def test_no_rebalance_within_threshold(self):
         """偏差 < 5% 不产生订单."""
         allocator = make_allocator(mode="equal", strategies=TWO_STRATEGIES, reserve_pct=0.0)
@@ -266,7 +295,10 @@ class TestRebalance:
 
 
 class TestDynamicEnable:
+    """Test cases for dynamic enable."""
+
     def test_disable_strategy_excludes_from_allocation(self):
+        """Verify that disable strategy excludes from allocation."""
         allocator = make_allocator(mode="equal", strategies=TWO_STRATEGIES)
         allocator.update_strategy_enabled("mean_revert", False)
         results = allocator.allocate(Decimal("10000"))
@@ -274,6 +306,7 @@ class TestDynamicEnable:
         assert "ema_cross" in results
 
     def test_unknown_strategy_raises(self):
+        """Verify that unknown strategy raises."""
         allocator = make_allocator()
         with pytest.raises(KeyError, match="未知策略"):
             allocator.update_strategy_enabled("ghost", True)
@@ -285,7 +318,10 @@ class TestDynamicEnable:
 
 
 class TestSummary:
+    """Test cases for summary."""
+
     def test_summary_contains_strategy_ids(self):
+        """Verify that summary contains strategy IDs."""
         allocator = make_allocator(mode="weight")
         s = allocator.summary(Decimal("10000"))
         assert "ema_cross" in s

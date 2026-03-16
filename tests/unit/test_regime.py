@@ -1,3 +1,5 @@
+"""Tests for test regime."""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -19,6 +21,7 @@ def _ohlc_from_close(values: list[float]) -> pd.DataFrame:
 
 
 def test_regime_vetoes_weak_trend() -> None:
+    """Verify that regime vetoes weak trend."""
     ohlc = _ohlc_from_close([100.0 + (i % 3) * 0.1 for i in range(120)])
     funding = pd.DataFrame({"timestamp": [], "funding_rate": []})
 
@@ -38,6 +41,7 @@ def test_regime_vetoes_weak_trend() -> None:
 
 
 def test_regime_allows_strong_slope_even_with_high_funding() -> None:
+    """Verify that regime allows strong slope even with high funding."""
     ohlc = _ohlc_from_close([100.0 + i * 1.5 for i in range(120)])
     funding = pd.DataFrame(
         {
@@ -64,6 +68,7 @@ def test_regime_allows_strong_slope_even_with_high_funding() -> None:
 
 
 def test_regime_returns_insufficient_data_when_bars_too_short() -> None:
+    """Verify that regime returns insufficient data when bars too short."""
     ohlc = _ohlc_from_close([100.0 + i for i in range(20)])
     funding = pd.DataFrame({"timestamp": [], "funding_rate": []})
 
@@ -79,6 +84,7 @@ def test_regime_returns_insufficient_data_when_bars_too_short() -> None:
 
 
 def test_regime_allows_strategy_only_blocks_configured_names() -> None:
+    """Verify that regime allows strategy only blocks configured names."""
     snapshot = evaluate_symbol_regime_from_data(
         symbol="ETHUSDT",
         ohlc=_ohlc_from_close([100.0 + (i % 3) * 0.1 for i in range(120)]),
@@ -91,13 +97,19 @@ def test_regime_allows_strategy_only_blocks_configured_names() -> None:
     )
 
     assert snapshot.regime_pass is False
-    assert regime_allows_strategy(
-        strategy_name="vegas_tunnel",
-        snapshot=snapshot,
-        veto_strategy_names=["vegas_tunnel"],
-    ) is False
-    assert regime_allows_strategy(
-        strategy_name="ema_pullback_atr",
-        snapshot=snapshot,
-        veto_strategy_names=["vegas_tunnel"],
-    ) is True
+    assert (
+        regime_allows_strategy(
+            strategy_name="vegas_tunnel",
+            snapshot=snapshot,
+            veto_strategy_names=["vegas_tunnel"],
+        )
+        is False
+    )
+    assert (
+        regime_allows_strategy(
+            strategy_name="ema_pullback_atr",
+            snapshot=snapshot,
+            veto_strategy_names=["vegas_tunnel"],
+        )
+        is True
+    )

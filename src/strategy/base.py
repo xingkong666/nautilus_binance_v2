@@ -41,6 +41,7 @@ class BaseStrategyConfig(StrategyConfig, frozen=True):
         atr_period: 计算 ATR 所用的周期长度（如果采用 ATR 止盈止损），默认 14。
         atr_sl_multiplier: ATR 止损乘数，例如 2.0 表示止损为 2 * ATR；None 表示不启用基于 ATR 的止损。
         atr_tp_multiplier: ATR 止盈乘数，例如 3.0 表示止盈为 3 * ATR；None 表示不启用基于 ATR 的止盈。
+
     """
 
     instrument_id: InstrumentId
@@ -70,6 +71,12 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
     """
 
     def __init__(self, config: BaseStrategyConfig, event_bus: EventBus | None = None) -> None:
+        """Initialize the base strategy.
+
+        Args:
+            config: Configuration values for the component.
+            event_bus: Event bus used for cross-module communication.
+        """
         super().__init__(config)
         self.instrument: Instrument | None = None
         self._event_bus = event_bus
@@ -80,7 +87,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
 
         self._atr_indicator: AverageTrueRange | None = None
         if config.atr_sl_multiplier is not None or config.atr_tp_multiplier is not None:
-             self._atr_indicator = AverageTrueRange(config.atr_period)
+            self._atr_indicator = AverageTrueRange(config.atr_period)
 
     def on_start(self) -> None:
         """策略启动."""
@@ -109,10 +116,15 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
 
         Returns:
             信号方向，如果不产生信号返回 None。
+
         """
 
     def on_bar(self, bar: Bar) -> None:
-        """接收 Bar，生成信号."""
+        """接收 Bar，生成信号.
+
+        Args:
+            bar: Incoming bar data for the strategy callback.
+        """
         self.log.info(repr(bar), LogColor.CYAN)
 
         if not self.indicators_initialized():
@@ -137,7 +149,9 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
 
         Args:
             direction: 信号方向。
+            bar: 用于解析数量和记录价格上下文的当前 Bar。
             bar: 当前 Bar。
+
         """
         self.log.info(
             f"Signal: {direction.value} @ {bar.close}",
@@ -166,6 +180,8 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
 
         Args:
             direction: 信号方向。
+            bar: 用于解析下单数量和记录价格上下文的当前 Bar。
+
         """
         if self.instrument is None:
             return
@@ -196,7 +212,11 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         )
 
     def _resolve_order_quantity(self, bar: Bar) -> Quantity | None:
-        """解析下单数量（优先保证金/名义敞口 sizing，其次固定数量）."""
+        """解析下单数量（优先保证金/名义敞口 sizing，其次固定数量）.
+
+        Args:
+            bar: Incoming bar data for the strategy callback.
+        """
         if self.instrument is None:
             return None
 
@@ -247,11 +267,12 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         bar: Bar,
         fallback_trade_size: bool = True,
     ) -> Decimal | None:
-        """解析下单数量并返回 Decimal，自动按最小步进对齐。
+        """解析下单数量并返回 Decimal，自动按最小步进对齐。.
 
         Args:
             bar: 当前 Bar。
             fallback_trade_size: 当主路径解析失败时是否回退到 trade_size。
+
         """
         qty = self._resolve_order_quantity(bar)
         if qty is not None and qty.as_decimal() > 0:
@@ -296,7 +317,12 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         return equity
 
     def _resolve_qty_from_notional_pct(self, notional_pct: float, close_price: float) -> Quantity | None:
-        """按账户权益百分比换算目标名义敞口."""
+        """按账户权益百分比换算目标名义敞口.
+
+        Args:
+            notional_pct: Percentage value for notional.
+            close_price: Close price.
+        """
         if self.instrument is None:
             return None
         if close_price <= 0:
@@ -320,7 +346,12 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         return qty
 
     def _resolve_qty_from_capital_pct(self, capital_pct: float, close_price: float) -> Quantity | None:
-        """兼容旧命名：按账户权益百分比换算目标名义敞口."""
+        """兼容旧命名：按账户权益百分比换算目标名义敞口.
+
+        Args:
+            capital_pct: Percentage value for capital.
+            close_price: Close price.
+        """
         return self._resolve_qty_from_notional_pct(capital_pct, close_price)
 
     def _resolve_qty_from_margin_pct(
@@ -329,7 +360,13 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         sizing_leverage: float,
         close_price: float,
     ) -> Quantity | None:
-        """按保证金百分比 * sizing_leverage 计算目标名义敞口."""
+        """按保证金百分比 * sizing_leverage 计算目标名义敞口.
+
+        Args:
+            margin_pct: Percentage value for margin.
+            sizing_leverage: Sizing leverage.
+            close_price: Close price.
+        """
         if close_price <= 0:
             return None
 
@@ -355,7 +392,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         )
 
     def _quantity_step(self) -> Decimal:
-        """返回当前 instrument 的最小下单步进。"""
+        """返回当前 instrument 的最小下单步进。."""
         if self.instrument is not None and hasattr(self.instrument, "size_increment"):
             step = Decimal(str(self.instrument.size_increment))
             if step > 0:
@@ -380,7 +417,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         ratios: list[Decimal],
         step: Decimal | None = None,
     ) -> list[Decimal]:
-        """按比例切分数量，优先保证总量守恒。
+        """按比例切分数量，优先保证总量守恒。.
 
         Args:
             total_qty: 总数量。
@@ -389,6 +426,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
 
         Returns:
             与 ratios 同长度的切分数量，和等于 total_qty。
+
         """
         norm = self._normalize_ratios(ratios)
         if not norm:
@@ -431,9 +469,14 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         ratios: list[Decimal],
         step: Decimal | None = None,
     ) -> list[Decimal]:
-        """按比例切分数量，严格满足每一段都是 step 的整数倍。
+        """按比例切分数量，严格满足每一段都是 step 的整数倍。.
 
         返回值总和 <= total_qty；若 total_qty 不是 step 整数倍，尾差会被舍弃。
+
+        Args:
+            total_qty: Total qty.
+            ratios: Ratios.
+            step: Step.
         """
         norm = self._normalize_ratios(ratios)
         if not norm:
@@ -472,7 +515,13 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         ratios: list[Decimal],
         step: Decimal | None = None,
     ) -> list[Decimal]:
-        """兼容旧调用：等价于 preserve_total 模式。"""
+        """兼容旧调用：等价于 preserve_total 模式。.
+
+        Args:
+            total_qty: Total qty.
+            ratios: Ratios.
+            step: Step.
+        """
         return self._split_quantity_by_ratios_preserve_total(
             total_qty=total_qty,
             ratios=ratios,
@@ -488,6 +537,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
 
         Args:
             event: PositionOpened 事件。
+
         """
         position = self.cache.position(event.position_id)
         if position is None:
@@ -501,6 +551,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
 
         Args:
             event: PositionChanged 事件。
+
         """
         pos_id_str = str(event.position_id)
         self._cancel_bracket_orders(pos_id_str)
@@ -515,6 +566,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
 
         Args:
             event: PositionClosed 事件。
+
         """
         self._cancel_bracket_orders(str(event.position_id))
 
@@ -525,12 +577,17 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
 
         Args:
             position: 当前持仓对象。
+
         """
         cfg = self.config
 
         # 如果未设置任何止损止盈参数，则退出
-        if (cfg.stop_loss_pct is None and cfg.take_profit_pct is None and
-            cfg.atr_sl_multiplier is None and cfg.atr_tp_multiplier is None):
+        if (
+            cfg.stop_loss_pct is None
+            and cfg.take_profit_pct is None
+            and cfg.atr_sl_multiplier is None
+            and cfg.atr_tp_multiplier is None
+        ):
             return
 
         if self.instrument is None:
@@ -553,10 +610,10 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         # --- 计算止损价 ---
         sl_price = None
         if cfg.atr_sl_multiplier is not None and current_atr is not None:
-             sl_distance = current_atr * cfg.atr_sl_multiplier
-             sl_price = avg_px - sl_distance if is_long else avg_px + sl_distance
+            sl_distance = current_atr * cfg.atr_sl_multiplier
+            sl_price = avg_px - sl_distance if is_long else avg_px + sl_distance
         elif cfg.stop_loss_pct is not None:
-             sl_price = avg_px * (1.0 - cfg.stop_loss_pct) if is_long else avg_px * (1.0 + cfg.stop_loss_pct)
+            sl_price = avg_px * (1.0 - cfg.stop_loss_pct) if is_long else avg_px * (1.0 + cfg.stop_loss_pct)
 
         # 发送止损单（StopMarket）
         if sl_price is not None:
@@ -580,10 +637,10 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         # --- 计算止盈价 ---
         tp_price = None
         if cfg.atr_tp_multiplier is not None and current_atr is not None:
-             tp_distance = current_atr * cfg.atr_tp_multiplier
-             tp_price = avg_px + tp_distance if is_long else avg_px - tp_distance
+            tp_distance = current_atr * cfg.atr_tp_multiplier
+            tp_price = avg_px + tp_distance if is_long else avg_px - tp_distance
         elif cfg.take_profit_pct is not None:
-             tp_price = avg_px * (1.0 + cfg.take_profit_pct) if is_long else avg_px * (1.0 - cfg.take_profit_pct)
+            tp_price = avg_px * (1.0 + cfg.take_profit_pct) if is_long else avg_px * (1.0 - cfg.take_profit_pct)
 
         # 发送止盈单（Limit）
         if tp_price is not None:
@@ -609,6 +666,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
 
         Args:
             pos_id_str: 仓位 ID 字符串。
+
         """
         for order_map in (self._sl_orders, self._tp_orders):
             coid = order_map.pop(pos_id_str, None)
@@ -642,10 +700,21 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         self._tp_orders.clear()
 
     def on_save(self) -> dict[str, bytes]:
+        """Run on save.
+
+        Returns:
+            dict[str, bytes]: Dictionary representation of the result.
+        """
         return {}
 
     def on_load(self, state: dict[str, bytes]) -> None:
+        """Run on load.
+
+        Args:
+            state: State.
+        """
         pass
 
     def on_dispose(self) -> None:
+        """Run on dispose."""
         pass

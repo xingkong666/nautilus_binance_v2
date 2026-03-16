@@ -103,6 +103,7 @@ class BinanceAdapterConfig:
         exec_engine: ExecEngine 配置覆盖。
         risk_engine: RiskEngine 配置覆盖。
         logging: Nautilus logging 配置覆盖。
+
     """
 
     api_key: str | None = None
@@ -150,13 +151,15 @@ class BinanceAdapter:
         await adapter.start()
         node = adapter.node
         await adapter.stop()
+
     """
 
     def __init__(self, config: BinanceAdapterConfig) -> None:
-        """初始化适配器，不创建网络连接。
+        """初始化适配器，不创建网络连接。.
 
         Args:
             config: 适配器配置，见 BinanceAdapterConfig。
+
         """
         self.config = config
         self._node: TradingNode | None = None
@@ -174,6 +177,7 @@ class BinanceAdapter:
 
         Raises:
             RuntimeError: 若尚未 build/start。
+
         """
         if self._node is None:
             raise RuntimeError("BinanceAdapter node not created. Call build_node()/run()/start() first.")
@@ -194,7 +198,11 @@ class BinanceAdapter:
     # ------------------------------------------------------------------
 
     def register_strategy(self, strategy: Any) -> None:
-        """在启动前注册策略到 TradingNode."""
+        """在启动前注册策略到 TradingNode.
+
+        Args:
+            strategy: Strategy instance to bind or inspect.
+        """
         if self._node is not None:
             raise RuntimeError("Cannot register strategy after TradingNode is built.")
         instrument_id = getattr(getattr(strategy, "config", None), "instrument_id", None)
@@ -242,6 +250,7 @@ class BinanceAdapter:
         Raises:
             RuntimeError: 若已处于启动状态。
             Exception: NautilusTrader 内部连接失败时透传。
+
         """
         if self._started:
             raise RuntimeError("BinanceAdapter is already started.")
@@ -276,6 +285,7 @@ class BinanceAdapter:
 
         Raises:
             RuntimeError: 若 start() 尚未调用。
+
         """
         if self._node is None:
             raise RuntimeError("BinanceAdapter not started.")
@@ -321,7 +331,11 @@ class BinanceAdapter:
         return positions
 
     async def fetch_open_orders_async(self, symbol: str | None = None) -> list[dict[str, str]]:
-        """异步拉取 Binance 当前挂单."""
+        """异步拉取 Binance 当前挂单.
+
+        Args:
+            symbol: Trading symbol to process.
+        """
         account_api = self._build_account_http_api()
         open_orders = await account_api.query_open_orders(
             symbol=symbol,
@@ -330,7 +344,11 @@ class BinanceAdapter:
         return self._serialize_open_orders(open_orders)
 
     def fetch_open_orders(self, symbol: str | None = None) -> list[dict[str, str]]:
-        """同步拉取 Binance 当前挂单."""
+        """同步拉取 Binance 当前挂单.
+
+        Args:
+            symbol: Trading symbol to process.
+        """
         return self._run_async_blocking(self.fetch_open_orders_async(symbol=symbol))
 
     async def query_hedge_mode_async(self) -> bool:
@@ -379,6 +397,7 @@ class BinanceAdapter:
 
         Returns:
             API Key 字符串，若未配置返回 None（由 NT 客户端自行读取）。
+
         """
         if self.config.api_key:
             return self.config.api_key
@@ -405,6 +424,7 @@ class BinanceAdapter:
 
         Returns:
             API Secret 字符串，若未配置返回 None（由 NT 客户端自行读取）。
+
         """
         if self.config.api_secret:
             return self.config.api_secret
@@ -435,12 +455,11 @@ class BinanceAdapter:
 
         Returns:
             BinanceInstrumentProviderConfig 实例。
+
         """
         return BinanceInstrumentProviderConfig(
             load_all=self.config.load_all_instruments,
-            load_ids=(
-                frozenset(self.config.instrument_ids) if self.config.instrument_ids else None
-            ),
+            load_ids=(frozenset(self.config.instrument_ids) if self.config.instrument_ids else None),
         )
 
     def _build_data_client_config(self) -> BinanceDataClientConfig:
@@ -451,6 +470,7 @@ class BinanceAdapter:
 
         Returns:
             BinanceDataClientConfig 实例。
+
         """
         return BinanceDataClientConfig(
             api_key=self._resolve_api_key(),
@@ -472,6 +492,7 @@ class BinanceAdapter:
 
         Returns:
             BinanceExecClientConfig 实例。
+
         """
         futures_leverages = None
         if self.config.futures_leverages:
@@ -503,6 +524,7 @@ class BinanceAdapter:
 
         Returns:
             TradingNodeConfig 实例，可直接传入 TradingNode()。
+
         """
         data_cfg = self._build_data_client_config()
         exec_cfg = self._build_exec_client_config()
@@ -557,7 +579,8 @@ class BinanceAdapter:
             clock=LiveClock(),
             api_key=api_key,
             api_secret=api_secret,
-            base_url=self.config.base_url_http or get_http_base_url(
+            base_url=self.config.base_url_http
+            or get_http_base_url(
                 account_type=self.config.account_type,
                 environment=self.config.environment,
                 is_us=False,
@@ -676,6 +699,7 @@ def build_binance_adapter(
             leverages={"BTCUSDT": 10, "ETHUSDT": 5},
         )
         await adapter.start()
+
     """
     instrument_ids: list[str] = []
     if symbols:

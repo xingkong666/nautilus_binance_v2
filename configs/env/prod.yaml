@@ -28,3 +28,7 @@ risk:
 
 exchange:
   testnet: false
+
+live:
+  universe_top_n: 200
+  exclude_stablecoin_bases: true

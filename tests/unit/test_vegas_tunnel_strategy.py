@@ -25,6 +25,14 @@ class _FakeQty:
 
 
 def make_strategy(cooldown: int = 0) -> VegasTunnelStrategy:
+    """Build strategy.
+
+    Args:
+        cooldown: Cooldown.
+
+    Returns:
+        VegasTunnelStrategy: Result of make strategy.
+    """
     cfg = VegasTunnelConfig(
         instrument_id=INSTRUMENT_ID,
         bar_type=BAR_TYPE,
@@ -36,12 +44,23 @@ def make_strategy(cooldown: int = 0) -> VegasTunnelStrategy:
 
 
 def make_bar(close: float, high: float | None = None, low: float | None = None) -> SimpleNamespace:
+    """Build bar.
+
+    Args:
+        close: Close.
+        high: High.
+        low: Low.
+
+    Returns:
+        SimpleNamespace: Result of make bar.
+    """
     hi = close if high is None else high
     lo = close if low is None else low
     return SimpleNamespace(open=close, high=hi, low=lo, close=close)
 
 
 def test_long_entry_on_cross_above_tunnel() -> None:
+    """Verify that long entry on cross above tunnel."""
     strategy = make_strategy(cooldown=0)
     strategy.fast_ema = SimpleNamespace(value=120.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=110.0)  # type: ignore[assignment]
@@ -61,6 +80,7 @@ def test_long_entry_on_cross_above_tunnel() -> None:
 
 
 def test_tp1_triggers_partial_exit_and_move_stop_to_breakeven() -> None:
+    """Verify that tp1 triggers partial exit and move stop to breakeven."""
     strategy = make_strategy(cooldown=0)
     strategy.fast_ema = SimpleNamespace(value=120.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=110.0)  # type: ignore[assignment]
@@ -85,6 +105,7 @@ def test_tp1_triggers_partial_exit_and_move_stop_to_breakeven() -> None:
 
 
 def test_cooldown_blocks_immediate_reentry() -> None:
+    """Verify that cooldown blocks immediate reentry."""
     strategy = make_strategy(cooldown=3)
     strategy.fast_ema = SimpleNamespace(value=120.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=110.0)  # type: ignore[assignment]
@@ -104,6 +125,7 @@ def test_cooldown_blocks_immediate_reentry() -> None:
 
 
 def test_on_reset_clears_runtime_state() -> None:
+    """Verify that on reset clears runtime state."""
     strategy = make_strategy(cooldown=0)
     strategy._position_side = "long"
     strategy._entry_price = 100.0
@@ -129,6 +151,7 @@ def test_on_reset_clears_runtime_state() -> None:
 
 
 def test_tp3_closes_remaining_position() -> None:
+    """Verify that tp3 closes remaining position."""
     strategy = make_strategy(cooldown=0)
     strategy.fast_ema = SimpleNamespace(value=120.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=110.0)  # type: ignore[assignment]
@@ -154,6 +177,7 @@ def test_tp3_closes_remaining_position() -> None:
 
 
 def test_split_quantities_normalizes_invalid_ratios() -> None:
+    """Verify that split quantities normalizes invalid ratios."""
     cfg = VegasTunnelConfig(
         instrument_id=INSTRUMENT_ID,
         bar_type=BAR_TYPE,
@@ -173,6 +197,7 @@ def test_split_quantities_normalizes_invalid_ratios() -> None:
 
 
 def test_split_quantities_respects_min_step_for_tiny_position() -> None:
+    """Verify that split quantities respects min step for tiny position."""
     strategy = make_strategy(cooldown=0)
 
     strategy.instrument = SimpleNamespace(size_increment="0.001")  # type: ignore[assignment]

@@ -48,6 +48,7 @@ class HealthStatus:
         checks: 各项子检查的详细结果，key 为检查名，value 为描述。
         latency_ms: 本次检查总耗时（毫秒）。
         timestamp_ns: 检查完成时间戳（纳秒）。
+
     """
 
     healthy: bool
@@ -60,6 +61,7 @@ class HealthStatus:
 
         Returns:
             包含所有字段的字典，timestamp_ns 转换为秒。
+
         """
         return {
             "healthy": self.healthy,
@@ -89,6 +91,7 @@ class LiveHealthProbe:
         probe.start()
         status = probe.last_status
         probe.stop()
+
     """
 
     def __init__(
@@ -101,6 +104,7 @@ class LiveHealthProbe:
         Args:
             container: 应用依赖容器，用于访问 event_bus 等服务。
             interval_sec: 探针检查间隔秒数，默认 15。
+
         """
         self._container = container
         self._interval = interval_sec
@@ -124,6 +128,7 @@ class LiveHealthProbe:
 
         Returns:
             True 表示线程已启动且未停止。
+
         """
         return self._thread is not None and self._thread.is_alive()
 
@@ -133,6 +138,7 @@ class LiveHealthProbe:
 
         Returns:
             时间戳纳秒，未运行时为 0。
+
         """
         return self._last_heartbeat_ns
 
@@ -146,6 +152,7 @@ class LiveHealthProbe:
 
         Returns:
             HealthStatus 或 None（未执行过检查时）。
+
         """
         return self._last_status
 
@@ -154,6 +161,7 @@ class LiveHealthProbe:
 
         Raises:
             RuntimeError: 已在运行时再次调用。
+
         """
         if self.is_running:
             raise RuntimeError("LiveHealthProbe is already running")
@@ -172,6 +180,7 @@ class LiveHealthProbe:
 
         Args:
             timeout: 最长等待秒数。
+
         """
         self._stop_event.set()
         if self._thread:
@@ -183,6 +192,7 @@ class LiveHealthProbe:
 
         Returns:
             本次 HealthStatus 结果。
+
         """
         return self._do_probe()
 
@@ -225,6 +235,7 @@ class LiveHealthProbe:
 
         Returns:
             HealthStatus，包含总体状态和各项子检查细节。
+
         """
         t0 = time.monotonic()
         checks: dict[str, Any] = {}
@@ -278,6 +289,7 @@ class LiveHealthProbe:
 
         Returns:
             (ok, detail) 元组，ok 为 True 表示正常。
+
         """
         try:
             bus = self._container.event_bus
@@ -291,6 +303,7 @@ class LiveHealthProbe:
 
         Returns:
             (ok, detail) 元组。
+
         """
         try:
             persistence = self._container.persistence
@@ -304,6 +317,7 @@ class LiveHealthProbe:
 
         Returns:
             (ok, detail) 元组。
+
         """
         try:
             cb = self._container.circuit_breaker
@@ -322,6 +336,7 @@ class LiveHealthProbe:
 
         Returns:
             (ok, detail) 元组。
+
         """
         try:
             from src.core.time_sync import get_time_offset_ms  # type: ignore
@@ -345,6 +360,7 @@ class LiveHealthProbe:
 
         Args:
             status: 本次探针结果。
+
         """
         try:
             health_server = self._container.health_server
@@ -358,6 +374,7 @@ class LiveHealthProbe:
 
         Args:
             status: 本次探针结果。
+
         """
         event = Event(
             event_type=EventType.HEALTH_CHECK,

@@ -81,6 +81,7 @@ class SignalEvent(Event):
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """Populate derived fields after initialization."""
         object.__setattr__(self, "event_type", EventType.SIGNAL)
 
 
@@ -98,6 +99,7 @@ class OrderIntentEvent(Event):
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """Populate derived fields after initialization."""
         object.__setattr__(self, "event_type", EventType.ORDER_INTENT)
 
 
@@ -111,6 +113,7 @@ class RiskAlertEvent(Event):
     details: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """Populate derived fields after initialization."""
         object.__setattr__(self, "event_type", EventType.RISK_ALERT)
 
 
@@ -131,19 +134,33 @@ class EventBus:
     """
 
     def __init__(self) -> None:
+        """Initialize the event bus."""
         self._handlers: dict[EventType, list[EventHandler]] = defaultdict(list)
         self._global_handlers: list[EventHandler] = []
 
     def subscribe(self, event_type: EventType, handler: EventHandler) -> None:
-        """订阅特定事件类型."""
+        """订阅特定事件类型.
+
+        Args:
+            event_type: Event type.
+            handler: Handler.
+        """
         self._handlers[event_type].append(handler)
 
     def subscribe_all(self, handler: EventHandler) -> None:
-        """订阅所有事件(适合监控/审计)."""
+        """订阅所有事件(适合监控/审计).
+
+        Args:
+            handler: Handler.
+        """
         self._global_handlers.append(handler)
 
     def publish(self, event: Event) -> None:
-        """发布事件."""
+        """发布事件.
+
+        Args:
+            event: Event instance being processed.
+        """
         # 全局处理器
         for handler in self._global_handlers:
             try:

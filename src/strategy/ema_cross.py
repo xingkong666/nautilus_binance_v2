@@ -26,6 +26,7 @@ class EMACrossConfig(BaseStrategyConfig, frozen=True):
         slow_ema_period: 慢线 EMA 周期，默认 20。
         entry_min_atr_ratio: 入场最小波动阈值（ATR / close），默认 0.0015。
         signal_cooldown_bars: 信号冷却条数，默认 3。
+
     """
 
     instrument_id: InstrumentId
@@ -46,6 +47,12 @@ class EMACrossStrategy(BaseStrategy):
     """
 
     def __init__(self, config: EMACrossConfig, event_bus: EventBus | None = None) -> None:
+        """Initialize the EMA cross strategy.
+
+        Args:
+            config: Configuration values for the component.
+            event_bus: Event bus used for cross-module communication.
+        """
         super().__init__(config, event_bus)
         self.fast_ema = ExponentialMovingAverage(config.fast_ema_period)
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
@@ -67,6 +74,9 @@ class EMACrossStrategy(BaseStrategy):
         """生成 EMA 交叉信号.
 
         只在交叉发生时产出信号, 避免重复信号.
+
+        Args:
+            bar: Incoming bar data for the strategy callback.
         """
         self._bar_index += 1
 

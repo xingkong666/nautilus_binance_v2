@@ -69,4 +69,3 @@ log "Cleaning backups older than 30 days..."
 find "$BACKUP_DIR" -type f -mtime +30 \( -name "*.gz" -o -name "*.rdb" -o -name "*.tar.gz" \) -delete
 
 log "Backup completed successfully!"
-

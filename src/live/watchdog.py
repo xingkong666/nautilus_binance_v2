@@ -73,6 +73,7 @@ class WatchEntry:
         max_heartbeat_gap_sec: 允许的最大心跳间隔（秒），超过则认为异常。
         on_failure: 自定义失败回调，None 时仅告警。
         fail_count: 连续失败次数，用于抑制重复告警。
+
     """
 
     name: str
@@ -91,6 +92,7 @@ class WatchCheckResult:
         healthy_count: 健康服务数量。
         unhealthy_names: 异常服务名称列表。
         system_ok: 系统资源是否正常。
+
     """
 
     timestamp_ns: int = field(default_factory=time.time_ns)
@@ -104,6 +106,7 @@ class WatchCheckResult:
 
         Returns:
             True 表示无任何异常。
+
         """
         return len(self.unhealthy_names) == 0 and self.system_ok
 
@@ -125,6 +128,7 @@ class Watchdog:
         wd.register("my_svc", my_service)
         wd.start()
         wd.stop()
+
     """
 
     def __init__(
@@ -139,6 +143,7 @@ class Watchdog:
             container: 应用依赖容器，用于访问 event_bus / alert_manager。
             check_interval_sec: 检查间隔秒数，默认 10。
             max_memory_mb: 内存告警阈值（MB），默认 2048。
+
         """
         self._container = container
         self._interval = check_interval_sec
@@ -163,6 +168,7 @@ class Watchdog:
 
         Returns:
             True 表示后台线程已启动且未停止。
+
         """
         return self._thread is not None and self._thread.is_alive()
 
@@ -172,6 +178,7 @@ class Watchdog:
 
         Returns:
             WatchCheckResult 或 None（未执行过检查时）。
+
         """
         return self._last_result
 
@@ -189,6 +196,7 @@ class Watchdog:
             target: 实现 Watchable 协议的服务对象。
             max_heartbeat_gap_sec: 心跳超时阈值（秒）。
             on_failure: 发现异常时执行的自定义回调，可为 None。
+
         """
         self._entries[name] = WatchEntry(
             name=name,
@@ -203,6 +211,7 @@ class Watchdog:
 
         Args:
             name: 服务名称。
+
         """
         self._entries.pop(name, None)
 
@@ -211,6 +220,7 @@ class Watchdog:
 
         Raises:
             RuntimeError: 已在运行时再次调用 start()。
+
         """
         if self.is_running:
             raise RuntimeError("Watchdog is already running")
@@ -229,6 +239,7 @@ class Watchdog:
 
         Args:
             timeout: 最长等待秒数。
+
         """
         self._stop_event.set()
         if self._thread:
@@ -240,6 +251,7 @@ class Watchdog:
 
         Returns:
             WatchCheckResult 包含本次检查结果。
+
         """
         return self._do_check()
 
@@ -275,6 +287,7 @@ class Watchdog:
 
         Returns:
             WatchCheckResult 汇总本次检查结果。
+
         """
         result = WatchCheckResult()
         now_ns = time.time_ns()
@@ -307,6 +320,7 @@ class Watchdog:
 
         Returns:
             True 表示服务健康。
+
         """
         try:
             if not entry.target.is_running:
@@ -336,6 +350,7 @@ class Watchdog:
 
         Returns:
             True 表示系统资源正常。
+
         """
         try:
             import os
@@ -367,6 +382,7 @@ class Watchdog:
 
         Args:
             entry: 发生失败的服务监控记录。
+
         """
         # 抑制重复告警（同一服务连续失败，每 3 次才再次告警）
         if entry.fail_count % 3 != 1:
@@ -397,6 +413,7 @@ class Watchdog:
 
         Args:
             result: 本次检查结果。
+
         """
         event = Event(
             event_type=EventType.HEALTH_CHECK,

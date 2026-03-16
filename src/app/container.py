@@ -57,6 +57,7 @@ class Container:
 
         Args:
             config: 应用配置，包含所有子模块配置。
+
         """
         self._config = config
         self._built = False
@@ -90,6 +91,7 @@ class Container:
 
         Returns:
             self，支持链式调用。
+
         """
         if self._built:
             logger.warning("container_already_built")
@@ -100,12 +102,8 @@ class Container:
 
         # 1. 基础设施
         self._event_bus = self._build_event_bus()
-        self._persistence = TradePersistence(
-            database_url=cfg.data.database_url
-        )
-        self._snapshot_manager = SnapshotManager(
-            snapshot_dir=cfg.data.catalog_dir.parent / "snapshots" / cfg.env
-        )
+        self._persistence = TradePersistence(database_url=cfg.data.database_url)
+        self._snapshot_manager = SnapshotManager(snapshot_dir=cfg.data.catalog_dir.parent / "snapshots" / cfg.env)
 
         # 初始化 Redis（失败时打 WARNING 不中断启动）
         try:
@@ -119,9 +117,7 @@ class Container:
         # 2. 执行层
         self._rate_limiter = RateLimiter(cfg.execution.rate_limit, redis_client=self._redis_client)
         self._ignored_instruments = IgnoredInstrumentRegistry(event_bus=self._event_bus)
-        self._position_sizer = PositionSizer(
-            config=cfg.execution.algo if cfg.execution.algo else {"mode": "fixed"}
-        )
+        self._position_sizer = PositionSizer(config=cfg.execution.algo if cfg.execution.algo else {"mode": "fixed"})
 
         # 3. 风控层
         risk_cfg = cfg.risk
@@ -150,23 +146,27 @@ class Container:
                 if sid == "portfolio":
                     continue
                 alloc = scfg.get("allocation", {}) if isinstance(scfg, dict) else {}
-                alloc_strategies.append({
-                    "strategy_id": sid,
-                    "weight": float(alloc.get("weight", 1.0)),
-                    "max_allocation_pct": float(alloc.get("max_allocation_pct", 0.0)),
-                    "enabled": bool(alloc.get("enabled", True)),
-                })
+                alloc_strategies.append(
+                    {
+                        "strategy_id": sid,
+                        "weight": float(alloc.get("weight", 1.0)),
+                        "max_allocation_pct": float(alloc.get("max_allocation_pct", 0.0)),
+                        "enabled": bool(alloc.get("enabled", True)),
+                    }
+                )
             # portfolio 块下的 strategies 列表优先级更高（可覆盖）
             if strategy_list:
                 alloc_strategies = strategy_list
 
             if alloc_strategies:
-                self._portfolio_allocator = PortfolioAllocator({
-                    "mode": portfolio_cfg.get("mode", "equal"),
-                    "reserve_pct": float(portfolio_cfg.get("reserve_pct", 5.0)),
-                    "min_allocation": str(portfolio_cfg.get("min_allocation", "100")),
-                    "strategies": alloc_strategies,
-                })
+                self._portfolio_allocator = PortfolioAllocator(
+                    {
+                        "mode": portfolio_cfg.get("mode", "equal"),
+                        "reserve_pct": float(portfolio_cfg.get("reserve_pct", 5.0)),
+                        "min_allocation": str(portfolio_cfg.get("min_allocation", "100")),
+                        "strategies": alloc_strategies,
+                    }
+                )
                 logger.info(
                     "portfolio_allocator_registered",
                     mode=portfolio_cfg.get("mode", "equal"),
@@ -294,6 +294,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器尚未初始化。
+
         """
         if not self._built:
             raise RuntimeError("Container not built. Call container.build() first.")
@@ -305,6 +306,7 @@ class Container:
 
         Returns:
             包含 telegram_bot_token / telegram_chat_id 等字段的字典。
+
         """
         try:
             s = EnvSettings()
@@ -346,11 +348,13 @@ class Container:
 
         Returns:
             配置好的 EventBus 实例。
+
         """
         bus = EventBus()
 
         # 全局事件计数（Prometheus）
         if self._config.monitoring.enabled:
+
             def _metrics_handler(event: Any) -> None:
                 with suppress(Exception):
                     EVENT_BUS_EVENTS.labels(event_type=event.event_type.value).inc()
@@ -372,6 +376,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         return self._redis_client
@@ -382,6 +387,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._event_bus is not None
@@ -393,6 +399,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._persistence is not None
@@ -404,6 +411,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._snapshot_manager is not None
@@ -415,6 +423,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._rate_limiter is not None
@@ -426,6 +435,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._position_sizer is not None
@@ -444,6 +454,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._pre_trade_risk is not None
@@ -455,6 +466,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._circuit_breaker is not None
@@ -466,6 +478,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._drawdown_controller is not None
@@ -477,6 +490,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._fill_handler is not None
@@ -488,6 +502,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._alert_manager is not None
@@ -499,6 +514,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._order_router is not None
@@ -510,6 +526,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         assert self._signal_processor is not None
@@ -521,6 +538,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         return self._health_server
@@ -533,6 +551,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         return self._portfolio_allocator
@@ -546,6 +565,7 @@ class Container:
 
         Raises:
             RuntimeError: 容器未 build。
+
         """
         self._ensure_built()
         return self._binance_adapter

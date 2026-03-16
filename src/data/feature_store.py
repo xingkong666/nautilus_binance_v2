@@ -20,6 +20,11 @@ class FeatureStore:
     """
 
     def __init__(self, features_dir: Path) -> None:
+        """Initialize the feature store.
+
+        Args:
+            features_dir: Directory for features.
+        """
         self._features_dir = features_dir
         self._features_dir.mkdir(parents=True, exist_ok=True)
 
@@ -32,6 +37,7 @@ class FeatureStore:
 
         Returns:
             文件路径
+
         """
         path = self._features_dir / f"{name}.parquet"
         df.to_parquet(path, index=False)
@@ -46,6 +52,7 @@ class FeatureStore:
 
         Returns:
             DataFrame 或 None
+
         """
         path = self._features_dir / f"{name}.parquet"
         if not path.exists():

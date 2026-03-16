@@ -23,7 +23,12 @@ class WalkforwardWindow:
 
 
 def add_months(value: dt.date, months: int) -> dt.date:
-    """按月平移日期，超出天数时夹到月底."""
+    """按月平移日期，超出天数时夹到月底.
+
+    Args:
+        value: Input value to convert or evaluate.
+        months: Number of calendar months to offset.
+    """
     month_index = value.month - 1 + months
     year = value.year + month_index // 12
     month = month_index % 12 + 1
@@ -38,7 +43,15 @@ def generate_walkforward_windows(
     test_months: int,
     step_months: int,
 ) -> list[WalkforwardWindow]:
-    """生成滚动样本内/样本外窗口."""
+    """生成滚动样本内/样本外窗口.
+
+    Args:
+        start: Start date or timestamp for the operation.
+        end: End date or timestamp for the operation.
+        train_months: Training-window length in months.
+        test_months: Test-window length in months.
+        step_months: Step size between windows in months.
+    """
     if train_months <= 0 or test_months <= 0 or step_months <= 0:
         raise ValueError("train_months/test_months/step_months 必须 > 0")
     if start > end:
@@ -70,7 +83,13 @@ def generate_walkforward_windows(
 
 
 def flatten_summary(summary: dict[str, Any], phase: str, window_index: int) -> dict[str, Any]:
-    """将回测 summary 扁平化为单行记录."""
+    """将回测 summary 扁平化为单行记录.
+
+    Args:
+        summary: Summary dictionary to flatten.
+        phase: Walk-forward phase label.
+        window_index: Walk-forward window index.
+    """
     pnl = summary.get("pnl", {}).get("USDT", {})
     returns = summary.get("returns", {})
     costs = summary.get("analysis", {}).get("costs", {})
@@ -99,7 +118,12 @@ def flatten_summary(summary: dict[str, Any], phase: str, window_index: int) -> d
 
 
 def scale_sizing_params(params: dict[str, Any], allocation_pct: float) -> dict[str, Any]:
-    """按分配比例缩放 sizing 参数."""
+    """按分配比例缩放 sizing 参数.
+
+    Args:
+        params: Sizing parameters to scale.
+        allocation_pct: Allocation percentage applied to sizing parameters.
+    """
     scaled = dict(params)
     ratio = max(0.0, allocation_pct)
 
@@ -109,27 +133,42 @@ def scale_sizing_params(params: dict[str, Any], allocation_pct: float) -> dict[s
         scaled["gross_exposure_pct_per_trade"] = float(scaled["gross_exposure_pct_per_trade"]) * ratio
     if "capital_pct_per_trade" in scaled and scaled["capital_pct_per_trade"] is not None:
         scaled["capital_pct_per_trade"] = float(scaled["capital_pct_per_trade"]) * ratio
-    if ratio > 0 and all(
-        scaled.get(key) in (None, 0) for key in (
-            "margin_pct_per_trade",
-            "gross_exposure_pct_per_trade",
-            "capital_pct_per_trade",
+    if (
+        ratio > 0
+        and all(
+            scaled.get(key) in (None, 0)
+            for key in (
+                "margin_pct_per_trade",
+                "gross_exposure_pct_per_trade",
+                "capital_pct_per_trade",
+            )
         )
-    ) and scaled.get("trade_size") is not None:
+        and scaled.get("trade_size") is not None
+    ):
         scaled["trade_size"] = float(scaled["trade_size"]) * ratio
 
     return scaled
 
 
 def selection_passes(score: float, min_score: float | None) -> bool:
-    """判断候选分数是否通过窗口级别的 regime filter."""
+    """判断候选分数是否通过窗口级别的 regime filter.
+
+    Args:
+        score: Selection or ranking score.
+        min_score: Minimum score threshold.
+    """
     if min_score is None:
         return True
     return score >= min_score
 
 
 def meets_min_active_strategies(active_count: int, min_active_strategies: int | None) -> bool:
-    """判断组合级别是否满足最少激活腿数要求."""
+    """判断组合级别是否满足最少激活腿数要求.
+
+    Args:
+        active_count: Number of active strategies.
+        min_active_strategies: Minimum required active strategies.
+    """
     if min_active_strategies is None or min_active_strategies <= 0:
         return True
     return active_count >= min_active_strategies
@@ -141,7 +180,13 @@ def resolve_min_active_strategies(
     min_active_strategies_on_regime_veto: int | None,
     regime_veto_count: int,
 ) -> int | None:
-    """当窗口存在 regime veto 时，允许使用更低的组合级最少激活腿数."""
+    """当窗口存在 regime veto 时，允许使用更低的组合级最少激活腿数.
+
+    Args:
+        min_active_strategies: Minimum required active strategies.
+        min_active_strategies_on_regime_veto: Relaxed minimum active-strategy threshold when regime vetoes exist.
+        regime_veto_count: Number of regime vetoes in the current window.
+    """
     if regime_veto_count <= 0 or min_active_strategies_on_regime_veto is None:
         return min_active_strategies
     if min_active_strategies is None:
@@ -150,7 +195,12 @@ def resolve_min_active_strategies(
 
 
 def score_weight(score: float, method: str = "none") -> float:
-    """将训练期分数映射为分配权重系数."""
+    """将训练期分数映射为分配权重系数.
+
+    Args:
+        score: Selection or ranking score.
+        method: Weighting method name.
+    """
     normalized = max(0.0, score)
     if method == "none":
         return 1.0
@@ -171,13 +221,24 @@ def combine_risk_score_weight(
     score: float,
     score_weighting_method: str = "none",
 ) -> float:
-    """将风险平价和训练分数组合为单一权重."""
+    """将风险平价和训练分数组合为单一权重.
+
+    Args:
+        volatility: Volatility input used for risk weighting.
+        score: Selection or ranking score.
+        score_weighting_method: Method used to convert score into a weight.
+    """
     vol = volatility if volatility > 0 else 1.0
     return (1.0 / vol) * score_weight(score, method=score_weighting_method)
 
 
 def stitch_equity_curves(curves: list[pd.DataFrame], starting_balance: int) -> pd.DataFrame:
-    """将多段样本外权益曲线按资金续接拼成一条总曲线."""
+    """将多段样本外权益曲线按资金续接拼成一条总曲线.
+
+    Args:
+        curves: Equity curves to stitch together.
+        starting_balance: Starting account balance for the stitched curve.
+    """
     stitched_parts: list[pd.DataFrame] = []
     capital = float(starting_balance)
 

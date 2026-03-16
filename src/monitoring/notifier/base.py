@@ -35,6 +35,7 @@ class AlertLevel(Enum):
 
         Raises:
             ValueError: 无法识别的级别字符串。
+
         """
         try:
             return cls[s.upper()]
@@ -51,6 +52,7 @@ class AlertMessage:
         message: 消息正文（已格式化）。
         details: 附加上下文字典，可选。
         source: 产生告警的模块/组件名，可选。
+
     """
 
     def __init__(
@@ -69,6 +71,7 @@ class AlertMessage:
             message: 消息正文。
             details: 附加上下文字典，可选。
             source: 来源模块名，可选。
+
         """
         self.level = AlertLevel.from_str(level) if isinstance(level, str) else level
         self.rule_name = rule_name
@@ -81,6 +84,7 @@ class AlertMessage:
 
         Returns:
             多行格式化字符串，包含级别、规则名、消息和附加细节。
+
         """
         level_emoji = {
             AlertLevel.WARNING: "⚠️",
@@ -115,6 +119,7 @@ class BaseNotifier(ABC):
         Args:
             min_level: 最低发送级别，低于此级别的消息会被静默丢弃。
             enabled: 是否启用此通知器，False 时所有 send() 调用均为空操作。
+
         """
         self._min_level = min_level
         self._enabled = enabled
@@ -132,6 +137,7 @@ class BaseNotifier(ABC):
 
         Returns:
             True 表示发送成功；False 表示未发送（disabled / 级别不够 / 发送失败）。
+
         """
         if not self._enabled:
             return False
@@ -172,4 +178,5 @@ class BaseNotifier(ABC):
 
         Raises:
             Exception: 发送失败时抛出，由基类 send() 捕获并记录。
+
         """

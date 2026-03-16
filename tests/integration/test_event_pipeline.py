@@ -30,7 +30,7 @@ PG_URL = "postgresql://admin:Longmao!666@127.0.0.1:5432/nautilus_trader"
 
 @pytest.fixture
 def tmp_db():
-    """使用真实 PostgreSQL，每次测试后清空表。"""
+    """使用真实 PostgreSQL，每次测试后清空表。."""
     persistence = TradePersistence(database_url=PG_URL)
     yield persistence
     # 清理：截断表
@@ -42,6 +42,7 @@ def tmp_db():
 
 @pytest.fixture
 def event_bus():
+    """Run event bus."""
     bus = EventBus()
     yield bus
     bus.clear()
@@ -49,6 +50,11 @@ def event_bus():
 
 @pytest.fixture
 def pre_trade_risk(event_bus):
+    """Run pre trade risk.
+
+    Args:
+        event_bus: Event bus used for cross-module communication.
+    """
     config = {
         "max_order_size_usd": 10_000,
         "max_position_size_usd": 50_000,
@@ -61,6 +67,12 @@ def pre_trade_risk(event_bus):
 
 @pytest.fixture
 def fill_handler(event_bus, tmp_db):
+    """Run fill handler.
+
+    Args:
+        event_bus: Event bus used for cross-module communication.
+        tmp_db: Tmp db.
+    """
     return FillHandler(event_bus=event_bus, persistence=tmp_db)
 
 
@@ -70,8 +82,14 @@ def fill_handler(event_bus, tmp_db):
 
 
 class TestEventBus:
+    """Test cases for event bus."""
+
     def test_subscribe_and_receive(self, event_bus):
-        """订阅后能收到对应类型的事件。"""
+        """订阅后能收到对应类型的事件。.
+
+        Args:
+            event_bus: Event bus fixture or instance used in the test.
+        """
         received = []
         event_bus.subscribe(EventType.SIGNAL, received.append)
 
@@ -86,7 +104,11 @@ class TestEventBus:
         assert received[0].instrument_id == "BTCUSDT-PERP.BINANCE"
 
     def test_subscribe_all_receives_every_event(self, event_bus):
-        """subscribe_all 处理器收到所有类型的事件。"""
+        """subscribe_all 处理器收到所有类型的事件。.
+
+        Args:
+            event_bus: Event bus fixture or instance used in the test.
+        """
         all_events = []
         event_bus.subscribe_all(all_events.append)
 
@@ -96,7 +118,11 @@ class TestEventBus:
         assert len(all_events) == 2
 
     def test_wrong_event_type_not_received(self, event_bus):
-        """订阅 SIGNAL 不会收到 ORDER_INTENT 类型的事件。"""
+        """订阅 SIGNAL 不会收到 ORDER_INTENT 类型的事件。.
+
+        Args:
+            event_bus: Event bus fixture or instance used in the test.
+        """
         signal_events = []
         event_bus.subscribe(EventType.SIGNAL, signal_events.append)
 
@@ -105,7 +131,11 @@ class TestEventBus:
         assert len(signal_events) == 0
 
     def test_handler_exception_does_not_crash_bus(self, event_bus):
-        """某个 handler 抛异常不影响其他 handler 和后续发布。"""
+        """某个 handler 抛异常不影响其他 handler 和后续发布。.
+
+        Args:
+            event_bus: Event bus fixture or instance used in the test.
+        """
         received = []
 
         def bad_handler(e):
@@ -120,7 +150,11 @@ class TestEventBus:
         assert len(received) == 1
 
     def test_clear_removes_all_handlers(self, event_bus):
-        """clear() 后发布事件不再有任何响应。"""
+        """clear() 后发布事件不再有任何响应。.
+
+        Args:
+            event_bus: Event bus fixture or instance used in the test.
+        """
         received = []
         event_bus.subscribe(EventType.SIGNAL, received.append)
         event_bus.subscribe_all(received.append)
@@ -137,8 +171,15 @@ class TestEventBus:
 
 
 class TestPreTradeWithEventBus:
+    """Test cases for pre trade with event bus."""
+
     def test_passing_check_does_not_emit_alert(self, pre_trade_risk, event_bus):
-        """合规订单通过检查，不触发 RISK_ALERT 事件。"""
+        """合规订单通过检查，不触发 RISK_ALERT 事件。.
+
+        Args:
+            pre_trade_risk: Pre-trade risk checker fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         alerts = []
         event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
 
@@ -158,7 +199,12 @@ class TestPreTradeWithEventBus:
         assert len(alerts) == 0
 
     def test_exceeding_order_size_emits_risk_alert(self, pre_trade_risk, event_bus):
-        """超过单笔订单限额，check 失败且发布 RISK_ALERT 事件。"""
+        """超过单笔订单限额，check 失败且发布 RISK_ALERT 事件。.
+
+        Args:
+            pre_trade_risk: Pre-trade risk checker fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         alerts = []
         event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
 
@@ -180,7 +226,12 @@ class TestPreTradeWithEventBus:
         assert alerts[0].event_type == EventType.RISK_ALERT
 
     def test_exceeding_position_size_fails(self, pre_trade_risk, event_bus):
-        """当前持仓+新订单超过总仓位上限时 check 失败。"""
+        """当前持仓+新订单超过总仓位上限时 check 失败。.
+
+        Args:
+            pre_trade_risk: Pre-trade risk checker fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         intent = OrderIntentEvent(
             instrument_id="BTCUSDT-PERP.BINANCE",
             side="BUY",
@@ -197,7 +248,12 @@ class TestPreTradeWithEventBus:
         assert "position" in result.reason.lower() or "仓位" in result.reason
 
     def test_too_many_open_orders_fails(self, pre_trade_risk, event_bus):
-        """挂单数超过上限时 check 失败。"""
+        """挂单数超过上限时 check 失败。.
+
+        Args:
+            pre_trade_risk: Pre-trade risk checker fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         intent = OrderIntentEvent(
             instrument_id="BTCUSDT-PERP.BINANCE",
             side="BUY",
@@ -219,7 +275,12 @@ class TestPreTradeWithEventBus:
 
 
 def query_trades(persistence, limit=10):
-    """辅助函数：直接查 PostgreSQL 获取最近成交记录。"""
+    """辅助函数：直接查 PostgreSQL 获取最近成交记录。.
+
+    Args:
+        persistence: Persistence component used by the operation.
+        limit: Maximum number of items to process or return.
+    """
     with persistence._conn.cursor() as cur:
         cur.execute(
             "SELECT instrument_id, side, quantity, price, order_id, strategy_id, fees "
@@ -231,8 +292,15 @@ def query_trades(persistence, limit=10):
 
 
 class TestFillHandlerWithPersistence:
+    """Test cases for fill handler with persistence."""
+
     def test_fill_recorded_in_db(self, fill_handler, tmp_db):
-        """on_fill() 后，交易记录写入 PostgreSQL。"""
+        """on_fill() 后，交易记录写入 PostgreSQL。.
+
+        Args:
+            fill_handler: Fill handler under test.
+            tmp_db: Temporary database path or fixture for persistence checks.
+        """
         fill_handler.on_fill(
             instrument_id="BTCUSDT-PERP.BINANCE",
             side="BUY",
@@ -252,7 +320,12 @@ class TestFillHandlerWithPersistence:
         assert t["strategy_id"] == "ema_cross"
 
     def test_multiple_fills_all_recorded(self, fill_handler, tmp_db):
-        """多笔成交都被正确持久化。"""
+        """多笔成交都被正确持久化。.
+
+        Args:
+            fill_handler: Fill handler under test.
+            tmp_db: Temporary database path or fixture for persistence checks.
+        """
         fills = [
             ("BTCUSDT-PERP.BINANCE", "BUY", "0.01", "50000", "O1", "s1"),
             ("ETHUSDT-PERP.BINANCE", "SELL", "0.5", "3000", "O2", "s2"),
@@ -272,7 +345,12 @@ class TestFillHandlerWithPersistence:
         assert len(trades) == 3
 
     def test_fill_publishes_event(self, fill_handler, event_bus):
-        """on_fill() 发布 ORDER_FILLED 事件到事件总线。"""
+        """on_fill() 发布 ORDER_FILLED 事件到事件总线。.
+
+        Args:
+            fill_handler: Fill handler under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         filled_events = []
         event_bus.subscribe(EventType.ORDER_FILLED, filled_events.append)
 
@@ -293,13 +371,21 @@ class TestFillHandlerWithPersistence:
 
 
 class TestFullPipeline:
+    """Test cases for full pipeline."""
+
     def test_signal_to_fill_pipeline(self, event_bus, pre_trade_risk, fill_handler, tmp_db):
-        """
-        模拟完整链路：
+        """模拟完整链路.
+
         1. 策略发布 SignalEvent
         2. 信号处理器构造 OrderIntentEvent 并经风控审核
         3. 通过风控后触发 FillHandler
-        4. 成交写入 DB
+        4. 成交写入 DB.
+
+        Args:
+            event_bus: Event bus fixture or instance used in the test.
+            pre_trade_risk: Pre-trade risk checker fixture under test.
+            fill_handler: Fill handler under test.
+            tmp_db: Temporary database path or fixture for persistence checks.
         """
         pipeline_log: list[str] = []
 
@@ -347,7 +433,15 @@ class TestFullPipeline:
         assert trades[0]["instrument_id"] == "BTCUSDT-PERP.BINANCE"
 
     def test_risk_blocked_signal_not_persisted(self, event_bus, pre_trade_risk, fill_handler, tmp_db):
-        """被风控拦截的信号不应产生成交记录。"""
+        """被风控拦截的信号不应产生成交记录。.
+
+        Args:
+            event_bus: Event bus fixture or instance used in the test.
+            pre_trade_risk: Pre-trade risk checker fixture under test.
+            fill_handler: Fill handler under test.
+            tmp_db: Temporary database path or fixture for persistence checks.
+        """
+
         def on_signal(event: SignalEvent):
             intent = OrderIntentEvent(
                 instrument_id=event.instrument_id,

@@ -74,7 +74,7 @@ MAX_RETRY = 3
 
 
 def parse_args() -> argparse.Namespace:
-    """解析命令行参数。
+    """解析命令行参数。.
 
     Returns:
         argparse.Namespace: 包含以下字段：
@@ -85,6 +85,7 @@ def parse_args() -> argparse.Namespace:
             - download_only (bool): 若为 True，仅下载 CSV 文件，不写入 Nautilus Catalog。
             - auto_latest (bool): 若为 True，从本地最新日期 +1 续传到昨天。
             - env (str | None): 配置环境标识，传给 load_app_config()；None 表示使用默认环境。
+
     """
     parser = argparse.ArgumentParser(description="Binance Futures 历史数据下载")
 
@@ -132,7 +133,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_instruments_config() -> None:
-    """从 configs/instruments.yaml 加载 instrument 配置，填充全局 INSTRUMENT_MAP。
+    """从 configs/instruments.yaml 加载 instrument 配置，填充全局 INSTRUMENT_MAP。.
 
     读取 instruments.yaml 中每个 symbol 对应的 provider 方法名，并通过
     ``TestInstrumentProvider`` 反射获取对应的工厂函数，存入 ``INSTRUMENT_MAP``。
@@ -141,6 +142,7 @@ def load_instruments_config() -> None:
     Raises:
         FileNotFoundError: 若 configs/instruments.yaml 不存在。
         yaml.YAMLError: 若 YAML 文件格式有误。
+
     """
     config_path = ROOT / "configs" / "instruments.yaml"
     cfg = load_yaml(config_path)
@@ -154,7 +156,7 @@ def load_instruments_config() -> None:
 
 
 def validate_dates(start: dt.date | None, end: dt.date | None) -> None:
-    """校验起止日期的逻辑合法性。
+    """校验起止日期的逻辑合法性。.
 
     Args:
         start: 起始日期；为 None 时跳过校验。
@@ -162,13 +164,14 @@ def validate_dates(start: dt.date | None, end: dt.date | None) -> None:
 
     Raises:
         ValueError: 若 start 和 end 均不为 None 且 start > end。
+
     """
     if start and end and start > end:
         raise ValueError("start 不能大于 end")
 
 
 def latest_local_date(raw_dir: Path, symbol: str) -> dt.date | None:
-    """获取本地已下载数据中指定 symbol 的最新日期。
+    """获取本地已下载数据中指定 symbol 的最新日期。.
 
     在 ``raw_dir/futures/<symbol>/`` 目录下扫描形如
     ``<symbol>-*-<YYYY-MM-DD>.csv`` 的文件，提取文件名末尾的日期并返回最大值。
@@ -179,6 +182,7 @@ def latest_local_date(raw_dir: Path, symbol: str) -> dt.date | None:
 
     Returns:
         本地已下载的最新日期（``dt.date``）；若目录不存在或无合法文件则返回 None。
+
     """
     folder = raw_dir / "futures" / symbol
     if not folder.exists():
@@ -196,7 +200,7 @@ def latest_local_date(raw_dir: Path, symbol: str) -> dt.date | None:
 
 
 def retry_download(fn, *args):
-    """带重试机制地执行下载函数。
+    """带重试机制地执行下载函数。.
 
     最多重试 ``MAX_RETRY`` 次，每次失败后等待 2 秒再重试。
     若最后一次仍失败，则将异常向上抛出。
@@ -210,6 +214,7 @@ def retry_download(fn, *args):
 
     Raises:
         Exception: 重试次数耗尽后，重新抛出最后一次的异常。
+
     """
     for attempt in range(1, MAX_RETRY + 1):
         try:
@@ -227,7 +232,7 @@ def retry_download(fn, *args):
 
 
 def main() -> None:
-    """脚本主入口：解析参数、初始化环境，并批量下载各 symbol 的历史数据。
+    """脚本主入口：解析参数、初始化环境，并批量下载各 symbol 的历史数据。.
 
     执行流程：
         1. 解析 CLI 参数，加载应用配置与 instrument 映射。
@@ -239,6 +244,7 @@ def main() -> None:
     Raises:
         ValueError: 若缺少必要的日期参数，或 symbol 未在 instrument 配置中声明。
         SystemExit: argparse 参数错误时由 argparse 内部触发。
+
     """
     args = parse_args()
 
@@ -249,10 +255,7 @@ def main() -> None:
 
     interval = Interval(args.interval)
     if interval != Interval.MINUTE_1:
-        raise ValueError(
-            "仅支持下载 1m 原始 K 线数据。请使用 --interval 1m，"
-            "并在回测时通过聚合生成 15m/更高周期。"
-        )
+        raise ValueError("仅支持下载 1m 原始 K 线数据。请使用 --interval 1m，并在回测时通过聚合生成 15m/更高周期。")
 
     start = dt.date.fromisoformat(args.start) if args.start else None
     end = dt.date.fromisoformat(args.end) if args.end else None

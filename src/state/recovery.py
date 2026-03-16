@@ -21,6 +21,12 @@ class RecoveryManager:
         snapshot_mgr: SnapshotManager,
         reconciler: ReconciliationEngine | None = None,
     ) -> None:
+        """Initialize the recovery manager.
+
+        Args:
+            snapshot_mgr: Snapshot mgr.
+            reconciler: Reconciler.
+        """
         self._snapshot_mgr = snapshot_mgr
         self._reconciler = reconciler
 
@@ -34,6 +40,10 @@ class RecoveryManager:
         1. 尝试加载本地快照
         2. 如果有快照, 与交易所对账
         3. 以交易所为准修正本地状态
+
+        Args:
+            exchange_positions: Exchange positions.
+            account_balance: Recovered or live account balance.
 
         Returns:
             恢复后的快照, 如果无快照则返回 None
@@ -75,7 +85,11 @@ class RecoveryManager:
 
     @staticmethod
     def _snapshot_age_seconds(snapshot: SystemSnapshot) -> float:
-        """计算快照年龄."""
+        """计算快照年龄.
+
+        Args:
+            snapshot: Snapshot payload to persist.
+        """
         import time
 
         return (time.time_ns() - snapshot.timestamp_ns) / 1e9
@@ -127,10 +141,7 @@ class RecoveryManager:
             snapshot.metadata["recovery_action"] = "snapshot_confirmed"
             return
 
-        snapshot.positions = [
-            self._dict_to_position_snapshot(position)
-            for position in result.exchange_positions
-        ]
+        snapshot.positions = [self._dict_to_position_snapshot(position) for position in result.exchange_positions]
         snapshot.metadata["needs_reconciliation"] = False
         snapshot.metadata["recovery_source"] = "exchange_truth"
         snapshot.metadata["recovery_action"] = "positions_replaced_from_exchange"

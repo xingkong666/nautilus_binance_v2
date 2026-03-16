@@ -31,6 +31,15 @@ class SignalProcessor:
         rate_limiter: RateLimiter | None = None,
         ignored_instruments: IgnoredInstrumentRegistry | None = None,
     ) -> None:
+        """Initialize the signal processor.
+
+        Args:
+            event_bus: Event bus used for cross-module communication.
+            order_router: Order router.
+            pre_trade_risk: Pre trade risk.
+            rate_limiter: Rate limiter.
+            ignored_instruments: Ignored instruments.
+        """
         self._event_bus = event_bus
         self._order_router = order_router
         self._pre_trade_risk = pre_trade_risk

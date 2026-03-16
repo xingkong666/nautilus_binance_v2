@@ -1,3 +1,5 @@
+"""Tests for test config loading."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,6 +23,12 @@ def _write_yaml(path: Path, content: str) -> None:
 
 
 def test_load_app_config_includes_exchange_live_and_strategies(monkeypatch, tmp_path: Path) -> None:
+    """Verify that load app config includes exchange live and strategies.
+
+    Args:
+        monkeypatch: Monkeypatch.
+        tmp_path: Path for tmp.
+    """
     configs_dir = tmp_path / "configs"
     monkeypatch.setattr(config_module, "CONFIGS_DIR", configs_dir)
     monkeypatch.setattr(config_module, "EnvSettings", _StubEnvSettings)
@@ -36,6 +44,8 @@ exchange:
 live:
   strategy_config: configs/strategies/vegas_tunnel.yaml
   symbol: BTCUSDT
+  universe_top_n: 200
+  exclude_stablecoin_bases: true
 strategies:
   portfolio:
     mode: equal
@@ -55,4 +65,6 @@ strategies:
     assert app_config.exchange["instrument_ids"] == ["BTCUSDT-PERP.BINANCE"]
     assert app_config.live.strategy_config == "configs/strategies/vegas_tunnel.yaml"
     assert app_config.live.symbol == "BTCUSDT"
+    assert app_config.live.universe_top_n == 200
+    assert app_config.live.exclude_stablecoin_bases is True
     assert app_config.strategies["portfolio"]["mode"] == "equal"

@@ -49,6 +49,7 @@ class BaseBinanceDownloader:
 
         Args:
             raw_dir: 原始数据根目录, 下载文件存放在 raw_dir/{trader_type}/{symbol}/ 下.
+
         """
         self._raw_dir = raw_dir
 
@@ -61,6 +62,7 @@ class BaseBinanceDownloader:
 
         Returns:
             十六进制格式的 SHA256 字符串.
+
         """
         h = hashlib.sha256()
         with open(file_path, "rb") as f:
@@ -79,6 +81,7 @@ class BaseBinanceDownloader:
 
         Returns:
             SHA256 哈希字符串; 下载失败或内容为空时返回 None.
+
         """
         try:
             resp = httpx.get(url, timeout=timeout)
@@ -101,6 +104,7 @@ class BaseBinanceDownloader:
 
         Returns:
             True 表示文件存在且非空可直接复用; False 表示需重新下载.
+
         """
         if not csv_path.exists():
             return False
@@ -121,6 +125,7 @@ class BaseBinanceDownloader:
 
         Returns:
             True 表示 ZIP 有效; False 表示校验失败.
+
         """
         if not zip_path.exists() or zip_path.stat().st_size <= 0:
             logger.warning("zip_invalid", path=str(zip_path))
@@ -158,6 +163,7 @@ class BaseBinanceDownloader:
 
         Returns:
             None
+
         """
         manifest_path = save_dir / "manifest.json"
         data: dict[str, Any] = {
@@ -184,6 +190,7 @@ class BaseBinanceDownloader:
 
         Raises:
             httpx.HTTPStatusError: HTTP 4xx/5xx 错误.
+
         """
         resp = await client.get(url, timeout=timeout)
         resp.raise_for_status()
@@ -222,6 +229,7 @@ class BaseBinanceDownloader:
         Raises:
             httpx.HTTPStatusError: HTTP 请求失败.
             httpx.HTTPError: ZIP 校验失败.
+
         """
         async with semaphore:
             date_str = date.strftime("%Y-%m-%d")
@@ -283,6 +291,7 @@ class BaseBinanceDownloader:
 
         Returns:
             成功下载的 CSV 文件路径列表.
+
         """
         total_days = (end - start).days + 1
         semaphore = asyncio.Semaphore(concurrency)
@@ -334,6 +343,7 @@ class BaseBinanceDownloader:
 
         Returns:
             解压后的 CSV 文件路径.
+
         """
         date_str = date.strftime("%Y-%m-%d")
         base_name = f"{symbol}-{interval.value}-{date_str}"
@@ -381,6 +391,7 @@ class BaseBinanceDownloader:
 
         Returns:
             成功下载的 CSV 文件路径列表.
+
         """
         return asyncio.run(
             self.download_range_async(
@@ -438,6 +449,7 @@ class KlineCatalogLoader:
 
         Args:
             catalog_dir: Parquet Catalog 根目录, 不存在时自动创建.
+
         """
         self._catalog_dir = catalog_dir
         self._catalog_dir.mkdir(parents=True, exist_ok=True)
@@ -450,6 +462,7 @@ class KlineCatalogLoader:
 
         Returns:
             ParquetDataCatalog 实例.
+
         """
         return self._catalog
 
@@ -465,6 +478,7 @@ class KlineCatalogLoader:
 
         Returns:
             True 表示数据已存在; False 表示不存在或查询异常.
+
         """
         try:
             data = self._catalog.bars(
@@ -493,6 +507,7 @@ class KlineCatalogLoader:
 
         Returns:
             写入的 bar 数量
+
         """
         nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
         bar_type = BarType.from_str(f"{instrument.id}-{nautilus_interval}-LAST-EXTERNAL")
@@ -554,6 +569,7 @@ class KlineCatalogLoader:
 
         Returns:
             总写入 bar 数量
+
         """
         total = 0
         for csv_path in csv_paths:
@@ -580,6 +596,7 @@ class KlineCatalogLoader:
 
         Returns:
             包含标准列名和 ts_event 列的 DataFrame.
+
         """
         df_with_header = pd.read_csv(csv_path, header=0)
         if "open_time" not in df_with_header.columns:
@@ -617,6 +634,7 @@ class DataPipeline:
         Args:
             raw_dir: 原始 CSV 存储根目录.
             catalog_dir: Parquet Catalog 根目录.
+
         """
         self.downloader = BinanceFuturesDownloader(raw_dir)
         self.loader = KlineCatalogLoader(catalog_dir)
@@ -643,6 +661,7 @@ class DataPipeline:
 
         Returns:
             总写入 bar 数量
+
         """
         logger.info(
             "pipeline_start",
@@ -696,6 +715,7 @@ class DataPipeline:
 
         Returns:
             {symbol: total_bars} 映射
+
         """
         results: dict[str, int] = {}
         for symbol, instrument in instruments.items():

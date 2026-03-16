@@ -12,14 +12,22 @@ BINANCE_FUNDING_URL = "https://fapi.binance.com/fapi/v1/fundingRate"
 
 
 def datetime_to_ms(value: dt.datetime) -> int:
-    """UTC datetime 转毫秒时间戳."""
+    """UTC datetime 转毫秒时间戳.
+
+    Args:
+        value: Input value to convert or evaluate.
+    """
     if value.tzinfo is None:
         value = value.replace(tzinfo=dt.UTC)
     return int(value.timestamp() * 1000)
 
 
 def normalize_funding_rates(rows: list[dict[str, Any]]) -> pd.DataFrame:
-    """标准化 Binance fundingRate 响应."""
+    """标准化 Binance fundingRate 响应.
+
+    Args:
+        rows: Rows.
+    """
     df = pd.DataFrame(rows)
     if df.empty:
         return pd.DataFrame(columns=["symbol", "timestamp", "funding_rate", "mark_price"])
@@ -44,7 +52,13 @@ def normalize_funding_rates(rows: list[dict[str, Any]]) -> pd.DataFrame:
 
 
 def funding_output_paths(raw_dir: Path, features_dir: Path, symbol: str) -> tuple[Path, Path]:
-    """返回 funding 原始 CSV 与特征 parquet 路径."""
+    """返回 funding 原始 CSV 与特征 parquet 路径.
+
+    Args:
+        raw_dir: Directory for raw.
+        features_dir: Directory for features.
+        symbol: Trading symbol to process.
+    """
     raw_path = raw_dir / "funding" / f"{symbol}.csv"
     feature_path = features_dir / f"funding_rates_{symbol}.parquet"
     raw_path.parent.mkdir(parents=True, exist_ok=True)

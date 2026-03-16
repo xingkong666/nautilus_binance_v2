@@ -57,6 +57,7 @@ class TelegramNotifier(BaseNotifier):
             min_level: 最低发送级别，低于此级别静默丢弃，默认 ERROR。
             enabled: 是否启用，默认 True。
             timeout: HTTP 请求超时秒数，默认 10.0。
+
         """
         super().__init__(min_level=min_level, enabled=enabled)
         self._bot_token = bot_token
@@ -75,6 +76,7 @@ class TelegramNotifier(BaseNotifier):
         Raises:
             httpx.HTTPStatusError: API 返回非 2xx 状态码。
             httpx.TimeoutException: 请求超时。
+
         """
         text = self._escape_markdown(alert.format_text())
 
@@ -112,6 +114,7 @@ class TelegramNotifier(BaseNotifier):
 
         Returns:
             转义后的文本，可安全用于 MarkdownV2。
+
         """
         special_chars = r"\_*[]()~`>#+-=|{}.!"
         return "".join(f"\\{c}" if c in special_chars else c for c in text)
@@ -133,6 +136,7 @@ class TelegramNotifier(BaseNotifier):
 
         Raises:
             ValueError: 环境变量未设置或为空。
+
         """
         import os
         from pathlib import Path
@@ -140,6 +144,7 @@ class TelegramNotifier(BaseNotifier):
         # 尝试加载项目根目录的 .env 文件
         try:
             from dotenv import load_dotenv
+
             load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
         except ImportError:
             pass
@@ -148,8 +153,6 @@ class TelegramNotifier(BaseNotifier):
         chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
 
         if not token or not chat_id:
-            raise ValueError(
-                "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in environment variables."
-            )
+            raise ValueError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in environment variables.")
 
         return cls(bot_token=token, chat_id=chat_id, min_level=min_level, enabled=enabled)

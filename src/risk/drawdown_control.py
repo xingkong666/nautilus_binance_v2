@@ -24,11 +24,13 @@ class DrawdownController:
         critical_pct: float = 5.0,
         reduce_factor: float = 0.5,
     ) -> None:
-        """
+        """初始化回撤控制器.
+
         Args:
-            warning_pct: 预警回撤阈值 (%)
-            critical_pct: 严重回撤阈值 (%)
-            reduce_factor: 回撤时仓位缩减比例 (0.5 = 减半)
+            warning_pct: 预警回撤阈值（%）。
+            critical_pct: 严重回撤阈值（%）。
+            reduce_factor: 回撤时仓位缩减比例，`0.5` 表示减半。
+
         """
         self._warning_pct = warning_pct
         self._critical_pct = critical_pct
@@ -36,7 +38,11 @@ class DrawdownController:
         self._peak_equity = Decimal(0)
 
     def update_equity(self, equity: Decimal) -> None:
-        """更新权益峰值."""
+        """更新权益峰值.
+
+        Args:
+            equity: Current account equity value.
+        """
         if equity > self._peak_equity:
             self._peak_equity = equity
 
@@ -49,6 +55,9 @@ class DrawdownController:
 
     def get_size_multiplier(self, current_equity: Decimal) -> float:
         """根据回撤状态返回仓位乘数.
+
+        Args:
+            current_equity: Current equity.
 
         Returns:
             1.0 = 正常, 0.5 = 减半, 0.0 = 停止交易

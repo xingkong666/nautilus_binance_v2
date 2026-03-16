@@ -29,12 +29,25 @@ class OrderRouter:
     """
 
     def __init__(self, event_bus: EventBus) -> None:
+        """Initialize the order router.
+
+        Args:
+            event_bus: Event bus used for cross-module communication.
+        """
         self._event_bus = event_bus
         self._strategy: Strategy | None = None
+        self._strategies: dict[str, Strategy] = {}
 
     def bind_strategy(self, strategy: Strategy) -> None:
-        """绑定 Nautilus Strategy 实例 (用于下单)."""
+        """绑定 Nautilus Strategy 实例 (用于下单).
+
+        Args:
+            strategy: Strategy instance to bind or inspect.
+        """
         self._strategy = strategy
+        instrument_id = getattr(getattr(strategy, "config", None), "instrument_id", None)
+        if instrument_id is not None:
+            self._strategies[str(instrument_id)] = strategy
 
     def route(self, intent: OrderIntent) -> bool:
         """路由订单.
@@ -44,19 +57,23 @@ class OrderRouter:
 
         Returns:
             是否成功提交
+
         """
-        if self._strategy is None:
+        strategy = self._strategies.get(intent.instrument_id)
+        if strategy is None and len(self._strategies) <= 1:
+            strategy = self._strategy
+        if strategy is None:
             logger.error("order_router_no_strategy")
             return False
 
-        instrument = self._strategy.cache.instrument(InstrumentId.from_str(intent.instrument_id))
+        instrument = strategy.cache.instrument(InstrumentId.from_str(intent.instrument_id))
         if instrument is None:
             logger.error("instrument_not_found", instrument_id=intent.instrument_id)
             return False
 
         try:
-            order = self._create_order(intent, instrument)
-            self._strategy.submit_order(order)
+            order = self._create_order(intent=intent, instrument=instrument, strategy=strategy)
+            strategy.submit_order(order)
 
             logger.info(
                 "order_submitted",
@@ -85,12 +102,19 @@ class OrderRouter:
             logger.exception("order_submit_failed", instrument=intent.instrument_id)
             return False
 
-    def _create_order(self, intent: OrderIntent, instrument: Instrument) -> Any:
-        """创建 Nautilus 订单."""
-        if self._strategy is None:
-            raise RuntimeError("Strategy not bound")
+    def _create_order(
+        self,
+        intent: OrderIntent,
+        instrument: Instrument,
+        strategy: Strategy,
+    ) -> Any:
+        """创建 Nautilus 订单.
 
-        strategy = self._strategy
+        Args:
+            intent: Intent.
+            instrument: Instrument.
+            strategy: Strategy instance to bind or inspect.
+        """
         side = OrderSide.BUY if intent.side == "BUY" else OrderSide.SELL
         quantity = self._normalize_quantity_to_step(
             quantity=intent.quantity,

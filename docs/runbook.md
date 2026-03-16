@@ -12,14 +12,12 @@
 # Testnet（开发 / 验证）
 uv run python -m src.app.bootstrap \
   --env configs/env/dev.yaml \
-  --strategy-config configs/strategies/vegas_tunnel.yaml \
-  --symbol BTCUSDT
+  --strategy-config configs/strategies/vegas_tunnel.yaml
 
 # 生产
 uv run python -m src.app.bootstrap \
   --env configs/env/prod.yaml \
-  --strategy-config configs/strategies/vegas_tunnel.yaml \
-  --symbol BTCUSDT
+  --strategy-config configs/strategies/vegas_tunnel.yaml
 ```
 
 启动时会依次执行：
@@ -37,6 +35,8 @@ uv run python -m src.app.bootstrap \
 
 1. 若某交易对在启动时已存在外部持仓或外部挂单，本系统会忽略该交易对，不再继续下单。
 2. `ignored` 是运行期保护，不会自动替你撤销外部挂单或平掉外部持仓。
+3. 未传 `--symbol/--symbols` 时，默认从 `configs/instruments.yaml` 取前 `live.universe_top_n` 个交易对，并默认排除稳定币 base asset。
+4. 显式指定多标的时使用 `--symbols BTCUSDT ETHUSDT ...`，其优先级高于 `--symbol`。
 
 ### 优雅停止
 
@@ -245,8 +245,8 @@ export NO_PROXY=127.0.0.1,localhost
 
 注意事项：
 
-1. 下载器对“本地已有 CSV”走快路径，不会创建网络客户端。  
-2. 若设置了 `ALL_PROXY=socks5://...` 或 `socks5h://...`，需安装 SOCKS 依赖（`httpx[socks]`），否则会在创建 HTTP client 时抛错。  
+1. 下载器对“本地已有 CSV”走快路径，不会创建网络客户端。
+2. 若设置了 `ALL_PROXY=socks5://...` 或 `socks5h://...`，需安装 SOCKS 依赖（`httpx[socks]`），否则会在创建 HTTP client 时抛错。
 3. 代理仅影响需要联网的下载流程，不影响本地回测与本地 CSV 读取。
 
 ---

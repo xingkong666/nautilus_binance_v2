@@ -1,3 +1,5 @@
+"""Tests for test notifier telegram."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -7,6 +9,11 @@ from src.monitoring.notifier.telegram import TelegramNotifier
 
 
 def test_telegram_notifier_retries_without_env_proxy_on_missing_socksio(monkeypatch) -> None:
+    """Verify that telegram notifier retries without env proxy on missing socksio.
+
+    Args:
+        monkeypatch: Monkeypatch.
+    """
     calls: list[dict[str, object]] = []
 
     def _fake_post(url: str, json: dict[str, object], timeout: float, trust_env: bool = True):

@@ -32,6 +32,11 @@ class CostAnalysis:
     funding_events_used: int
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the object to dict.
+
+        Returns:
+            dict[str, Any]: Dictionary representation of the result.
+        """
         data = asdict(self)
         for key, value in list(data.items()):
             if isinstance(value, Decimal):
@@ -48,6 +53,13 @@ class BacktestCostAnalyzer:
         raw_dir: Path,
         features_dir: Path,
     ) -> None:
+        """Initialize the backtest cost analyzer.
+
+        Args:
+            execution_config: Configuration for execution.
+            raw_dir: Directory for raw.
+            features_dir: Directory for features.
+        """
         self._execution_config = execution_config
         self._raw_dir = raw_dir
         self._features_dir = features_dir
@@ -61,6 +73,16 @@ class BacktestCostAnalyzer:
         starting_balance: int,
         pnl_stats: dict[str, Any] | None,
     ) -> CostAnalysis | None:
+        """Run analyze.
+
+        Args:
+            reports: Reports.
+            starting_balance: Starting balance.
+            pnl_stats: PnL stats.
+
+        Returns:
+            CostAnalysis: Result of analyze.
+        """
         fills = self._as_dataframe(reports.get("order_fills"))
         positions = self._as_dataframe(reports.get("positions"))
         if fills is None and positions is None:

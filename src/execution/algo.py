@@ -27,6 +27,7 @@ class ExecAlgorithm(ABC):
 
         Returns:
             拆分后的订单意图列表
+
         """
 
 
@@ -37,11 +38,21 @@ class TWAPAlgorithm(ExecAlgorithm):
     """
 
     def __init__(self, slices: int = 5, interval_seconds: int = 60) -> None:
+        """Initialize the twap algorithm.
+
+        Args:
+            slices: Slices.
+            interval_seconds: Interval seconds.
+        """
         self._slices = slices
         self._interval_seconds = interval_seconds
 
     def split(self, intent: OrderIntent) -> list[OrderIntent]:
-        """均匀拆分."""
+        """均匀拆分.
+
+        Args:
+            intent: Intent.
+        """
         slice_qty = intent.quantity / Decimal(self._slices)
         intents = []
 
@@ -70,4 +81,12 @@ class PassthroughAlgorithm(ExecAlgorithm):
     """直通算法, 不拆分."""
 
     def split(self, intent: OrderIntent) -> list[OrderIntent]:
+        """Run split.
+
+        Args:
+            intent: Intent.
+
+        Returns:
+            list[OrderIntent]: Collected items returned by the operation.
+        """
         return [intent]

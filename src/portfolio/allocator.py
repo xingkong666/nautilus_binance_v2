@@ -36,6 +36,7 @@ class StrategyAllocation:
         weight: 相对权重（等额模式下忽略）。
         max_allocation_pct: 该策略可用资金上限占总资金的百分比，0 表示不限。
         enabled: 是否参与分配。
+
     """
 
     strategy_id: str
@@ -53,6 +54,7 @@ class AllocationResult:
         allocated_capital: 分配的资金金额（USDT）。
         allocation_pct: 分配比例（0-1）。
         available_capital: 去除已用保证金后的可用资金。
+
     """
 
     strategy_id: str
@@ -71,6 +73,7 @@ class PortfolioSnapshot:
         current_quantity: 当前持仓量（正=多头，负=空头，0=无仓）。
         current_price: 当前价格（用于估算持仓价值）。
         margin_used: 当前占用保证金。
+
     """
 
     strategy_id: str
@@ -103,6 +106,7 @@ class PortfolioAllocator:
         ... }
         >>> allocator = PortfolioAllocator(config)
         >>> results = allocator.allocate(Decimal("10000"))
+
     """
 
     def __init__(self, config: dict[str, Any]) -> None:
@@ -117,6 +121,7 @@ class PortfolioAllocator:
 
         Raises:
             ValueError: 若策略列表为空或模式不合法。
+
         """
         valid_modes = {"equal", "weight", "risk_parity"}
         self._mode: str = config.get("mode", "equal")
@@ -165,6 +170,7 @@ class PortfolioAllocator:
 
         Raises:
             ValueError: 若没有可用的启用策略。
+
         """
         enabled = [s for s in self._strategies.values() if s.enabled]
         if not enabled:
@@ -243,6 +249,7 @@ class PortfolioAllocator:
 
         Raises:
             KeyError: 若 strategy_id 不在配置中。
+
         """
         if strategy_id not in self._strategies:
             raise KeyError(f"未知策略 '{strategy_id}'")
@@ -272,9 +279,11 @@ class PortfolioAllocator:
             total_capital: 当前账户总权益（USDT）。
             price_precision: 价格精度（小数位数），用于格式化日志。
             qty_precision: 数量精度（小数位数），用于四舍五入。
+            close_unknown: 是否对未出现在目标分配中的策略仓位执行全平。
 
         Returns:
             需要执行的 OrderIntent 列表（可能为空）。
+
         """
         target_allocations = self.allocate(total_capital)
         intents: list[OrderIntent] = []
@@ -375,6 +384,7 @@ class PortfolioAllocator:
 
         Raises:
             ValueError: 若 volatility <= 0。
+
         """
         if volatility <= 0:
             raise ValueError(f"波动率必须为正数，收到: {volatility}")
@@ -390,6 +400,7 @@ class PortfolioAllocator:
 
         Raises:
             KeyError: 若 strategy_id 不在配置中。
+
         """
         if strategy_id not in self._strategies:
             raise KeyError(f"未知策略 '{strategy_id}'")
@@ -404,6 +415,7 @@ class PortfolioAllocator:
 
         Returns:
             多行字符串，包含每个策略的分配比例和金额。
+
         """
         results = self.allocate(total_capital)
         deployable = total_capital * Decimal(str((100 - self._reserve_pct) / 100))
@@ -413,18 +425,14 @@ class PortfolioAllocator:
             "-" * 60,
         ]
         for sid, r in results.items():
-            lines.append(
-                f"  {sid:<30} {r.allocation_pct:>6.1%}   {r.allocated_capital:>12} USDT"
-            )
+            lines.append(f"  {sid:<30} {r.allocation_pct:>6.1%}   {r.allocated_capital:>12} USDT")
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _risk_parity_weights(
-        self, strategies: list[StrategyAllocation]
-    ) -> dict[str, float]:
+    def _risk_parity_weights(self, strategies: list[StrategyAllocation]) -> dict[str, float]:
         """计算风险平价权重.
 
         每个策略的权重与其波动率成反比（等风险贡献）。
@@ -435,6 +443,7 @@ class PortfolioAllocator:
 
         Returns:
             以 strategy_id 为键的原始权重字典（未归一化）。
+
         """
         weights: dict[str, float] = {}
         for strat in strategies:

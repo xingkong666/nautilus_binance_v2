@@ -45,6 +45,7 @@ def validate_kline_dataframe(df: pd.DataFrame) -> None:
 
     Raises:
         DataValidationError: 验证失败
+
     """
     required_cols = ["open_time", "open", "high", "low", "close", "volume"]
 
@@ -102,6 +103,7 @@ def validate_data_completeness(
 
     Returns:
         缺失时间段列表
+
     """
     gaps: list[DataGap] = []
     if len(df) < 2:
@@ -140,6 +142,7 @@ def validate_cross_day_continuity(
 
     Returns:
         缺失日期列表, 格式为 YYYY-MM-DD; 无缺口时返回空列表.
+
     """
     from src.data.loaders import KlineCatalogLoader
 

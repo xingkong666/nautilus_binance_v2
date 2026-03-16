@@ -29,6 +29,7 @@ def _make_df(**overrides: object) -> pd.DataFrame:
 
     Returns:
         包含完整 OHLCV 字段的 DataFrame.
+
     """
     data: dict[str, object] = {
         "open_time": [1000, 2000, 3000],
@@ -47,6 +48,7 @@ def test_valid_data() -> None:
 
     Returns:
         None
+
     """
     df = _make_df()
     validate_kline_dataframe(df)
@@ -57,6 +59,7 @@ def test_missing_columns() -> None:
 
     Returns:
         None
+
     """
     df = pd.DataFrame({"open_time": [1], "open": [100]})
     with pytest.raises(DataValidationError, match="缺少必要列"):
@@ -68,6 +71,7 @@ def test_null_values() -> None:
 
     Returns:
         None
+
     """
     df = _make_df(open=[100.0, None, 102.0])
     with pytest.raises(DataValidationError, match="存在空值"):
@@ -82,6 +86,7 @@ def test_ohlc_high_less_than_low() -> None:
 
     Returns:
         None
+
     """
     df = _make_df(high=[90.0, 106.0, 107.0])  # 第一条 high(90) < low(95)
     with pytest.raises(DataValidationError, match="OHLC 异常"):
@@ -93,6 +98,7 @@ def test_duplicate_timestamps() -> None:
 
     Returns:
         None
+
     """
     df = _make_df(open_time=[1000, 1000, 3000])
     with pytest.raises(DataValidationError, match="重复时间戳"):

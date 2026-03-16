@@ -54,7 +54,11 @@ TRADE_SIZE = Decimal("0.01")
 
 
 def _generate_combinations(grid: dict[str, list[Any]]) -> list[dict[str, Any]]:
-    """将参数字典转换为参数组合列表."""
+    """将参数字典转换为参数组合列表.
+
+    Args:
+        grid: Grid.
+    """
     keys = list(grid.keys())
     values = [grid[k] for k in keys]
     combinations = itertools.product(*values)
@@ -174,7 +178,12 @@ def _extract_stats(run_result: Any) -> dict[str, float]:
 
 
 def _smooth_score(stats: dict[str, float], orders: int) -> float:
-    """综合评分: 越高越好（高 Sharpe + 低波动 + 低回撤 + 适度交易频率）."""
+    """综合评分: 越高越好（高 Sharpe + 低波动 + 低回撤 + 适度交易频率）.
+
+    Args:
+        stats: Stats.
+        orders: Orders.
+    """
     return round(
         stats["Sharpe"]
         + (0.4 * stats["Calmar"])
@@ -186,17 +195,17 @@ def _smooth_score(stats: dict[str, float], orders: int) -> float:
 
 
 def run_single_backtest(task: dict[str, Any]) -> dict[str, Any]:
-    """多进程执行单一参数回测."""
+    """多进程执行单一参数回测.
+
+    Args:
+        task: Backtest task definition to execute.
+    """
     symbol = str(task["symbol"])
     strategy_type = str(task["strategy_type"])
     start_date = dt.date.fromisoformat(str(task["start_date"]))
     end_date = dt.date.fromisoformat(str(task["end_date"]))
 
-    strategy_params = {
-        k: v
-        for k, v in task.items()
-        if k not in {"symbol", "strategy_type", "start_date", "end_date"}
-    }
+    strategy_params = {k: v for k, v in task.items() if k not in {"symbol", "strategy_type", "start_date", "end_date"}}
 
     runner_config = BacktestConfig(
         start=start_date,
@@ -295,7 +304,14 @@ def save_and_print_results(
     file_name: str,
     top_n: int = 10,
 ) -> None:
-    """保存 CSV 并打印 TopN."""
+    """保存 CSV 并打印 TopN.
+
+    Args:
+        results: Computed results to persist or display.
+        output_dir: Output directory for generated artifacts.
+        file_name: Output file name.
+        top_n: Maximum number of top rows to include.
+    """
     df = pd.DataFrame(results)
     if df.empty:
         print(f"\n⚠️ No rows for {file_name}")
@@ -335,6 +351,11 @@ def save_and_print_results(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Returns:
+        argparse.Namespace: Parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(description="策略参数网格扫描")
     parser.add_argument("--strategy", choices=["all", "ema", "rsi"], default="ema")
     parser.add_argument(
@@ -397,6 +418,7 @@ def _run_pool(tasks: list[dict[str, Any]], workers: int, label: str) -> list[dic
 
 
 def main() -> None:
+    """Run the script entrypoint."""
     args = parse_args()
 
     sweep_tasks = _build_sweep_tasks(args)

@@ -23,6 +23,11 @@ from src.data.funding import BINANCE_FUNDING_URL, datetime_to_ms, funding_output
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Returns:
+        argparse.Namespace: Parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(description="下载 Binance USD-M funding rate")
     parser.add_argument("--symbol", required=True, help="交易对，如 BTCUSDT")
     parser.add_argument("--start", required=True, help="开始日期 YYYY-MM-DD")
@@ -40,6 +45,18 @@ def fetch_funding_rates(
     limit: int,
     sleep_ms: int,
 ) -> pd.DataFrame:
+    """Fetch funding rates.
+
+    Args:
+        symbol: Trading symbol to process.
+        start: Start value for the operation.
+        end: End value for the operation.
+        limit: Limit.
+        sleep_ms: Sleep ms.
+
+    Returns:
+        pd.DataFrame: Dataframe produced by the operation.
+    """
     rows: list[dict] = []
     start_ms = datetime_to_ms(start)
     end_ms = datetime_to_ms(end)
@@ -70,6 +87,7 @@ def fetch_funding_rates(
 
 
 def main() -> None:
+    """Run the script entrypoint."""
     args = parse_args()
     setup_logging(level="INFO")
     config = load_app_config(env=args.env)

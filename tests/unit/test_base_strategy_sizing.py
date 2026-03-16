@@ -70,6 +70,7 @@ def _make_strategy(capital_pct: float | None) -> EMACrossStrategy:
 
 
 def test_fixed_trade_size_used_when_no_capital_pct() -> None:
+    """Verify that fixed trade size used when no capital percent."""
     strategy = _make_strategy(capital_pct=None)
     strategy.instrument = _DummyInstrument()  # type: ignore[assignment]
     qty = strategy._resolve_order_quantity(  # type: ignore[arg-type]
@@ -81,6 +82,7 @@ def test_fixed_trade_size_used_when_no_capital_pct() -> None:
 
 
 def test_capital_pct_sizing_overrides_fixed_trade_size() -> None:
+    """Verify that capital percent sizing overrides fixed trade size."""
     strategy = _make_strategy(capital_pct=10.0)
     strategy.instrument = _DummyInstrument()  # type: ignore[assignment]
     strategy._resolve_qty_from_notional_pct = (  # type: ignore[method-assign]
@@ -96,6 +98,7 @@ def test_capital_pct_sizing_overrides_fixed_trade_size() -> None:
 
 
 def test_gross_exposure_pct_sizing_uses_notional_pct() -> None:
+    """Verify that gross exposure percent sizing uses notional percent."""
     cfg = EMACrossConfig(
         instrument_id=INSTRUMENT_ID,
         bar_type=BAR_TYPE,
@@ -117,6 +120,7 @@ def test_gross_exposure_pct_sizing_uses_notional_pct() -> None:
 
 
 def test_margin_pct_sizing_uses_sizing_leverage() -> None:
+    """Verify that margin percent sizing uses sizing leverage."""
     cfg = EMACrossConfig(
         instrument_id=INSTRUMENT_ID,
         bar_type=BAR_TYPE,
@@ -139,6 +143,7 @@ def test_margin_pct_sizing_uses_sizing_leverage() -> None:
 
 
 def test_notional_pct_sizing_returns_none_when_below_min_increment() -> None:
+    """Verify that notional percent sizing returns none when below min increment."""
     strategy = _make_strategy(capital_pct=0.001)
     strategy.instrument = _DummyInstrument(size_increment="0.001", min_qty="0.001")  # type: ignore[assignment]
     strategy._resolve_equity = lambda: Decimal("1000")  # type: ignore[method-assign]
@@ -149,6 +154,7 @@ def test_notional_pct_sizing_returns_none_when_below_min_increment() -> None:
 
 
 def test_split_quantity_by_ratios_preserves_total() -> None:
+    """Verify that split quantity by ratios preserves total."""
     strategy = _make_strategy(capital_pct=None)
     strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
 
@@ -163,6 +169,7 @@ def test_split_quantity_by_ratios_preserves_total() -> None:
 
 
 def test_split_quantity_by_ratios_respects_step_for_tiny_qty() -> None:
+    """Verify that split quantity by ratios respects step for tiny quantity."""
     strategy = _make_strategy(capital_pct=None)
     strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
 
@@ -177,6 +184,7 @@ def test_split_quantity_by_ratios_respects_step_for_tiny_qty() -> None:
 
 
 def test_split_quantity_preserve_total_keeps_remainder_on_last_chunk() -> None:
+    """Verify that split quantity preserve total keeps remainder on last chunk."""
     strategy = _make_strategy(capital_pct=None)
     strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
 
@@ -189,6 +197,7 @@ def test_split_quantity_preserve_total_keeps_remainder_on_last_chunk() -> None:
 
 
 def test_split_quantity_strict_step_discards_non_step_remainder() -> None:
+    """Verify that split quantity strict step discards non step remainder."""
     strategy = _make_strategy(capital_pct=None)
     strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
 
@@ -201,6 +210,7 @@ def test_split_quantity_strict_step_discards_non_step_remainder() -> None:
 
 
 def test_resolve_order_quantity_decimal_primary_path() -> None:
+    """Verify that resolve order quantity decimal primary path."""
     strategy = _make_strategy(capital_pct=None)
     strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
     strategy._resolve_order_quantity = lambda _bar: _DummyQty(Decimal("0.1234"))  # type: ignore[method-assign]
@@ -214,6 +224,7 @@ def test_resolve_order_quantity_decimal_primary_path() -> None:
 
 
 def test_resolve_order_quantity_decimal_fallback_trade_size() -> None:
+    """Verify that resolve order quantity decimal fallback trade size."""
     strategy = _make_strategy(capital_pct=None)
     strategy.instrument = _DummyInstrument(size_increment="0.001")  # type: ignore[assignment]
     strategy._resolve_order_quantity = lambda _bar: None  # type: ignore[method-assign]

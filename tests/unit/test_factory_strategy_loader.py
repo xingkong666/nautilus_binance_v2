@@ -16,6 +16,7 @@ class _DummyContainer:
 
 
 def test_create_strategy_from_config_supports_turtle() -> None:
+    """Verify that create strategy from config supports turtle."""
     factory = AppFactory(container=_DummyContainer())  # type: ignore[arg-type]
     strategy_cfg = {
         "name": "turtle",
@@ -44,6 +45,7 @@ def test_create_strategy_from_config_supports_turtle() -> None:
 
 
 def test_create_strategy_from_config_supports_micro_scalp() -> None:
+    """Verify that create strategy from config supports micro scalp."""
     factory = AppFactory(container=_DummyContainer())  # type: ignore[arg-type]
     strategy_cfg = {
         "name": "micro_scalp",
@@ -75,6 +77,7 @@ def test_create_strategy_from_config_supports_micro_scalp() -> None:
 
 
 def test_create_strategy_from_config_supports_vegas_tunnel() -> None:
+    """Verify that create strategy from config supports vegas tunnel."""
     factory = AppFactory(container=_DummyContainer())  # type: ignore[arg-type]
     strategy_cfg = {
         "name": "vegas_tunnel",
@@ -110,6 +113,7 @@ def test_create_strategy_from_config_supports_vegas_tunnel() -> None:
 
 
 def test_create_strategy_from_config_loads_leverage_aware_sizing() -> None:
+    """Verify that create strategy from config loads leverage aware sizing."""
     factory = AppFactory(container=_DummyContainer())  # type: ignore[arg-type]
     strategy_cfg = {
         "name": "ema_pullback_atr",

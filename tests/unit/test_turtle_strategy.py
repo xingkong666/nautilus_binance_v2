@@ -39,6 +39,11 @@ class _StepInstrument:
 
 
 def make_strategy() -> TurtleStrategy:
+    """Build strategy.
+
+    Returns:
+        TurtleStrategy: Result of make strategy.
+    """
     cfg = TurtleConfig(
         instrument_id=INSTRUMENT_ID,
         bar_type=BAR_TYPE,
@@ -55,6 +60,17 @@ def make_strategy() -> TurtleStrategy:
 
 
 def make_bar(open_: float, high: float, low: float, close: float) -> SimpleNamespace:
+    """Build bar.
+
+    Args:
+        open_: Open.
+        high: High.
+        low: Low.
+        close: Close.
+
+    Returns:
+        SimpleNamespace: Result of make bar.
+    """
     return SimpleNamespace(open=open_, high=high, low=low, close=close)
 
 
@@ -66,6 +82,7 @@ def _prefill_history(strategy: TurtleStrategy) -> None:
 
 
 def test_atr_not_initialized_blocks_signal() -> None:
+    """Verify that ATR not initialized blocks signal."""
     strategy = make_strategy()
     strategy._atr_indicator = SimpleNamespace(initialized=False, value=10.0)
 
@@ -75,6 +92,7 @@ def test_atr_not_initialized_blocks_signal() -> None:
 
 
 def test_breakout_triggers_long_entry() -> None:
+    """Verify that breakout triggers long entry."""
     strategy = make_strategy()
     _prefill_history(strategy)
 
@@ -89,6 +107,7 @@ def test_breakout_triggers_long_entry() -> None:
 
 
 def test_add_position_on_half_n_move() -> None:
+    """Verify that add position on half n move."""
     strategy = make_strategy()
     _prefill_history(strategy)
 
@@ -107,6 +126,7 @@ def test_add_position_on_half_n_move() -> None:
 
 
 def test_stop_loss_triggers_flat_exit() -> None:
+    """Verify that stop loss triggers flat exit."""
     strategy = make_strategy()
     _prefill_history(strategy)
 
@@ -127,6 +147,7 @@ def test_stop_loss_triggers_flat_exit() -> None:
 
 
 def test_max_units_blocks_further_adds() -> None:
+    """Verify that max units blocks further adds."""
     strategy = make_strategy()
     _prefill_history(strategy)
 
@@ -143,6 +164,7 @@ def test_max_units_blocks_further_adds() -> None:
 
 
 def test_on_reset_clears_internal_state() -> None:
+    """Verify that on reset clears internal state."""
     strategy = make_strategy()
     _prefill_history(strategy)
 
@@ -162,6 +184,7 @@ def test_on_reset_clears_internal_state() -> None:
 
 
 def test_unit_quantity_uses_base_step_splitting() -> None:
+    """Verify that unit quantity uses base step splitting."""
     strategy = make_strategy()
     strategy.instrument = _StepInstrument()  # type: ignore[assignment]
     strategy._resolve_order_quantity = lambda _bar: _FakeQty(Decimal("0.001"))  # type: ignore[method-assign]

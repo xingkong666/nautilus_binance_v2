@@ -17,6 +17,11 @@ class CostModel:
     """交易成本计算器."""
 
     def __init__(self, config: dict[str, Any]) -> None:
+        """Initialize the cost model.
+
+        Args:
+            config: Configuration values for the component.
+        """
         self._maker_fee_bps = Decimal(str(config.get("maker_fee_bps", 2)))
         self._taker_fee_bps = Decimal(str(config.get("taker_fee_bps", 4)))
 
@@ -37,6 +42,7 @@ class CostModel:
 
         Returns:
             总成本 (USDT)
+
         """
         order_value = quantity * price
         fee_bps = self._maker_fee_bps if is_maker else self._taker_fee_bps

@@ -38,6 +38,7 @@ from src.app.container import Container
 from src.app.factory import AppFactory
 from src.core.config import AppConfig, load_app_config, load_yaml
 from src.core.logging import setup_logging
+from src.live.readiness import resolve_live_symbols
 from src.state.reconciliation import ReconciliationEngine
 from src.state.recovery import RecoveryManager
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
@@ -72,6 +73,7 @@ class AppContext:
         config: 已加载的应用配置。
         container: 已 build 的依赖容器。
         factory: 对象工厂，基于 container 创建业务对象。
+
     """
 
     config: AppConfig
@@ -95,6 +97,7 @@ def bootstrap(env: str | None = None, log_level: str = "INFO") -> Container:
 
     Returns:
         已 build 的 Container 实例。
+
     """
     config = load_app_config(env=env)
     setup_logging(level=log_level)
@@ -118,6 +121,7 @@ def bootstrap_app(env: str | None = None, log_level: str = "INFO") -> AppContext
 
     Returns:
         AppContext，含 config / container / factory。
+
     """
     container = bootstrap(env=env, log_level=log_level)
     factory = AppFactory(container)
@@ -149,6 +153,7 @@ def bootstrap_context(
         with bootstrap_context(env="dev") as ctx:
             runner = ctx.factory.create_backtest_runner(start, end)
             result = runner.run(strategy_cls, strategy_cfg)
+
     """
     ctx = bootstrap_app(env=env, log_level=log_level)
     try:
@@ -170,6 +175,7 @@ def register_shutdown_handler(container: Container) -> None:
 
     Args:
         container: 需要在退出时 teardown 的 Container 实例。
+
     """
 
     def _handler(signum: int, frame: FrameType | None) -> None:
@@ -219,6 +225,40 @@ def _build_live_strategy(
         **params,
     )
     return strategy_cls(config=config, event_bus=container.event_bus)
+
+
+def _build_live_strategies(
+    strategy_config_path: Path,
+    container: Container,
+    symbols: list[str],
+) -> list[BaseStrategy]:
+    """为多个交易对构建同一策略的独立实例.
+
+    Args:
+        strategy_config_path: Path for strategy config.
+        container: Application container with shared dependencies.
+        symbols: Trading symbols to process.
+    """
+    normalized_symbols: list[str] = []
+    seen: set[str] = set()
+    for raw_symbol in symbols:
+        symbol = str(raw_symbol).strip().upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        normalized_symbols.append(symbol)
+
+    if not normalized_symbols:
+        raise ValueError("Live strategy symbol list cannot be empty.")
+
+    return [
+        _build_live_strategy(
+            strategy_config_path=strategy_config_path,
+            container=container,
+            symbol=symbol,
+        )
+        for symbol in normalized_symbols
+    ]
 
 
 def _extract_account_balance(balances: list[dict[str, Any]]) -> str:
@@ -298,6 +338,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--log-level", default="INFO", help="日志级别")
     parser.add_argument("--strategy-config", default="", help="策略 YAML 路径")
     parser.add_argument("--symbol", default="", help="交易对，如 BTCUSDT")
+    parser.add_argument("--symbols", nargs="+", default=None, help="交易对列表，优先级高于 --symbol")
     parser.add_argument("--timeout-seconds", type=float, default=0.0, help="自动停止秒数，0 表示不自动停止")
     return parser.parse_args()
 
@@ -307,9 +348,21 @@ def run_live(
     log_level: str = "INFO",
     strategy_config: str = "",
     symbol: str = "",
+    symbols: list[str] | None = None,
     timeout_seconds: float = 0.0,
 ) -> None:
-    """运行单策略 live/testnet 入口."""
+    """运行 live/testnet 入口.
+
+    支持单标的和多标的；多标的场景下会为每个 symbol 构建一个独立策略实例。
+
+    Args:
+        env: Environment config path or environment name.
+        log_level: Logging level for the run.
+        strategy_config: Strategy config path or object.
+        symbol: Trading symbol to process.
+        symbols: Trading symbols to process.
+        timeout_seconds: Maximum runtime in seconds.
+    """
     ctx = bootstrap_app(env=env, log_level=log_level)
     supervisor = None
     stop_timer: Timer | None = None
@@ -321,18 +374,24 @@ def run_live(
         if not strategy_config_path.exists():
             raise FileNotFoundError(f"Strategy config not found: {strategy_config_path}")
 
-        live_symbol = symbol or ctx.config.live.symbol
+        live_symbols = resolve_live_symbols(
+            config=ctx.config,
+            symbol_override=symbol,
+            symbols_override=symbols,
+        )
         effective_timeout = timeout_seconds if timeout_seconds > 0 else ctx.config.live.timeout_seconds
 
-        strategy = _build_live_strategy(strategy_config_path, ctx.container, symbol=live_symbol or None)
-        ctx.container.order_router.bind_strategy(strategy)
+        strategies = _build_live_strategies(strategy_config_path, ctx.container, symbols=live_symbols)
+        for strategy in strategies:
+            ctx.container.order_router.bind_strategy(strategy)
 
         adapter = ctx.factory.create_binance_adapter(
-            symbols=[str(strategy.config.instrument_id)],
+            symbols=live_symbols,
         )
         adapter.prepare_runtime_config()
         _bootstrap_live_state(ctx.container, adapter)
-        adapter.register_strategy(strategy)
+        for strategy in strategies:
+            adapter.register_strategy(strategy)
         adapter.build_node()
 
         from src.live.supervisor import LiveSupervisor
@@ -349,7 +408,8 @@ def run_live(
             "live_run_starting",
             env=ctx.config.env,
             strategy_config=str(strategy_config_path),
-            instrument_id=str(strategy.config.instrument_id),
+            instrument_ids=[str(strategy.config.instrument_id) for strategy in strategies[:5]],
+            strategy_count=len(strategies),
             timeout_seconds=effective_timeout,
         )
         adapter.run()
@@ -372,6 +432,7 @@ def run_live(
 
 
 def main() -> None:
+    """Run the script entrypoint."""
     args = _parse_args()
     config = load_app_config(env=args.env)
     live_strategy_config = args.strategy_config or config.live.strategy_config
@@ -381,6 +442,7 @@ def main() -> None:
             log_level=args.log_level,
             strategy_config=live_strategy_config,
             symbol=args.symbol,
+            symbols=args.symbols,
             timeout_seconds=args.timeout_seconds,
         )
         return

@@ -20,6 +20,7 @@ from src.state.snapshot import PositionSnapshot, SnapshotManager, SystemSnapshot
 
 @pytest.fixture
 def event_bus():
+    """Run event bus."""
     bus = EventBus()
     yield bus
     bus.clear()
@@ -27,26 +28,52 @@ def event_bus():
 
 @pytest.fixture
 def reconciler(event_bus):
+    """Run reconciler.
+
+    Args:
+        event_bus: Event bus used for cross-module communication.
+    """
     return ReconciliationEngine(event_bus=event_bus)
 
 
 @pytest.fixture
 def snapshot_dir(tmp_path):
+    """Run snapshot dir.
+
+    Args:
+        tmp_path: Path for tmp.
+    """
     return tmp_path / "snapshots"
 
 
 @pytest.fixture
 def snapshot_mgr(snapshot_dir):
+    """Run snapshot mgr.
+
+    Args:
+        snapshot_dir: Directory for snapshot.
+    """
     return SnapshotManager(snapshot_dir=snapshot_dir)
 
 
 @pytest.fixture
 def recovery_mgr(snapshot_mgr):
+    """Run recovery mgr.
+
+    Args:
+        snapshot_mgr: Snapshot mgr.
+    """
     return RecoveryManager(snapshot_mgr=snapshot_mgr)
 
 
 @pytest.fixture
 def recovery_mgr_with_reconciler(snapshot_mgr, reconciler):
+    """Run recovery mgr with reconciler.
+
+    Args:
+        snapshot_mgr: Snapshot mgr.
+        reconciler: Reconciler.
+    """
     return RecoveryManager(snapshot_mgr=snapshot_mgr, reconciler=reconciler)
 
 
@@ -56,8 +83,14 @@ def recovery_mgr_with_reconciler(snapshot_mgr, reconciler):
 
 
 class TestReconciliationMatch:
+    """Test cases for reconciliation match."""
+
     def test_empty_positions_match(self, reconciler):
-        """本地和交易所都为空时，对账通过。"""
+        """本地和交易所都为空时，对账通过。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+        """
         result = reconciler.reconcile(
             local_positions=[],
             exchange_positions=[],
@@ -66,7 +99,11 @@ class TestReconciliationMatch:
         assert len(result.mismatches) == 0
 
     def test_identical_positions_match(self, reconciler):
-        """本地与交易所仓位完全一致时，对账通过。"""
+        """本地与交易所仓位完全一致时，对账通过。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+        """
         pos = {"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "0.01"}
         result = reconciler.reconcile(
             local_positions=[pos],
@@ -76,7 +113,11 @@ class TestReconciliationMatch:
         assert len(result.mismatches) == 0
 
     def test_multiple_identical_positions_match(self, reconciler):
-        """多个仓位完全一致时，对账通过。"""
+        """多个仓位完全一致时，对账通过。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+        """
         local = [
             {"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "0.01"},
             {"instrument_id": "ETHUSDT-PERP.BINANCE", "quantity": "0.5"},
@@ -85,7 +126,12 @@ class TestReconciliationMatch:
         assert result.matched is True
 
     def test_match_does_not_publish_alert(self, reconciler, event_bus):
-        """对账一致时，不发布 RISK_ALERT 事件。"""
+        """对账一致时，不发布 RISK_ALERT 事件。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         alerts = []
         event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
 
@@ -101,8 +147,14 @@ class TestReconciliationMatch:
 
 
 class TestReconciliationMismatch:
+    """Test cases for reconciliation mismatch."""
+
     def test_local_only_position_detected(self, reconciler):
-        """本地有但交易所没有的仓位，识别为 local_only。"""
+        """本地有但交易所没有的仓位，识别为 local_only。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+        """
         result = reconciler.reconcile(
             local_positions=[{"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "0.01"}],
             exchange_positions=[],
@@ -112,7 +164,11 @@ class TestReconciliationMismatch:
         assert result.mismatches[0]["type"] == "local_only"
 
     def test_exchange_only_position_detected(self, reconciler):
-        """交易所有但本地没有的仓位，识别为 exchange_only。"""
+        """交易所有但本地没有的仓位，识别为 exchange_only。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+        """
         result = reconciler.reconcile(
             local_positions=[],
             exchange_positions=[{"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "0.01"}],
@@ -122,7 +178,11 @@ class TestReconciliationMismatch:
         assert result.mismatches[0]["type"] == "exchange_only"
 
     def test_quantity_mismatch_detected(self, reconciler):
-        """仓位数量不一致，识别为 quantity_mismatch。"""
+        """仓位数量不一致，识别为 quantity_mismatch。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+        """
         result = reconciler.reconcile(
             local_positions=[{"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "0.01"}],
             exchange_positions=[{"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "0.02"}],
@@ -132,7 +192,12 @@ class TestReconciliationMismatch:
         assert result.mismatches[0]["type"] == "quantity_mismatch"
 
     def test_mismatch_publishes_critical_alert(self, reconciler, event_bus):
-        """对账不一致时发布 CRITICAL 级别 RISK_ALERT。"""
+        """对账不一致时发布 CRITICAL 级别 RISK_ALERT。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         alerts = []
         event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
 
@@ -146,7 +211,11 @@ class TestReconciliationMismatch:
         assert alerts[0].rule_name == "reconciliation_mismatch"
 
     def test_multiple_mismatches_all_detected(self, reconciler):
-        """多个不一致全部被检出。"""
+        """多个不一致全部被检出。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+        """
         result = reconciler.reconcile(
             local_positions=[
                 {"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "0.01"},
@@ -164,7 +233,11 @@ class TestReconciliationMismatch:
         assert len(result.mismatches) == 3
 
     def test_mismatch_result_contains_both_sides(self, reconciler):
-        """quantity_mismatch 结果中同时包含 local 和 exchange 数据。"""
+        """quantity_mismatch 结果中同时包含 local 和 exchange 数据。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+        """
         result = reconciler.reconcile(
             local_positions=[{"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "0.01"}],
             exchange_positions=[{"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "0.02"}],
@@ -176,7 +249,11 @@ class TestReconciliationMismatch:
         assert m["exchange"]["quantity"] == "0.02"
 
     def test_local_only_mismatch_exchange_field_is_none(self, reconciler):
-        """local_only 类型的 mismatch，exchange 字段为 None。"""
+        """local_only 类型的 mismatch，exchange 字段为 None。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+        """
         result = reconciler.reconcile(
             local_positions=[{"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "0.01"}],
             exchange_positions=[],
@@ -184,7 +261,11 @@ class TestReconciliationMismatch:
         assert result.mismatches[0]["exchange"] is None
 
     def test_exchange_only_mismatch_local_field_is_none(self, reconciler):
-        """exchange_only 类型的 mismatch，local 字段为 None。"""
+        """exchange_only 类型的 mismatch，local 字段为 None。.
+
+        Args:
+            reconciler: Reconciliation engine fixture under test.
+        """
         result = reconciler.reconcile(
             local_positions=[],
             exchange_positions=[{"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "0.01"}],
@@ -198,12 +279,23 @@ class TestReconciliationMismatch:
 
 
 class TestRecoveryManager:
+    """Test cases for recovery manager."""
+
     def test_recover_returns_none_when_no_snapshot(self, recovery_mgr):
-        """无快照时，recover() 返回 None（冷启动）。"""
+        """无快照时，recover() 返回 None（冷启动）。.
+
+        Args:
+            recovery_mgr: Recovery manager fixture under test.
+        """
         result = recovery_mgr.recover()
         assert result is None
 
     def test_recover_cold_starts_from_exchange_truth(self, recovery_mgr):
+        """Verify that recover cold starts from exchange truth.
+
+        Args:
+            recovery_mgr: Recovery mgr.
+        """
         result = recovery_mgr.recover(
             exchange_positions=[
                 {
@@ -225,7 +317,12 @@ class TestRecoveryManager:
         assert result.metadata["recovery_action"] == "cold_start_from_exchange"
 
     def test_recover_loads_latest_snapshot(self, recovery_mgr, snapshot_mgr):
-        """有快照时，recover() 返回最新快照内容。"""
+        """有快照时，recover() 返回最新快照内容。.
+
+        Args:
+            recovery_mgr: Recovery manager fixture under test.
+            snapshot_mgr: Snapshot manager fixture under test.
+        """
         snapshot = SystemSnapshot(
             positions=[
                 PositionSnapshot(
@@ -248,7 +345,12 @@ class TestRecoveryManager:
         assert result.positions[0].instrument_id == "BTCUSDT-PERP.BINANCE"
 
     def test_recover_marks_needs_reconciliation(self, recovery_mgr, snapshot_mgr):
-        """恢复后快照 metadata 中包含 needs_reconciliation=True。"""
+        """恢复后快照 metadata 中包含 needs_reconciliation=True。.
+
+        Args:
+            recovery_mgr: Recovery manager fixture under test.
+            snapshot_mgr: Snapshot manager fixture under test.
+        """
         snapshot = SystemSnapshot(account_balance="10000")
         snapshot_mgr.save(snapshot)
 
@@ -258,7 +360,12 @@ class TestRecoveryManager:
         assert result.metadata.get("needs_reconciliation") is True
 
     def test_recover_marks_recovery_source(self, recovery_mgr, snapshot_mgr):
-        """恢复后 metadata 中包含 recovery_source 标记。"""
+        """恢复后 metadata 中包含 recovery_source 标记。.
+
+        Args:
+            recovery_mgr: Recovery manager fixture under test.
+            snapshot_mgr: Snapshot manager fixture under test.
+        """
         snapshot = SystemSnapshot(account_balance="10000")
         snapshot_mgr.save(snapshot)
 
@@ -267,7 +374,12 @@ class TestRecoveryManager:
         assert result.metadata.get("recovery_source") == "local_snapshot"
 
     def test_snapshot_age_is_positive(self, recovery_mgr, snapshot_mgr):
-        """_snapshot_age_seconds 对正常快照返回正数。"""
+        """_snapshot_age_seconds 对正常快照返回正数。.
+
+        Args:
+            recovery_mgr: Recovery manager fixture under test.
+            snapshot_mgr: Snapshot manager fixture under test.
+        """
         snapshot = SystemSnapshot(account_balance="10000")
         snapshot_mgr.save(snapshot)
 
@@ -278,11 +390,17 @@ class TestRecoveryManager:
         assert age >= 0
 
     def test_recover_multiple_saves_uses_latest(self, recovery_mgr, snapshot_mgr):
-        """多次保存快照时，recover 加载最新一个。"""
+        """多次保存快照时，recover 加载最新一个。.
+
+        Args:
+            recovery_mgr: Recovery manager fixture under test.
+            snapshot_mgr: Snapshot manager fixture under test.
+        """
         snap1 = SystemSnapshot(account_balance="5000")
         snapshot_mgr.save(snap1)
 
         import time as _time
+
         _time.sleep(0.01)  # 确保时间戳不同
 
         snap2 = SystemSnapshot(account_balance="9999")
@@ -299,6 +417,12 @@ class TestRecoveryManager:
         recovery_mgr_with_reconciler,
         snapshot_mgr,
     ):
+        """Verify that recover with matching exchange positions confirms snapshot.
+
+        Args:
+            recovery_mgr_with_reconciler: Recovery mgr with reconciler.
+            snapshot_mgr: Snapshot mgr.
+        """
         snapshot = SystemSnapshot(
             positions=[
                 PositionSnapshot(
@@ -334,6 +458,12 @@ class TestRecoveryManager:
         recovery_mgr_with_reconciler,
         snapshot_mgr,
     ):
+        """Verify that recover with mismatch replaces positions from exchange.
+
+        Args:
+            recovery_mgr_with_reconciler: Recovery mgr with reconciler.
+            snapshot_mgr: Snapshot mgr.
+        """
         snapshot = SystemSnapshot(
             positions=[
                 PositionSnapshot(
@@ -372,6 +502,13 @@ class TestRecoveryManager:
         snapshot_mgr,
         event_bus,
     ):
+        """Verify that recover mismatch does not publish risk alert.
+
+        Args:
+            recovery_mgr_with_reconciler: Recovery mgr with reconciler.
+            snapshot_mgr: Snapshot mgr.
+            event_bus: Event bus used for cross-module communication.
+        """
         snapshot = SystemSnapshot(
             positions=[
                 PositionSnapshot(
@@ -410,20 +547,36 @@ class TestRecoveryManager:
 
 
 class TestSnapshotManager:
+    """Test cases for snapshot manager."""
+
     def test_save_creates_file(self, snapshot_mgr, snapshot_dir):
-        """save() 在磁盘上创建快照文件。"""
+        """save() 在磁盘上创建快照文件。.
+
+        Args:
+            snapshot_mgr: Snapshot manager fixture under test.
+            snapshot_dir: Snapshot directory fixture.
+        """
         snapshot = SystemSnapshot(account_balance="10000")
         path = snapshot_mgr.save(snapshot)
         assert path.exists()
 
     def test_save_creates_latest_symlink(self, snapshot_mgr, snapshot_dir):
-        """save() 同时更新 latest.json 符号链接。"""
+        """save() 同时更新 latest.json 符号链接。.
+
+        Args:
+            snapshot_mgr: Snapshot manager fixture under test.
+            snapshot_dir: Snapshot directory fixture.
+        """
         snapshot = SystemSnapshot(account_balance="10000")
         snapshot_mgr.save(snapshot)
         assert (snapshot_dir / "latest.json").exists()
 
     def test_load_latest_roundtrip(self, snapshot_mgr):
-        """保存后再加载，内容一致（positions 和 account_balance）。"""
+        """保存后再加载，内容一致（positions 和 account_balance）。.
+
+        Args:
+            snapshot_mgr: Snapshot manager fixture under test.
+        """
         original = SystemSnapshot(
             positions=[
                 PositionSnapshot(
@@ -446,6 +599,10 @@ class TestSnapshotManager:
         assert loaded.positions[0].quantity == "0.01"
 
     def test_load_latest_returns_none_when_empty(self, snapshot_mgr):
-        """没有任何快照时，load_latest() 返回 None。"""
+        """没有任何快照时，load_latest() 返回 None。.
+
+        Args:
+            snapshot_mgr: Snapshot manager fixture under test.
+        """
         result = snapshot_mgr.load_latest()
         assert result is None

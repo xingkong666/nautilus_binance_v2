@@ -22,6 +22,18 @@ def run_turtle(
     max_units: int = 4,
     starting_balance: int = STARTING_BALANCE,
 ) -> dict[str, Any]:
+    """Run run turtle.
+
+    Args:
+        bars: Bar data used by the operation.
+        entry_period: Entry period.
+        exit_period: Exit period.
+        max_units: Max units.
+        starting_balance: Starting balance.
+
+    Returns:
+        dict[str, Any]: Dictionary representation of the result.
+    """
     engine = build_engine(starting_balance)
     engine.add_data(bars)
 
@@ -51,6 +63,7 @@ def run_turtle(
 
 
 def test_sine_baseline_locked() -> None:
+    """Verify that sine baseline locked."""
     bars = make_sine_bars(n=200, base_price=50_000.0, amplitude=500.0, period=30.0)
     metrics = run_turtle(bars)
 
@@ -58,6 +71,7 @@ def test_sine_baseline_locked() -> None:
 
 
 def test_disable_pyramid_reduces_orders() -> None:
+    """Verify that disable pyramid reduces orders."""
     bars = make_sine_bars(n=200, base_price=50_000.0, amplitude=500.0, period=30.0)
     base = run_turtle(bars, max_units=4)
     no_pyramid = run_turtle(bars, max_units=1)

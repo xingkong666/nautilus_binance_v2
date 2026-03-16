@@ -31,6 +31,7 @@ class _AlertManagerSpy:
 
 
 def test_risk_alert_watcher_dedupes_same_rule_and_instrument() -> None:
+    """Verify that risk alert watcher dedupes same rule and instrument."""
     bus = EventBus()
     spy = _AlertManagerSpy()
     RiskAlertWatcher(event_bus=bus, alert_manager=spy, cooldown_seconds=60.0)  # type: ignore[arg-type]
@@ -50,6 +51,7 @@ def test_risk_alert_watcher_dedupes_same_rule_and_instrument() -> None:
 
 
 def test_risk_alert_watcher_allows_different_instruments() -> None:
+    """Verify that risk alert watcher allows different instruments."""
     bus = EventBus()
     spy = _AlertManagerSpy()
     RiskAlertWatcher(event_bus=bus, alert_manager=spy, cooldown_seconds=60.0)  # type: ignore[arg-type]
@@ -77,6 +79,11 @@ def test_risk_alert_watcher_allows_different_instruments() -> None:
 
 
 def test_risk_alert_watcher_sends_again_after_cooldown(monkeypatch) -> None:
+    """Verify that risk alert watcher sends again after cooldown.
+
+    Args:
+        monkeypatch: Monkeypatch.
+    """
     bus = EventBus()
     spy = _AlertManagerSpy()
     watcher = RiskAlertWatcher(event_bus=bus, alert_manager=spy, cooldown_seconds=60.0)  # type: ignore[arg-type]

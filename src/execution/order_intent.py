@@ -40,7 +40,15 @@ class OrderIntent:
         strategy_id: str = "",
         **kwargs: Any,
     ) -> OrderIntent:
-        """从信号方向创建订单意图."""
+        """从信号方向创建订单意图.
+
+        Args:
+            instrument_id: Instrument identifier to target.
+            direction: Signal direction for the order intent.
+            quantity: Order quantity to use.
+            strategy_id: Strategy identifier associated with the order.
+            **kwargs: Kwargs.
+        """
         if direction == SignalDirection.LONG:
             side = "BUY"
         elif direction == SignalDirection.SHORT:

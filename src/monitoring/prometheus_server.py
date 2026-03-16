@@ -14,6 +14,11 @@ class PrometheusServer:
     """Prometheus 指标 HTTP 服务."""
 
     def __init__(self, port: int = 9090) -> None:
+        """Initialize the prometheus server.
+
+        Args:
+            port: Port number for the server.
+        """
         self._port = port
         self._started = False
 
@@ -32,4 +37,9 @@ class PrometheusServer:
 
     @property
     def is_running(self) -> bool:
+        """Return whether running.
+
+        Returns:
+            bool: Whether the condition is met.
+        """
         return self._started

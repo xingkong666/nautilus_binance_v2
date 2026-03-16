@@ -23,8 +23,8 @@ logger = structlog.get_logger()
 
 # 告警级别对应的 Slack attachment color
 _LEVEL_COLORS = {
-    AlertLevel.WARNING: "#FFA500",   # 橙色
-    AlertLevel.ERROR: "#FF0000",     # 红色
+    AlertLevel.WARNING: "#FFA500",  # 橙色
+    AlertLevel.ERROR: "#FF0000",  # 红色
     AlertLevel.CRITICAL: "#8B0000",  # 深红
 }
 
@@ -62,6 +62,7 @@ class SlackNotifier(BaseNotifier):
             min_level: 最低发送级别，默认 CRITICAL。
             enabled: 是否启用，默认 True。
             timeout: HTTP 请求超时秒数，默认 10.0。
+
         """
         super().__init__(min_level=min_level, enabled=enabled)
         self._webhook_url = webhook_url
@@ -80,6 +81,7 @@ class SlackNotifier(BaseNotifier):
         Raises:
             httpx.HTTPStatusError: Webhook 返回非 2xx 状态码。
             httpx.TimeoutException: 请求超时。
+
         """
         color = _LEVEL_COLORS.get(alert.level, "#808080")
 
@@ -91,10 +93,7 @@ class SlackNotifier(BaseNotifier):
         }
 
         if alert.details:
-            attachment["fields"] = [
-                {"title": k, "value": str(v), "short": True}
-                for k, v in alert.details.items()
-            ]
+            attachment["fields"] = [{"title": k, "value": str(v), "short": True} for k, v in alert.details.items()]
 
         payload: dict[str, Any] = {
             "username": self._username,
@@ -136,6 +135,7 @@ class SlackNotifier(BaseNotifier):
 
         Raises:
             ValueError: 环境变量未设置或为空。
+
         """
         import os
 

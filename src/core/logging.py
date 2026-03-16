@@ -19,6 +19,7 @@ def setup_logging(level: str = "INFO", json_format: bool = True, console: bool =
         level: 日志级别 (DEBUG/INFO/WARNING/ERROR/CRITICAL)
         json_format: 是否输出 JSON 格式
         console: 是否输出到控制台
+
     """
     log_level = getattr(logging, level.upper(), logging.INFO)
 
@@ -55,5 +56,9 @@ def setup_logging(level: str = "INFO", json_format: bool = True, console: bool =
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
-    """获取 logger 实例."""
+    """获取 logger 实例.
+
+    Args:
+        name: Redis key or resource name.
+    """
     return cast("structlog.stdlib.BoundLogger", structlog.get_logger(name))

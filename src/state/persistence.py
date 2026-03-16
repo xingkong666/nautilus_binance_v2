@@ -19,6 +19,11 @@ class TradePersistence:
     """交易记录持久化 (PostgreSQL)."""
 
     def __init__(self, database_url: str) -> None:
+        """Initialize the trade persistence.
+
+        Args:
+            database_url: Database url.
+        """
         self._database_url = database_url
         self._conn = psycopg.connect(database_url, autocommit=False)
         self._init_tables()
@@ -68,7 +73,19 @@ class TradePersistence:
         fees: str = "0",
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        """记录一笔交易."""
+        """记录一笔交易.
+
+        Args:
+            instrument_id: Instrument identifier to target.
+            side: Side.
+            quantity: Order quantity to use.
+            price: Price.
+            order_id: Identifier for order.
+            strategy_id: Strategy identifier associated with the order.
+            pnl: Pnl.
+            fees: Fees.
+            metadata: Additional metadata attached to the run.
+        """
         with self._conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO trades (timestamp_ns, instrument_id, side, quantity, price,
@@ -90,7 +107,13 @@ class TradePersistence:
         self._conn.commit()
 
     def record_event(self, event_type: str, source: str = "", payload: dict[str, Any] | None = None) -> None:
-        """记录一个事件."""
+        """记录一个事件.
+
+        Args:
+            event_type: Event type.
+            source: Source.
+            payload: Payload.
+        """
         with self._conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO events (timestamp_ns, event_type, source, payload) VALUES (%s, %s, %s, %s)",

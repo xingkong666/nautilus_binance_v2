@@ -24,6 +24,15 @@ class _DummyQty:
 
 
 def make_strategy(event_bus: EventBus | None = None, cooldown: int = 2) -> MicroScalpStrategy:
+    """Build strategy.
+
+    Args:
+        event_bus: Event bus used for cross-module communication.
+        cooldown: Cooldown.
+
+    Returns:
+        MicroScalpStrategy: Result of make strategy.
+    """
     cfg = MicroScalpConfig(
         instrument_id=INSTRUMENT_ID,
         bar_type=BAR_TYPE,
@@ -33,10 +42,22 @@ def make_strategy(event_bus: EventBus | None = None, cooldown: int = 2) -> Micro
 
 
 def make_bar(open_: float, high: float, low: float, close: float) -> SimpleNamespace:
+    """Build bar.
+
+    Args:
+        open_: Open.
+        high: High.
+        low: Low.
+        close: Close.
+
+    Returns:
+        SimpleNamespace: Result of make bar.
+    """
     return SimpleNamespace(open=open_, high=high, low=low, close=close)
 
 
 def test_trend_pullback_rebound_triggers_long() -> None:
+    """Verify that trend pullback rebound triggers long."""
     strategy = make_strategy(cooldown=0)
     strategy.fast_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=95.0)  # type: ignore[assignment]
@@ -52,6 +73,7 @@ def test_trend_pullback_rebound_triggers_long() -> None:
 
 
 def test_range_rsi_cross_triggers_long() -> None:
+    """Verify that range RSI cross triggers long."""
     strategy = make_strategy(cooldown=0)
     strategy.fast_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
@@ -65,6 +87,7 @@ def test_range_rsi_cross_triggers_long() -> None:
 
 
 def test_cooldown_blocks_signal() -> None:
+    """Verify that cooldown blocks signal."""
     strategy = make_strategy(cooldown=2)
     strategy.fast_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
@@ -80,6 +103,7 @@ def test_cooldown_blocks_signal() -> None:
 
 
 def test_publish_signal_emits_limit_metadata() -> None:
+    """Verify that publish signal emits limit metadata."""
     bus = EventBus()
     received = []
     bus.subscribe(EventType.SIGNAL, received.append)

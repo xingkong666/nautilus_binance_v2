@@ -27,6 +27,7 @@ def test_url_generation(tmp_path: Path) -> None:
 
     Returns:
         None
+
     """
     downloader = BinanceFuturesDownloader(raw_dir=tmp_path)
 
@@ -36,10 +37,7 @@ def test_url_generation(tmp_path: Path) -> None:
     date_str = date.strftime("%Y-%m-%d")
     base_name = f"{symbol}-{interval.value}-{date_str}"
 
-    expected_url = (
-        f"https://data.binance.vision/data/futures/um/daily/klines/"
-        f"{symbol}/{interval.value}/{base_name}.zip"
-    )
+    expected_url = f"https://data.binance.vision/data/futures/um/daily/klines/{symbol}/{interval.value}/{base_name}.zip"
 
     # 验证 URL 拼接逻辑正确 (通过检查目录未提前创建来侧面验证)
     save_dir = tmp_path / "futures" / symbol
@@ -58,6 +56,7 @@ def test_csv_skip_existing(tmp_path: Path) -> None:
 
     Returns:
         None
+
     """
     downloader = BinanceFuturesDownloader(raw_dir=tmp_path)
 
@@ -79,7 +78,12 @@ def test_csv_skip_existing(tmp_path: Path) -> None:
 
 
 def test_csv_skip_existing_does_not_create_http_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """验证: 本地命中快路径时不应初始化 httpx.AsyncClient."""
+    """验证: 本地命中快路径时不应初始化 httpx.AsyncClient.
+
+    Args:
+        tmp_path: Temporary filesystem path provided by pytest.
+        monkeypatch: Pytest monkeypatch fixture used to override runtime behavior.
+    """
     downloader = BinanceFuturesDownloader(raw_dir=tmp_path)
 
     symbol = "BTCUSDT"

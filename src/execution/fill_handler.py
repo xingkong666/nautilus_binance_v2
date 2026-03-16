@@ -24,6 +24,12 @@ class FillHandler:
     """
 
     def __init__(self, event_bus: EventBus, persistence: TradePersistence) -> None:
+        """Initialize the fill handler.
+
+        Args:
+            event_bus: Event bus used for cross-module communication.
+            persistence: Persistence.
+        """
         self._event_bus = event_bus
         self._persistence = persistence
 
@@ -47,6 +53,7 @@ class FillHandler:
             order_id: 订单ID
             strategy_id: 策略ID
             fees: 手续费
+
         """
         # 1. 持久化
         self._persistence.record_trade(

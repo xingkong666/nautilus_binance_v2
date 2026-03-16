@@ -40,6 +40,7 @@ class BacktestReporter:
 
         Args:
             run_result: BacktestRunner.run() 返回的 BacktestRunResult 实例。
+
         """
         self._run = run_result
         self._result = run_result.result
@@ -64,6 +65,7 @@ class BacktestReporter:
                 - total_positions (int): 总仓位数。
                 - pnl (dict): 各货币的 PnL 统计（来自 stats_pnls）。
                 - returns (dict): 收益率统计（来自 stats_returns）。
+
         """
         r = self._result
         cfg = self._config
@@ -181,6 +183,7 @@ class BacktestReporter:
 
         Returns:
             报告保存目录的 Path 对象。
+
         """
         r = self._result
         if output_dir is None:
@@ -208,6 +211,7 @@ class BacktestReporter:
 
         Returns:
             可直接传入 json.dumps() 的字典。
+
         """
         s = self.summary()
         # dt.date 转字符串
@@ -216,19 +220,12 @@ class BacktestReporter:
         if s["pnl"]:
             for currency in s["pnl"]:
                 s["pnl"][currency] = {
-                    k: round(v, 4) if isinstance(v, float) else v
-                    for k, v in s["pnl"][currency].items()
+                    k: round(v, 4) if isinstance(v, float) else v for k, v in s["pnl"][currency].items()
                 }
         if s["returns"]:
-            s["returns"] = {
-                k: round(v, 4) if isinstance(v, float) else v
-                for k, v in s["returns"].items()
-            }
+            s["returns"] = {k: round(v, 4) if isinstance(v, float) else v for k, v in s["returns"].items()}
         analysis = s.get("analysis", {})
         costs = analysis.get("costs")
         if isinstance(costs, dict):
-            analysis["costs"] = {
-                k: round(v, 4) if isinstance(v, float) else v
-                for k, v in costs.items()
-            }
+            analysis["costs"] = {k: round(v, 4) if isinstance(v, float) else v for k, v in costs.items()}
         return s

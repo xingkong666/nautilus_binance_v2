@@ -1,3 +1,5 @@
+"""Tests for test binance adapter."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -32,6 +34,11 @@ class _FakeTradingNode:
 
 
 def test_register_strategy_updates_instrument_ids_and_builds_node(monkeypatch) -> None:
+    """Verify that register strategy updates instrument IDs and builds node.
+
+    Args:
+        monkeypatch: Monkeypatch.
+    """
     monkeypatch.setattr(adapter_module, "TradingNode", _FakeTradingNode)
 
     adapter = adapter_module.BinanceAdapter(adapter_module.BinanceAdapterConfig())
@@ -48,6 +55,11 @@ def test_register_strategy_updates_instrument_ids_and_builds_node(monkeypatch) -
 
 
 def test_register_strategy_after_build_raises(monkeypatch) -> None:
+    """Verify that register strategy after build raises.
+
+    Args:
+        monkeypatch: Monkeypatch.
+    """
     monkeypatch.setattr(adapter_module, "TradingNode", _FakeTradingNode)
 
     adapter = adapter_module.BinanceAdapter(adapter_module.BinanceAdapterConfig())
@@ -110,9 +122,12 @@ class _FakeAccountAPI:
 
 
 def test_fetch_account_snapshot_sync_uses_account_api(monkeypatch) -> None:
-    adapter = adapter_module.BinanceAdapter(
-        adapter_module.BinanceAdapterConfig(api_key="key", api_secret="secret")
-    )
+    """Verify that fetch account snapshot sync uses account API.
+
+    Args:
+        monkeypatch: Monkeypatch.
+    """
+    adapter = adapter_module.BinanceAdapter(adapter_module.BinanceAdapterConfig(api_key="key", api_secret="secret"))
     monkeypatch.setattr(adapter, "_build_account_http_api", lambda: _FakeAccountAPI())
 
     balances, positions = adapter.fetch_account_snapshot()
@@ -138,6 +153,11 @@ def test_fetch_account_snapshot_sync_uses_account_api(monkeypatch) -> None:
 
 
 def test_fetch_balance_and_positions_wrap_snapshot(monkeypatch) -> None:
+    """Verify that fetch balance and positions wrap snapshot.
+
+    Args:
+        monkeypatch: Monkeypatch.
+    """
     adapter = adapter_module.BinanceAdapter(adapter_module.BinanceAdapterConfig())
     monkeypatch.setattr(
         adapter,
@@ -150,9 +170,12 @@ def test_fetch_balance_and_positions_wrap_snapshot(monkeypatch) -> None:
 
 
 def test_fetch_open_orders_uses_account_api(monkeypatch) -> None:
-    adapter = adapter_module.BinanceAdapter(
-        adapter_module.BinanceAdapterConfig(api_key="key", api_secret="secret")
-    )
+    """Verify that fetch open orders uses account API.
+
+    Args:
+        monkeypatch: Monkeypatch.
+    """
+    adapter = adapter_module.BinanceAdapter(adapter_module.BinanceAdapterConfig(api_key="key", api_secret="secret"))
     monkeypatch.setattr(adapter, "_build_account_http_api", lambda: _FakeAccountAPI())
 
     open_orders = adapter.fetch_open_orders()
@@ -172,6 +195,11 @@ def test_fetch_open_orders_uses_account_api(monkeypatch) -> None:
 
 
 def test_resolve_api_credentials_fall_back_to_env_settings(monkeypatch) -> None:
+    """Verify that resolve API credentials fall back to env settings.
+
+    Args:
+        monkeypatch: Monkeypatch.
+    """
     monkeypatch.delenv("BINANCE_API_KEY", raising=False)
     monkeypatch.delenv("BINANCE_API_SECRET", raising=False)
 
@@ -192,9 +220,12 @@ def test_resolve_api_credentials_fall_back_to_env_settings(monkeypatch) -> None:
 
 
 def test_prepare_runtime_config_disables_reduce_only_in_hedge_mode(monkeypatch) -> None:
-    adapter = adapter_module.BinanceAdapter(
-        adapter_module.BinanceAdapterConfig(use_reduce_only=True)
-    )
+    """Verify that prepare runtime config disables reduce only in hedge mode.
+
+    Args:
+        monkeypatch: Monkeypatch.
+    """
+    adapter = adapter_module.BinanceAdapter(adapter_module.BinanceAdapterConfig(use_reduce_only=True))
     monkeypatch.setattr(adapter, "query_hedge_mode", lambda: True)
 
     adapter.prepare_runtime_config()
@@ -203,9 +234,12 @@ def test_prepare_runtime_config_disables_reduce_only_in_hedge_mode(monkeypatch) 
 
 
 def test_prepare_runtime_config_keeps_reduce_only_in_one_way_mode(monkeypatch) -> None:
-    adapter = adapter_module.BinanceAdapter(
-        adapter_module.BinanceAdapterConfig(use_reduce_only=True)
-    )
+    """Verify that prepare runtime config keeps reduce only in one way mode.
+
+    Args:
+        monkeypatch: Monkeypatch.
+    """
+    adapter = adapter_module.BinanceAdapter(adapter_module.BinanceAdapterConfig(use_reduce_only=True))
     monkeypatch.setattr(adapter, "query_hedge_mode", lambda: False)
 
     adapter.prepare_runtime_config()

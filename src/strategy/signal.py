@@ -24,6 +24,7 @@ class TradeSignal:
         stop_loss: 建议止损价 (可选)
         take_profit: 建议止盈价 (可选)
         metadata: 附加信息 (如指标值、bar 信息等)
+
     """
 
     instrument_id: str

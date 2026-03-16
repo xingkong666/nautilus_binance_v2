@@ -15,7 +15,7 @@ from src.app.bootstrap import _build_live_strategy, bootstrap_app
 from src.live.readiness import (
     ReadinessCheck,
     credential_checks,
-    resolve_live_symbol,
+    resolve_live_symbols,
     resolve_strategy_config_path,
 )
 
@@ -26,6 +26,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--log-level", default="WARNING", help="日志级别")
     parser.add_argument("--strategy-config", default="", help="覆盖 live.strategy_config")
     parser.add_argument("--symbol", default="", help="覆盖 live.symbol")
+    parser.add_argument("--symbols", nargs="+", default=None, help="覆盖 live.symbols，优先级高于 --symbol")
     parser.add_argument(
         "--check-account-snapshot",
         action="store_true",
@@ -40,6 +41,11 @@ def _print_check(check: ReadinessCheck) -> None:
 
 
 def main() -> int:
+    """Run the script entrypoint.
+
+    Returns:
+        int: Main value.
+    """
     args = _parse_args()
     checks: list[ReadinessCheck] = []
     ctx = None
@@ -65,29 +71,38 @@ def main() -> int:
         if not strategy_config_path.exists():
             raise FileNotFoundError(f"Strategy config not found: {strategy_config_path}")
 
-        live_symbol = resolve_live_symbol(ctx.config, override=args.symbol)
-        strategy = _build_live_strategy(
-            strategy_config_path=strategy_config_path,
-            container=ctx.container,
-            symbol=live_symbol or None,
+        live_symbols = resolve_live_symbols(
+            config=ctx.config,
+            symbol_override=args.symbol,
+            symbols_override=args.symbols,
         )
+        strategies = [
+            _build_live_strategy(
+                strategy_config_path=strategy_config_path,
+                container=ctx.container,
+                symbol=symbol,
+            )
+            for symbol in live_symbols
+        ]
         checks.append(
             ReadinessCheck(
                 "strategy_loaded",
                 True,
-                f"{strategy.__class__.__name__} @ {strategy.config.instrument_id}",
+                f"count={len(strategies)} first={strategies[0].config.instrument_id}",
             )
         )
 
-        ctx.container.order_router.bind_strategy(strategy)
-        adapter = ctx.factory.create_binance_adapter(symbols=[str(strategy.config.instrument_id)])
-        adapter.register_strategy(strategy)
+        for strategy in strategies:
+            ctx.container.order_router.bind_strategy(strategy)
+        adapter = ctx.factory.create_binance_adapter(symbols=live_symbols)
+        for strategy in strategies:
+            adapter.register_strategy(strategy)
         adapter.build_node()
         checks.append(
             ReadinessCheck(
                 "adapter_node_built",
                 True,
-                str(strategy.config.instrument_id),
+                ",".join(str(strategy.config.instrument_id) for strategy in strategies[:5]),
             )
         )
 

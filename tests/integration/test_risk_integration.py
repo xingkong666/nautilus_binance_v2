@@ -21,6 +21,7 @@ from src.risk.pre_trade import PreTradeRiskManager
 
 @pytest.fixture
 def event_bus():
+    """Run event bus."""
     bus = EventBus()
     yield bus
     bus.clear()
@@ -28,6 +29,11 @@ def event_bus():
 
 @pytest.fixture
 def pre_trade(event_bus):
+    """Run pre trade.
+
+    Args:
+        event_bus: Event bus used for cross-module communication.
+    """
     return PreTradeRiskManager(
         event_bus=event_bus,
         config={
@@ -42,6 +48,11 @@ def pre_trade(event_bus):
 
 @pytest.fixture
 def circuit_breaker(event_bus):
+    """Run circuit breaker.
+
+    Args:
+        event_bus: Event bus used for cross-module communication.
+    """
     return CircuitBreaker(
         event_bus=event_bus,
         config={
@@ -65,6 +76,7 @@ def circuit_breaker(event_bus):
 
 @pytest.fixture
 def drawdown_controller():
+    """Run drawdown controller."""
     return DrawdownController(warning_pct=3.0, critical_pct=5.0)
 
 
@@ -74,12 +86,23 @@ def drawdown_controller():
 
 
 class TestCircuitBreakerIntegration:
+    """Test cases for circuit breaker integration."""
+
     def test_initial_state_not_active(self, circuit_breaker):
-        """初始状态熔断器未激活。"""
+        """初始状态熔断器未激活。.
+
+        Args:
+            circuit_breaker: Circuit breaker fixture under test.
+        """
         assert circuit_breaker.is_active is False
 
     def test_daily_loss_triggers_breaker(self, circuit_breaker, event_bus):
-        """单日亏损超阈值时触发熔断，发布 RISK_ALERT 事件。"""
+        """单日亏损超阈值时触发熔断，发布 RISK_ALERT 事件。.
+
+        Args:
+            circuit_breaker: Circuit breaker fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         alerts = []
         event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
 
@@ -91,13 +114,23 @@ class TestCircuitBreakerIntegration:
         assert len(alerts) == 1
 
     def test_within_daily_loss_does_not_trigger(self, circuit_breaker):
-        """单日亏损未超阈值时不触发熔断。"""
+        """单日亏损未超阈值时不触发熔断。.
+
+        Args:
+            circuit_breaker: Circuit breaker fixture under test.
+        """
         triggered = circuit_breaker.check_daily_loss(daily_pnl=Decimal("-800"))
         assert triggered is False
         assert circuit_breaker.is_active is False
 
     def test_circuit_breaker_blocks_pre_trade(self, circuit_breaker, pre_trade, event_bus):
-        """熔断激活后，PreTradeRisk 应拒绝新订单（上层协同逻辑）。"""
+        """熔断激活后，PreTradeRisk 应拒绝新订单（上层协同逻辑）。.
+
+        Args:
+            circuit_breaker: Circuit breaker fixture under test.
+            pre_trade: Pre-trade risk checker fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         # 触发熔断
         circuit_breaker.check_daily_loss(daily_pnl=Decimal("-2000"))
         assert circuit_breaker.is_active is True
@@ -113,7 +146,12 @@ class TestCircuitBreakerIntegration:
         assert is_halted is True
 
     def test_rapid_loss_trigger(self, circuit_breaker, event_bus):
-        """连续多次亏损触发 rapid_loss 熔断。"""
+        """连续多次亏损触发 rapid_loss 熔断。.
+
+        Args:
+            circuit_breaker: Circuit breaker fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         alerts = []
         event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
 
@@ -133,31 +171,47 @@ class TestCircuitBreakerIntegration:
 
 
 class TestDrawdownControllerIntegration:
-    """DrawdownController 使用 update_equity + get_size_multiplier API。"""
+    """DrawdownController 使用 update_equity + get_size_multiplier API。."""
 
     def test_no_reduction_below_warning_threshold(self, drawdown_controller):
-        """回撤低于预警阈值时，仓位乘数为 1.0（无缩减）。"""
+        """回撤低于预警阈值时，仓位乘数为 1.0（无缩减）。.
+
+        Args:
+            drawdown_controller: Drawdown controller fixture under test.
+        """
         drawdown_controller.update_equity(Decimal("100000"))
         multiplier = drawdown_controller.get_size_multiplier(Decimal("97500"))
         # 回撤 2.5% < warning 3%
         assert multiplier == 1.0
 
     def test_warning_level_reduces_position(self, drawdown_controller):
-        """回撤达到预警阈值时，仓位乘数降至 reduce_factor。"""
+        """回撤达到预警阈值时，仓位乘数降至 reduce_factor。.
+
+        Args:
+            drawdown_controller: Drawdown controller fixture under test.
+        """
         drawdown_controller.update_equity(Decimal("100000"))
         multiplier = drawdown_controller.get_size_multiplier(Decimal("97000"))
         # 回撤 3% >= warning_pct → 返回 reduce_factor (default 0.5)
         assert multiplier == 0.5
 
     def test_critical_level_halts_trading(self, drawdown_controller):
-        """回撤超过严重阈值时，仓位乘数为 0.0（停止交易）。"""
+        """回撤超过严重阈值时，仓位乘数为 0.0（停止交易）。.
+
+        Args:
+            drawdown_controller: Drawdown controller fixture under test.
+        """
         drawdown_controller.update_equity(Decimal("100000"))
         multiplier = drawdown_controller.get_size_multiplier(Decimal("94000"))
         # 回撤 6% >= critical_pct 5% → 停止
         assert multiplier == 0.0
 
     def test_peak_equity_updates_correctly(self, drawdown_controller):
-        """update_equity 只在新高时更新峰值。"""
+        """update_equity 只在新高时更新峰值。.
+
+        Args:
+            drawdown_controller: Drawdown controller fixture under test.
+        """
         drawdown_controller.update_equity(Decimal("100000"))
         drawdown_controller.update_equity(Decimal("98000"))  # 不更新峰值
         # 峰值仍为 100000，回撤 2% < warning
@@ -165,7 +219,11 @@ class TestDrawdownControllerIntegration:
         assert multiplier == 1.0
 
     def test_no_peak_returns_full_multiplier(self, drawdown_controller):
-        """未设置峰值时，get_size_multiplier 返回 1.0。"""
+        """未设置峰值时，get_size_multiplier 返回 1.0。.
+
+        Args:
+            drawdown_controller: Drawdown controller fixture under test.
+        """
         # 未调用 update_equity，peak=0
         multiplier = drawdown_controller.get_size_multiplier(Decimal("50000"))
         assert multiplier == 1.0
@@ -177,8 +235,16 @@ class TestDrawdownControllerIntegration:
 
 
 class TestRiskCoordination:
+    """Test cases for risk coordination."""
+
     def test_normal_flow_passes_both_checks(self, pre_trade, circuit_breaker, event_bus):
-        """正常订单通过事前风控，且熔断未激活。"""
+        """正常订单通过事前风控，且熔断未激活。.
+
+        Args:
+            pre_trade: Pre-trade risk checker fixture under test.
+            circuit_breaker: Circuit breaker fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         intent = OrderIntentEvent(
             instrument_id="BTCUSDT-PERP.BINANCE",
             side="BUY",
@@ -195,7 +261,12 @@ class TestRiskCoordination:
         assert circuit_breaker.is_active is False
 
     def test_risk_alert_count_after_failures(self, pre_trade, event_bus):
-        """多次风控失败，每次都发布 RISK_ALERT 事件。"""
+        """多次风控失败，每次都发布 RISK_ALERT 事件。.
+
+        Args:
+            pre_trade: Pre-trade risk checker fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         alerts = []
         event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
 
@@ -215,7 +286,12 @@ class TestRiskCoordination:
         assert len(alerts) == 3
 
     def test_risk_event_contains_correct_info(self, pre_trade, event_bus):
-        """RISK_ALERT 事件包含有效的规则名和消息。"""
+        """RISK_ALERT 事件包含有效的规则名和消息。.
+
+        Args:
+            pre_trade: Pre-trade risk checker fixture under test.
+            event_bus: Event bus fixture or instance used in the test.
+        """
         alerts = []
         event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
 
@@ -235,4 +311,4 @@ class TestRiskCoordination:
         alert: RiskAlertEvent = alerts[0]
         assert alert.event_type == EventType.RISK_ALERT
         assert alert.rule_name  # 不为空
-        assert alert.message    # 不为空
+        assert alert.message  # 不为空

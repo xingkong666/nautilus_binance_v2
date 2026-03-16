@@ -66,14 +66,17 @@ from nautilus_trader.trading.strategy import Strategy
 
 # ── 配置 ─────────────────────────────────────────────────────────────────────
 SYMBOL = "BTCUSDT-PERP.BINANCE"
-ORDER_QTY = "0.002"   # BTC 约 68k，0.002 × 68k = 136 USDT > 最小名义价值 100 USDT
+ORDER_QTY = "0.002"  # BTC 约 68k，0.002 × 68k = 136 USDT > 最小名义价值 100 USDT
 SHUTDOWN_TIMEOUT_SECONDS = 180.0
 _REQUEST_STOP: Callable[[], None] | None = None
 
 
 # ── 冒烟策略 ──────────────────────────────────────────────────────────────────
 
+
 class SmokeConfig(StrategyConfig, frozen=True):
+    """Configuration for smoke."""
+
     instrument_id: str = SYMBOL
     order_qty: str = ORDER_QTY
 
@@ -82,6 +85,11 @@ class SmokeStrategy(Strategy):
     """最小冒烟策略：收到首个 tick 后下市价单，成交后停止节点."""
 
     def __init__(self, config: SmokeConfig) -> None:
+        """Initialize the smoke strategy.
+
+        Args:
+            config: Configuration values for the component.
+        """
         super().__init__(config)
         self.instrument_id = InstrumentId.from_str(config.instrument_id)
         self.order_qty = config.order_qty
@@ -106,7 +114,11 @@ class SmokeStrategy(Strategy):
         self.log.info("⏳ 等待首个行情 tick ...")
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
-        """收到首个 tick 后下单，之后忽略."""
+        """收到首个 tick 后下单，之后忽略.
+
+        Args:
+            tick: Incoming tick data for the strategy callback.
+        """
         if self._order_submitted:
             return
 
@@ -126,7 +138,11 @@ class SmokeStrategy(Strategy):
         self.log.info(f"   订单已提交: {order.client_order_id}")
 
     def on_order_filled(self, event) -> None:
-        """成交事件处理."""
+        """成交事件处理.
+
+        Args:
+            event: Event instance being processed.
+        """
         if self._done:
             return
 
@@ -176,7 +192,13 @@ class SmokeStrategy(Strategy):
 
 # ── 构建节点 ──────────────────────────────────────────────────────────────────
 
+
 def build_node() -> TradingNode:
+    """Build node.
+
+    Returns:
+        TradingNode: Result of build node.
+    """
     api_key = os.environ.get("BINANCE_TESTNET_API_KEY")
     api_secret = os.environ.get("BINANCE_TESTNET_API_SECRET")
 
@@ -224,17 +246,20 @@ def build_node() -> TradingNode:
     node.add_exec_client_factory("BINANCE", BinanceLiveExecClientFactory)
 
     # 手动注册策略（避免 ImportableStrategyConfig 路径问题）
-    strategy = SmokeStrategy(config=SmokeConfig(
-        strategy_id="SMOKE-001",
-        instrument_id=SYMBOL,
-        order_qty=ORDER_QTY,
-    ))
+    strategy = SmokeStrategy(
+        config=SmokeConfig(
+            strategy_id="SMOKE-001",
+            instrument_id=SYMBOL,
+            order_qty=ORDER_QTY,
+        )
+    )
     node.trader.add_strategy(strategy)
     node.build()
     return node
 
 
 # ── 主入口 ────────────────────────────────────────────────────────────────────
+
 
 def _request_node_stop() -> None:
     global _REQUEST_STOP
@@ -247,6 +272,7 @@ def _request_node_stop() -> None:
 
 
 def main() -> None:
+    """Run the script entrypoint."""
     global _REQUEST_STOP
 
     print("=" * 60)

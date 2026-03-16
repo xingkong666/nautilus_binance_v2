@@ -45,6 +45,11 @@ class _ContainerStub:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Returns:
+        argparse.Namespace: Parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(description="组合策略 walk-forward 验证")
     parser.add_argument(
         "--config",
@@ -826,6 +831,7 @@ def _run_walkforward_scenario(
 
 
 def main() -> None:
+    """Run the script entrypoint."""
     args = parse_args()
     setup_logging(level="WARNING")
 

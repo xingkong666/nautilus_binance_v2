@@ -45,6 +45,7 @@ class _PreTradeRiskStub:
 
 
 def test_metadata_order_fields_take_precedence() -> None:
+    """Verify that metadata order fields take precedence."""
     bus = EventBus()
     router = _RouterSpy()
     SignalProcessor(event_bus=bus, order_router=router)
@@ -78,6 +79,7 @@ def test_metadata_order_fields_take_precedence() -> None:
 
 
 def test_fallback_to_direction_mapping_when_metadata_missing() -> None:
+    """Verify that fallback to direction mapping when metadata missing."""
     bus = EventBus()
     router = _RouterSpy()
     SignalProcessor(event_bus=bus, order_router=router)
@@ -98,6 +100,7 @@ def test_fallback_to_direction_mapping_when_metadata_missing() -> None:
 
 
 def test_invalid_metadata_order_qty_is_ignored() -> None:
+    """Verify that invalid metadata order quantity is ignored."""
     bus = EventBus()
     router = _RouterSpy()
     SignalProcessor(event_bus=bus, order_router=router)
@@ -118,6 +121,7 @@ def test_invalid_metadata_order_qty_is_ignored() -> None:
 
 
 def test_limit_order_without_price_is_ignored() -> None:
+    """Verify that limit order without price is ignored."""
     bus = EventBus()
     router = _RouterSpy()
     SignalProcessor(event_bus=bus, order_router=router)
@@ -139,6 +143,7 @@ def test_limit_order_without_price_is_ignored() -> None:
 
 
 def test_rate_limiter_blocks_routing_and_emits_alert() -> None:
+    """Verify that rate limiter blocks routing and emits alert."""
     bus = EventBus()
     router = _RouterSpy()
     rate_limiter = _RateLimiterStub(can_proceed=False)
@@ -162,6 +167,7 @@ def test_rate_limiter_blocks_routing_and_emits_alert() -> None:
 
 
 def test_pre_trade_risk_blocks_routing() -> None:
+    """Verify that pre trade risk blocks routing."""
     bus = EventBus()
     router = _RouterSpy()
     pre_trade_risk = _PreTradeRiskStub(passed=False)
@@ -182,6 +188,7 @@ def test_pre_trade_risk_blocks_routing() -> None:
 
 
 def test_risk_and_rate_limit_pass_before_routing_and_record_after_success() -> None:
+    """Verify that risk and rate limit pass before routing and record after success."""
     bus = EventBus()
     router = _RouterSpy()
     pre_trade_risk = _PreTradeRiskStub(passed=True)
@@ -208,6 +215,7 @@ def test_risk_and_rate_limit_pass_before_routing_and_record_after_success() -> N
 
 
 def test_rate_limiter_not_recorded_when_router_rejects() -> None:
+    """Verify that rate limiter not recorded when router rejects."""
     bus = EventBus()
     router = _RouterRejectSpy()
     rate_limiter = _RateLimiterStub(can_proceed=True)
@@ -227,6 +235,7 @@ def test_rate_limiter_not_recorded_when_router_rejects() -> None:
 
 
 def test_ignored_instrument_blocks_routing_and_emits_alert() -> None:
+    """Verify that ignored instrument blocks routing and emits alert."""
     bus = EventBus()
     router = _RouterSpy()
     ignored = IgnoredInstrumentRegistry(event_bus=bus)

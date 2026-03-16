@@ -15,6 +15,8 @@ from src.core.enums import Interval
 
 @dataclass(frozen=True)
 class SymbolRegimeSnapshot:
+    """Snapshot of symbol regime."""
+
     symbol: str
     slope_ratio: float
     ema_gap_ratio: float
@@ -33,6 +35,16 @@ def regime_allows_strategy(
     snapshot: SymbolRegimeSnapshot | None,
     veto_strategy_names: list[str] | None,
 ) -> bool:
+    """Run regime allows strategy.
+
+    Args:
+        strategy_name: Strategy name.
+        snapshot: Snapshot to evaluate.
+        veto_strategy_names: Veto strategy names.
+
+    Returns:
+        bool: Whether the condition is met.
+    """
     if snapshot is None or snapshot.regime_pass:
         return True
     if not veto_strategy_names:
@@ -41,6 +53,14 @@ def regime_allows_strategy(
 
 
 def pandas_freq_for_interval(interval: Interval) -> str:
+    """Run pandas freq for interval.
+
+    Args:
+        interval: Time interval used by the operation.
+
+    Returns:
+        str: Result of pandas freq for interval.
+    """
     mapping = {
         Interval.MINUTE_1: "1min",
         Interval.MINUTE_5: "5min",
@@ -53,6 +73,15 @@ def pandas_freq_for_interval(interval: Interval) -> str:
 
 
 def compute_adx(ohlc: pd.DataFrame, period: int) -> pd.Series:
+    """Compute ADX.
+
+    Args:
+        ohlc: OHLC.
+        period: Period.
+
+    Returns:
+        pd.Series: Series produced by the operation.
+    """
     high = ohlc["high"]
     low = ohlc["low"]
     close = ohlc["close"]
@@ -85,6 +114,18 @@ def load_resampled_ohlc(
     end: dt.date,
     interval: Interval,
 ) -> pd.DataFrame:
+    """Load resampled OHLC.
+
+    Args:
+        catalog: Catalog.
+        instrument_id: Identifier for instrument.
+        start: Start value for the operation.
+        end: End value for the operation.
+        interval: Time interval used by the operation.
+
+    Returns:
+        pd.DataFrame: Dataframe produced by the operation.
+    """
     start_ns = int(pd.Timestamp(start.isoformat(), tz="UTC").value)
     end_ns = int(pd.Timestamp(end.isoformat(), tz="UTC").replace(hour=23, minute=59, second=59).value)
     bar_type = f"{instrument_id}-1-MINUTE-LAST-EXTERNAL"
@@ -107,11 +148,7 @@ def load_resampled_ohlc(
         return df
 
     rule = pandas_freq_for_interval(interval)
-    return (
-        df.resample(rule)
-        .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
-        .dropna()
-    )
+    return df.resample(rule).agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
 
 
 def load_funding_window(
@@ -122,6 +159,18 @@ def load_funding_window(
     end: dt.date,
     lookback_days: int,
 ) -> pd.DataFrame:
+    """Load funding window.
+
+    Args:
+        features_dir: Directory for features.
+        raw_dir: Directory for raw.
+        symbol: Trading symbol to process.
+        end: End value for the operation.
+        lookback_days: Lookback days.
+
+    Returns:
+        pd.DataFrame: Dataframe produced by the operation.
+    """
     candidates = [
         features_dir / f"funding_rates_{symbol}.parquet",
         raw_dir / "funding" / f"{symbol}.csv",
@@ -157,6 +206,17 @@ def evaluate_symbol_regime_from_data(
     funding_window: pd.DataFrame,
     config: dict[str, Any],
 ) -> SymbolRegimeSnapshot:
+    """Evaluate symbol regime from data.
+
+    Args:
+        symbol: Trading symbol to process.
+        ohlc: OHLC.
+        funding_window: Funding window.
+        config: Configuration values for the component.
+
+    Returns:
+        SymbolRegimeSnapshot: Result of evaluate symbol regime from data.
+    """
     if ohlc.empty or len(ohlc) < 80:
         return SymbolRegimeSnapshot(
             symbol=symbol,
@@ -261,6 +321,22 @@ def evaluate_symbol_regime(
     interval: Interval,
     config: dict[str, Any],
 ) -> SymbolRegimeSnapshot:
+    """Evaluate symbol regime.
+
+    Args:
+        catalog: Catalog.
+        features_dir: Directory for features.
+        raw_dir: Directory for raw.
+        instrument_id: Identifier for instrument.
+        symbol: Trading symbol to process.
+        start: Start value for the operation.
+        end: End value for the operation.
+        interval: Time interval used by the operation.
+        config: Configuration values for the component.
+
+    Returns:
+        SymbolRegimeSnapshot: Result of evaluate symbol regime.
+    """
     ohlc = load_resampled_ohlc(
         catalog=catalog,
         instrument_id=instrument_id,

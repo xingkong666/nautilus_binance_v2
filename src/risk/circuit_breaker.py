@@ -60,6 +60,13 @@ class CircuitBreaker:
         config: dict[str, Any],
         redis_client: RedisClient | None = None,
     ) -> None:
+        """Initialize the circuit breaker.
+
+        Args:
+            event_bus: Event bus used for cross-module communication.
+            config: Configuration values for the component.
+            redis_client: Redis client.
+        """
         self._event_bus = event_bus
         self._redis = redis_client
         self._state = CircuitBreakerState()
@@ -71,7 +78,11 @@ class CircuitBreaker:
 
     @staticmethod
     def _parse_triggers(config: dict[str, Any]) -> list[CircuitBreakerTrigger]:
-        """解析触发条件配置."""
+        """解析触发条件配置.
+
+        Args:
+            config: Configuration object for the operation.
+        """
         triggers = []
         for t in config.get("triggers", []):
             trigger = CircuitBreakerTrigger(
@@ -129,10 +140,19 @@ class CircuitBreaker:
 
     @property
     def state(self) -> CircuitBreakerState:
+        """Return state.
+
+        Returns:
+            CircuitBreakerState: Result of state.
+        """
         return self._state
 
     def check_daily_loss(self, daily_pnl: Decimal) -> bool:
-        """检查单日亏损熔断."""
+        """检查单日亏损熔断.
+
+        Args:
+            daily_pnl: Current daily profit-and-loss value.
+        """
         for trigger in self._triggers:
             if trigger.trigger_type == "daily_loss" and daily_pnl < -Decimal(str(trigger.threshold)):
                 self._trip(trigger, f"单日亏损: {daily_pnl:.0f} USDT")
@@ -140,7 +160,11 @@ class CircuitBreaker:
         return False
 
     def check_drawdown(self, drawdown_pct: float) -> bool:
-        """检查回撤熔断."""
+        """检查回撤熔断.
+
+        Args:
+            drawdown_pct: Current drawdown percentage.
+        """
         for trigger in self._triggers:
             if trigger.trigger_type == "drawdown" and drawdown_pct >= trigger.threshold:
                 self._trip(trigger, f"回撤: {drawdown_pct:.1f}%")
@@ -148,7 +172,11 @@ class CircuitBreaker:
         return False
 
     def check_rapid_loss(self, loss_amount: Decimal) -> bool:
-        """检查短时间连续亏损."""
+        """检查短时间连续亏损.
+
+        Args:
+            loss_amount: Recent realized or unrealized loss amount.
+        """
         now_ns = time.time_ns()
         self._recent_losses.append((now_ns, loss_amount))
 
@@ -168,7 +196,12 @@ class CircuitBreaker:
         return False
 
     def _trip(self, trigger: CircuitBreakerTrigger, reason: str) -> None:
-        """触发熔断."""
+        """触发熔断.
+
+        Args:
+            trigger: Trigger.
+            reason: Reason.
+        """
         now_ns = time.time_ns()
         cooldown_seconds = trigger.cooldown_minutes * 60
         cooldown_until_ns = now_ns + cooldown_seconds * 1_000_000_000

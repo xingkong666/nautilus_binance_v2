@@ -1,3 +1,5 @@
+"""Tests for test account sync."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -37,6 +39,7 @@ def _make_container(snapshot: SystemSnapshot | None = None):
 
 
 def test_sync_once_reconciles_match_and_publishes_event() -> None:
+    """Verify that sync once reconciles match and publishes event."""
     snapshot = SystemSnapshot(
         positions=[
             SnapshotPosition(
@@ -86,6 +89,7 @@ def test_sync_once_reconciles_match_and_publishes_event() -> None:
 
 
 def test_sync_once_detects_mismatch_and_emits_risk_alert() -> None:
+    """Verify that sync once detects mismatch and emits risk alert."""
     snapshot = SystemSnapshot(
         positions=[
             SnapshotPosition(
@@ -127,6 +131,7 @@ def test_sync_once_detects_mismatch_and_emits_risk_alert() -> None:
 
 
 def test_sync_once_fails_without_provider() -> None:
+    """Verify that sync once fails without provider."""
     container = _make_container()
     sync = AccountSync(container=container)
 
@@ -137,6 +142,7 @@ def test_sync_once_fails_without_provider() -> None:
 
 
 def test_sync_once_marks_exchange_symbol_as_ignored() -> None:
+    """Verify that sync once marks exchange symbol as ignored."""
     container = _make_container()
     sync = AccountSync(
         container=container,
@@ -162,6 +168,7 @@ def test_sync_once_marks_exchange_symbol_as_ignored() -> None:
 
 
 def test_sync_once_ignores_external_open_order_but_not_known_local_open_order() -> None:
+    """Verify that sync once ignores external open order but not known local open order."""
     container = _make_container()
     container.binance_adapter = SimpleNamespace(
         fetch_open_orders=lambda: [

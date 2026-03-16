@@ -36,6 +36,11 @@ class RedisClient:
     """
 
     def __init__(self, config: RedisConfig) -> None:
+        """Initialize the redis client.
+
+        Args:
+            config: Configuration values for the component.
+        """
         self._config = config
         self._pool: ConnectionPool | None = None
         self._redis: _Redis | None = None
@@ -78,7 +83,11 @@ class RedisClient:
         return self._available and self._redis is not None
 
     def get(self, key: str) -> str | None:
-        """获取字符串值，失败返回 None."""
+        """获取字符串值，失败返回 None.
+
+        Args:
+            key: Cache key to read or write.
+        """
         if not self.is_available:
             return None
         try:
@@ -89,7 +98,13 @@ class RedisClient:
             return None
 
     def set(self, key: str, value: str, ex: int | None = None) -> bool:
-        """设置字符串值，失败返回 False."""
+        """设置字符串值，失败返回 False.
+
+        Args:
+            key: Cache key to read or write.
+            value: Input value to convert or evaluate.
+            ex: Optional expiration time in seconds.
+        """
         if not self.is_available:
             return False
         try:
@@ -101,7 +116,11 @@ class RedisClient:
             return False
 
     def delete(self, *keys: str) -> int:
-        """删除一个或多个 key，失败返回 0."""
+        """删除一个或多个 key，失败返回 0.
+
+        Args:
+            *keys: Keys passed to the backend operation.
+        """
         if not self.is_available:
             return 0
         try:
@@ -112,7 +131,12 @@ class RedisClient:
             return 0
 
     def hset(self, name: str, mapping: dict[str, str]) -> int:
-        """设置 Hash 字段，失败返回 0."""
+        """设置 Hash 字段，失败返回 0.
+
+        Args:
+            name: Redis key or resource name.
+            mapping: Mapping payload written to the backend.
+        """
         if not self.is_available:
             return 0
         try:
@@ -123,7 +147,11 @@ class RedisClient:
             return 0
 
     def hgetall(self, name: str) -> dict[str, str]:
-        """获取 Hash 全部字段，失败返回空字典."""
+        """获取 Hash 全部字段，失败返回空字典.
+
+        Args:
+            name: Redis key or resource name.
+        """
         if not self.is_available:
             return {}
         try:
@@ -134,7 +162,12 @@ class RedisClient:
             return {}
 
     def zadd(self, name: str, mapping: dict[str, float]) -> int:
-        """向 ZSET 添加成员，失败返回 0."""
+        """向 ZSET 添加成员，失败返回 0.
+
+        Args:
+            name: Redis key or resource name.
+            mapping: Mapping payload written to the backend.
+        """
         if not self.is_available:
             return 0
         try:
@@ -145,7 +178,13 @@ class RedisClient:
             return 0
 
     def zrangebyscore(self, name: str, min_score: float, max_score: float) -> list[str]:
-        """按分值范围查询 ZSET，失败返回空列表."""
+        """按分值范围查询 ZSET，失败返回空列表.
+
+        Args:
+            name: Redis key or resource name.
+            min_score: Minimum score threshold.
+            max_score: Max score.
+        """
         if not self.is_available:
             return []
         try:
@@ -156,7 +195,13 @@ class RedisClient:
             return []
 
     def zremrangebyscore(self, name: str, min_score: float, max_score: float) -> int:
-        """按分值范围删除 ZSET 成员，失败返回 0."""
+        """按分值范围删除 ZSET 成员，失败返回 0.
+
+        Args:
+            name: Redis key or resource name.
+            min_score: Minimum score threshold.
+            max_score: Max score.
+        """
         if not self.is_available:
             return 0
         try:
@@ -167,7 +212,11 @@ class RedisClient:
             return 0
 
     def zcard(self, name: str) -> int:
-        """返回 ZSET 成员数量，失败返回 0."""
+        """返回 ZSET 成员数量，失败返回 0.
+
+        Args:
+            name: Redis key or resource name.
+        """
         if not self.is_available:
             return 0
         try:
@@ -178,7 +227,13 @@ class RedisClient:
             return 0
 
     def execute_script(self, script: str, keys: list[str], args: list[str]) -> object:
-        """执行 Lua 脚本，失败返回 None."""
+        """执行 Lua 脚本，失败返回 None.
+
+        Args:
+            script: Script content to execute on the backend.
+            keys: Keys passed to the backend operation.
+            args: Parsed command-line arguments or runtime options.
+        """
         if not self.is_available:
             return None
         try:
@@ -190,7 +245,12 @@ class RedisClient:
             return None
 
     def expire(self, name: str, seconds: int) -> bool:
-        """设置 key 过期时间，失败返回 False."""
+        """设置 key 过期时间，失败返回 False.
+
+        Args:
+            name: Redis key or resource name.
+            seconds: Seconds.
+        """
         if not self.is_available:
             return False
         try:

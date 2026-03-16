@@ -15,6 +15,15 @@ BAR_TYPE = BarType.from_str("BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL")
 
 
 def make_strategy(entry_min_atr_ratio: float = 0.0015, signal_cooldown_bars: int = 3) -> EMACrossStrategy:
+    """Build strategy.
+
+    Args:
+        entry_min_atr_ratio: Entry min ATR ratio.
+        signal_cooldown_bars: Signal cooldown bars.
+
+    Returns:
+        EMACrossStrategy: Result of make strategy.
+    """
     cfg = EMACrossConfig(
         instrument_id=INSTRUMENT_ID,
         bar_type=BAR_TYPE,
@@ -27,6 +36,7 @@ def make_strategy(entry_min_atr_ratio: float = 0.0015, signal_cooldown_bars: int
 
 
 def test_atr_not_initialized_blocks_signal() -> None:
+    """Verify that ATR not initialized blocks signal."""
     strategy = make_strategy(entry_min_atr_ratio=0.001)
     strategy.fast_ema = SimpleNamespace(value=101.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
@@ -41,6 +51,7 @@ def test_atr_not_initialized_blocks_signal() -> None:
 
 
 def test_atr_ratio_below_threshold_blocks_signal() -> None:
+    """Verify that ATR ratio below threshold blocks signal."""
     strategy = make_strategy(entry_min_atr_ratio=0.001)
     strategy.fast_ema = SimpleNamespace(value=101.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
@@ -54,6 +65,7 @@ def test_atr_ratio_below_threshold_blocks_signal() -> None:
 
 
 def test_atr_ratio_above_threshold_allows_signal() -> None:
+    """Verify that ATR ratio above threshold allows signal."""
     strategy = make_strategy(entry_min_atr_ratio=0.001)
     strategy.fast_ema = SimpleNamespace(value=101.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
@@ -68,6 +80,7 @@ def test_atr_ratio_above_threshold_allows_signal() -> None:
 
 
 def test_cooldown_blocks_rapid_reentry() -> None:
+    """Verify that cooldown blocks rapid reentry."""
     strategy = make_strategy(entry_min_atr_ratio=0.0, signal_cooldown_bars=3)
     strategy.fast_ema = SimpleNamespace(value=101.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
@@ -95,6 +108,7 @@ def test_cooldown_blocks_rapid_reentry() -> None:
 
 
 def test_on_reset_clears_filter_state() -> None:
+    """Verify that on reset clears filter state."""
     strategy = make_strategy(entry_min_atr_ratio=0.001, signal_cooldown_bars=3)
     strategy._prev_fast_above = True
     strategy._bar_index = 8

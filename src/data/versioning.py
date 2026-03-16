@@ -21,6 +21,11 @@ class DataVersionManager:
     """数据版本管理器."""
 
     def __init__(self, versioned_dir: Path) -> None:
+        """Initialize the data version manager.
+
+        Args:
+            versioned_dir: Directory for versioned.
+        """
         self._versioned_dir = versioned_dir
         self._versioned_dir.mkdir(parents=True, exist_ok=True)
         self._manifest_path = versioned_dir / "manifest.json"
@@ -45,6 +50,7 @@ class DataVersionManager:
 
         Returns:
             版本 ID
+
         """
         version_id = f"v_{int(time.time())}"
         version_dir = self._versioned_dir / version_id
@@ -76,7 +82,11 @@ class DataVersionManager:
 
     @staticmethod
     def _compute_checksum(directory: Path) -> str:
-        """计算目录内容的 SHA256 校验和."""
+        """计算目录内容的 SHA256 校验和.
+
+        Args:
+            directory: Directory.
+        """
         hasher = hashlib.sha256()
         for file_path in sorted(directory.rglob("*")):
             if file_path.is_file():

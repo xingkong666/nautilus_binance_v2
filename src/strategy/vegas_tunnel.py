@@ -62,6 +62,12 @@ class VegasTunnelStrategy(BaseStrategy):
     """EMA12/36 + Vegas tunnel + Fib ladder TP."""
 
     def __init__(self, config: VegasTunnelConfig, event_bus: EventBus | None = None) -> None:
+        """Initialize the vegas tunnel strategy.
+
+        Args:
+            config: Configuration values for the component.
+            event_bus: Event bus used for cross-module communication.
+        """
         super().__init__(config, event_bus)
 
         self.fast_ema = ExponentialMovingAverage(config.fast_ema_period)
@@ -93,6 +99,14 @@ class VegasTunnelStrategy(BaseStrategy):
         self.register_indicator_for_bars(self.config.bar_type, self.tunnel_ema_2)
 
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
+        """Generate signal.
+
+        Args:
+            bar: Bar data for the current evaluation.
+
+        Returns:
+            SignalDirection: Result of generate signal.
+        """
         self._pending_order = None
         self._bar_index += 1
 
@@ -371,6 +385,7 @@ class VegasTunnelStrategy(BaseStrategy):
         self._tp_filled = [False, False, False]
 
     def on_reset(self) -> None:
+        """Run on reset."""
         self.fast_ema.reset()
         self.slow_ema.reset()
         self.tunnel_ema_1.reset()

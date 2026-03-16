@@ -46,6 +46,7 @@ class AppFactory:
 
         Args:
             container: 已 build() 的依赖容器，工厂从中获取 config 等依赖。
+
         """
         self._container = container
         self._config = container.config
@@ -72,10 +73,14 @@ class AppFactory:
             fast_ema: 快线 EMA 周期，默认 10。
             slow_ema: 慢线 EMA 周期，默认 20。
             trade_size: 每次交易数量（币数），默认 0.01。
+            margin_pct_per_trade: 每笔按保证金占权益百分比进行 sizing，None 表示不用。
+            gross_exposure_pct_per_trade: 每笔按名义敞口占权益百分比进行 sizing，None 表示不用。
             capital_pct_per_trade: 每笔使用账户总权益百分比（0-100），None 表示不用。
+            sizing_leverage: 使用百分比 sizing 时应用的杠杆倍数。
 
         Returns:
             (策略类, 策略配置实例) 元组，可直接传入 BacktestRunner.run()。
+
         """
         instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
         nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
@@ -123,7 +128,22 @@ class AppFactory:
         adx_period: int = 14,
         adx_threshold: float = 20.0,
     ) -> tuple[type[EMAPullbackATRStrategy], EMAPullbackATRConfig]:
-        """创建 EMA 回撤策略及其配置."""
+        """创建 EMA 回撤策略及其配置.
+
+        Args:
+            symbol: Trading symbol to process.
+            interval: Time interval used by the operation.
+            fast_ema: Fast ema.
+            slow_ema: Slow ema.
+            pullback_atr_multiplier: Pullback atr multiplier.
+            trade_size: Trade size.
+            margin_pct_per_trade: Margin pct per trade.
+            gross_exposure_pct_per_trade: Gross exposure pct per trade.
+            capital_pct_per_trade: Capital pct per trade.
+            sizing_leverage: Sizing leverage.
+            adx_period: Adx period.
+            adx_threshold: Adx threshold.
+        """
         instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
         nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
         if interval == Interval.MINUTE_1:
@@ -177,7 +197,23 @@ class AppFactory:
         capital_pct_per_trade: float | None = None,
         sizing_leverage: float = 1.0,
     ) -> tuple[type[TurtleStrategy], TurtleConfig]:
-        """创建海龟交易策略及其配置."""
+        """创建海龟交易策略及其配置.
+
+        Args:
+            symbol: Trading symbol to process.
+            interval: Time interval used by the operation.
+            entry_period: Entry period.
+            exit_period: Exit period.
+            atr_period: Atr period.
+            stop_atr_multiplier: Stop atr multiplier.
+            unit_add_atr_step: Unit add atr step.
+            max_units: Max units.
+            trade_size: Trade size.
+            margin_pct_per_trade: Margin pct per trade.
+            gross_exposure_pct_per_trade: Gross exposure pct per trade.
+            capital_pct_per_trade: Capital pct per trade.
+            sizing_leverage: Sizing leverage.
+        """
         instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
         nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
         if interval == Interval.MINUTE_1:
@@ -239,7 +275,32 @@ class AppFactory:
         chase_ticks: int = 2,
         post_only: bool = True,
     ) -> tuple[type[MicroScalpStrategy], MicroScalpConfig]:
-        """创建 micro scalp 策略及其配置."""
+        """创建 micro scalp 策略及其配置.
+
+        Args:
+            symbol: Trading symbol to process.
+            interval: Time interval used by the operation.
+            trade_size: Trade size.
+            margin_pct_per_trade: Margin pct per trade.
+            gross_exposure_pct_per_trade: Gross exposure pct per trade.
+            capital_pct_per_trade: Capital pct per trade.
+            sizing_leverage: Sizing leverage.
+            fast_ema: Fast ema.
+            slow_ema: Slow ema.
+            rsi_period: Rsi period.
+            adx_period: Adx period.
+            trend_adx_threshold: Trend adx threshold.
+            entry_pullback_atr: Entry pullback atr.
+            oversold_level: Oversold level.
+            overbought_level: Overbought level.
+            signal_cooldown_bars: Signal cooldown bars.
+            atr_sl_multiplier: Atr sl multiplier.
+            atr_tp_multiplier: Atr tp multiplier.
+            maker_offset_ticks: Maker offset ticks.
+            limit_ttl_ms: Time value in milliseconds for limit ttl.
+            chase_ticks: Chase ticks.
+            post_only: Post only.
+        """
         instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
         nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
         if interval == Interval.MINUTE_1:
@@ -308,7 +369,30 @@ class AppFactory:
         tp_split_2: float = 0.3,
         tp_split_3: float = 0.3,
     ) -> tuple[type[VegasTunnelStrategy], VegasTunnelConfig]:
-        """创建 Vegas Tunnel 策略及其配置."""
+        """创建 Vegas Tunnel 策略及其配置.
+
+        Args:
+            symbol: Trading symbol to process.
+            interval: Time interval used by the operation.
+            trade_size: Trade size.
+            margin_pct_per_trade: Margin pct per trade.
+            gross_exposure_pct_per_trade: Gross exposure pct per trade.
+            capital_pct_per_trade: Capital pct per trade.
+            sizing_leverage: Sizing leverage.
+            fast_ema: Fast ema.
+            slow_ema: Slow ema.
+            tunnel_ema_1: Tunnel ema 1.
+            tunnel_ema_2: Tunnel ema 2.
+            signal_cooldown_bars: Signal cooldown bars.
+            atr_filter_min_ratio: Atr filter min ratio.
+            stop_atr_multiplier: Stop atr multiplier.
+            tp_fib_1: Tp fib 1.
+            tp_fib_2: Tp fib 2.
+            tp_fib_3: Tp fib 3.
+            tp_split_1: Tp split 1.
+            tp_split_2: Tp split 2.
+            tp_split_3: Tp split 3.
+        """
         instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
         nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
         if interval == Interval.MINUTE_1:
@@ -373,6 +457,7 @@ class AppFactory:
 
         Raises:
             ValueError: 不支持的策略名称。
+
         """
         name = strategy_cfg.get("name", "")
         params = strategy_cfg.get("params", {})
@@ -489,8 +574,7 @@ class AppFactory:
             )
 
         raise ValueError(
-            "Unsupported strategy: "
-            f"'{name}'. Available: ema_cross, ema_pullback_atr, turtle, micro_scalp, vegas_tunnel"
+            f"Unsupported strategy: '{name}'. Available: ema_cross, ema_pullback_atr, turtle, micro_scalp, vegas_tunnel"
         )
 
     # ------ 交易所适配器工厂 ------
@@ -519,6 +603,7 @@ class AppFactory:
 
         Returns:
             未启动的 BinanceAdapter 实例（需调用 `await adapter.start()` 后使用）。
+
         """
         # 优先复用 Container 内已按配置初始化的 adapter
         if self._container.binance_adapter is not None:
@@ -527,11 +612,7 @@ class AppFactory:
 
         # 回退：按参数临时构建（dev 调试 / 单元测试场景）
         if environment is None:
-            environment = (
-                BinanceEnvironment.LIVE
-                if self._config.env == "prod"
-                else BinanceEnvironment.TESTNET
-            )
+            environment = BinanceEnvironment.LIVE if self._config.env == "prod" else BinanceEnvironment.TESTNET
         adapter = build_binance_adapter(
             environment=environment,
             symbols=symbols,
@@ -568,6 +649,7 @@ class AppFactory:
 
         Returns:
             配置好的 BacktestRunner 实例。
+
         """
         account_cfg = self._config.account
 

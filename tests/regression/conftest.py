@@ -65,11 +65,10 @@ def make_sine_bars(
 
     Returns:
         按时间顺序排列的 Bar 列表。
+
     """
     if start_ts_ns is None:
-        start_ts_ns = int(
-            dt.datetime(2024, 1, 1, tzinfo=dt.UTC).timestamp() * 1_000_000_000
-        )
+        start_ts_ns = int(dt.datetime(2024, 1, 1, tzinfo=dt.UTC).timestamp() * 1_000_000_000)
 
     bars = []
     for i in range(n):
@@ -110,10 +109,9 @@ def make_trend_bars(
 
     Returns:
         按时间顺序排列的 Bar 列表。
+
     """
-    start_ts_ns = int(
-        dt.datetime(2024, 1, 1, tzinfo=dt.UTC).timestamp() * 1_000_000_000
-    )
+    start_ts_ns = int(dt.datetime(2024, 1, 1, tzinfo=dt.UTC).timestamp() * 1_000_000_000)
     bars = []
     price = start_price
     for i in range(n):
@@ -148,6 +146,7 @@ def build_engine(starting_balance: int = STARTING_BALANCE) -> BacktestEngine:
 
     Returns:
         已调用 add_venue + add_instrument 的 BacktestEngine 实例（未 run）。
+
     """
     engine_cfg = BacktestEngineConfig(
         trader_id="REGRESSION-001",
@@ -196,6 +195,7 @@ def run_ema_cross(
             - total_orders (int)
             - total_positions (int)
             - starting_balance (int)
+
     """
     engine = build_engine(starting_balance)
     engine.add_data(bars)
@@ -231,17 +231,17 @@ def run_ema_cross(
 
 @pytest.fixture(scope="session")
 def sine_bars():
-    """会话级别 fixture：正弦波 Bar 序列（200根，固定参数，可复用）。"""
+    """会话级别 fixture：正弦波 Bar 序列（200根，固定参数，可复用）。."""
     return make_sine_bars(n=200, base_price=50_000.0, amplitude=500.0, period=30.0)
 
 
 @pytest.fixture(scope="session")
 def trend_bars_up():
-    """会话级别 fixture：上涨趋势 Bar 序列（200根）。"""
+    """会话级别 fixture：上涨趋势 Bar 序列（200根）。."""
     return make_trend_bars(n=200, start_price=50_000.0, step=50.0)
 
 
 @pytest.fixture(scope="session")
 def trend_bars_down():
-    """会话级别 fixture：下跌趋势 Bar 序列（200根）。"""
+    """会话级别 fixture：下跌趋势 Bar 序列（200根）。."""
     return make_trend_bars(n=200, start_price=60_000.0, step=-50.0)

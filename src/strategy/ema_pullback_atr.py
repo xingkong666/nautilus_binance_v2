@@ -122,6 +122,12 @@ class EMAPullbackATRStrategy(BaseStrategy):
     """EMA 趋势 + ATR 回撤反弹入场策略."""
 
     def __init__(self, config: EMAPullbackATRConfig, event_bus: EventBus | None = None) -> None:
+        """Initialize the EMA pullback ATR strategy.
+
+        Args:
+            config: Configuration values for the component.
+            event_bus: Event bus used for cross-module communication.
+        """
         super().__init__(config, event_bus)
         self.fast_ema = ExponentialMovingAverage(config.fast_ema_period)
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
@@ -143,7 +149,11 @@ class EMAPullbackATRStrategy(BaseStrategy):
         self.register_indicator_for_bars(self.config.bar_type, self.slow_ema)
 
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
-        """生成趋势回撤反弹信号."""
+        """生成趋势回撤反弹信号.
+
+        Args:
+            bar: Incoming bar data for the strategy callback.
+        """
         self._bar_index += 1
 
         if self._atr_indicator is None or not self._atr_indicator.initialized:

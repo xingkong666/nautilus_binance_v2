@@ -37,6 +37,13 @@ class RealTimeRiskMonitor:
         config: dict[str, Any],
         redis_client: RedisClient | None = None,
     ) -> None:
+        """Initialize the real time risk monitor.
+
+        Args:
+            event_bus: Event bus used for cross-module communication.
+            config: Configuration values for the component.
+            redis_client: Redis client.
+        """
         self._event_bus = event_bus
         self._redis = redis_client
         self._max_drawdown_pct = config.get("max_drawdown_pct", 5.0)
@@ -50,7 +57,11 @@ class RealTimeRiskMonitor:
         self._alerts_fired: set[str] = set()
 
     def initialize(self, equity: Decimal) -> None:
-        """初始化基准值."""
+        """初始化基准值.
+
+        Args:
+            equity: Current account equity value.
+        """
         self._initial_equity = equity
         self._peak_equity = equity
         self._daily_pnl = Decimal(0)
@@ -64,6 +75,7 @@ class RealTimeRiskMonitor:
 
         Returns:
             触发的告警列表
+
         """
         alerts: list[str] = []
 
@@ -113,7 +125,12 @@ class RealTimeRiskMonitor:
         return alerts
 
     def _push_metrics_to_redis(self, current_equity: Decimal, drawdown_pct: float) -> None:
-        """将实时风控指标推送到 Redis Hash."""
+        """将实时风控指标推送到 Redis Hash.
+
+        Args:
+            current_equity: Current equity.
+            drawdown_pct: Current drawdown percentage.
+        """
         if self._redis is None or not self._redis.is_available:
             return
         try:
@@ -131,13 +148,23 @@ class RealTimeRiskMonitor:
             logger.warning("risk_metrics_redis_push_failed", error=str(exc))
 
     def reset_daily(self, equity: Decimal) -> None:
-        """每日重置."""
+        """每日重置.
+
+        Args:
+            equity: Current account equity value.
+        """
         self._initial_equity = equity
         self._daily_pnl = Decimal(0)
         self._alerts_fired.clear()
         logger.info("risk_daily_reset", equity=str(equity))
 
     def _fire_alert(self, level: str, rule: str, msg: str) -> None:
-        """发布风控告警事件."""
+        """发布风控告警事件.
+
+        Args:
+            level: Level.
+            rule: Rule.
+            msg: Msg.
+        """
         logger.warning("risk_alert", level=level, rule=rule, message=msg)
         self._event_bus.publish(RiskAlertEvent(level=level, rule_name=rule, message=msg))

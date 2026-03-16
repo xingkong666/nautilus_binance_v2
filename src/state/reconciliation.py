@@ -30,6 +30,11 @@ class ReconciliationEngine:
     """对账引擎."""
 
     def __init__(self, event_bus: EventBus) -> None:
+        """Initialize the reconciliation engine.
+
+        Args:
+            event_bus: Event bus used for cross-module communication.
+        """
         self._event_bus = event_bus
 
     def reconcile(
@@ -41,11 +46,13 @@ class ReconciliationEngine:
         """执行对账.
 
         Args:
-            local_positions: 本地仓位列表
-            exchange_positions: 交易所仓位列表
+            local_positions: 本地仓位列表。
+            exchange_positions: 交易所仓位列表。
+            publish_alerts: 出现不一致时是否向 EventBus 发布风控告警。
 
         Returns:
-            对账结果
+            对账结果。
+
         """
         local_map = {self._position_key(p): p for p in local_positions}
         exchange_map = {self._position_key(p): p for p in exchange_positions}

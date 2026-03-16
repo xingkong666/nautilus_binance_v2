@@ -45,12 +45,22 @@ class PostTradeReport:
 
     @property
     def win_rate(self) -> float:
+        """Return win rate.
+
+        Returns:
+            float: Win rate value.
+        """
         if self.total_trades == 0:
             return 0.0
         return self.winning_trades / self.total_trades
 
     @property
     def net_pnl(self) -> Decimal:
+        """Return net PnL.
+
+        Returns:
+            Decimal: Net PnL value.
+        """
         return self.total_pnl - self.total_fees
 
 
@@ -58,10 +68,15 @@ class PostTradeAnalyzer:
     """事后风控分析器."""
 
     def __init__(self) -> None:
+        """Initialize the post trade analyzer."""
         self._trades: list[TradeAnalysis] = []
 
     def record_trade(self, trade: TradeAnalysis) -> None:
-        """记录一笔交易."""
+        """记录一笔交易.
+
+        Args:
+            trade: Trade payload to record or analyze.
+        """
         self._trades.append(trade)
         logger.info(
             "trade_recorded",
@@ -72,7 +87,11 @@ class PostTradeAnalyzer:
         )
 
     def generate_report(self, period: str) -> PostTradeReport:
-        """生成事后分析报告."""
+        """生成事后分析报告.
+
+        Args:
+            period: Period.
+        """
         if not self._trades:
             return PostTradeReport(period=period)
 

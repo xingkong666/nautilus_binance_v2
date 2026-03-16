@@ -1,3 +1,5 @@
+"""Tests for test loaders."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -15,6 +17,7 @@ def _sample_df() -> pd.DataFrame:
 
     Returns:
         含 open_time/open/high/low/close/volume 的 DataFrame
+
     """
     return pd.DataFrame(
         {
@@ -33,6 +36,7 @@ def test_validate_kline_dataframe_ok() -> None:
 
     Returns:
         None
+
     """
     df = _sample_df()
     validate_kline_dataframe(df)
@@ -43,6 +47,7 @@ def test_validate_kline_dataframe_missing_col() -> None:
 
     Returns:
         None
+
     """
     df = _sample_df().drop(columns=["open"])
     with pytest.raises(DataValidationError):
@@ -54,6 +59,7 @@ def test_validate_kline_dataframe_duplicate_ts() -> None:
 
     Returns:
         None
+
     """
     df = _sample_df()
     df.loc[1, "open_time"] = df.loc[0, "open_time"]
@@ -69,6 +75,7 @@ def test_downloader_skip_existing(tmp_path: Path) -> None:
 
     Returns:
         None
+
     """
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
@@ -92,6 +99,7 @@ def test_read_and_normalize(tmp_path: Path) -> None:
 
     Returns:
         None
+
     """
     catalog_dir = tmp_path / "catalog"
     loader = KlineCatalogLoader(catalog_dir)

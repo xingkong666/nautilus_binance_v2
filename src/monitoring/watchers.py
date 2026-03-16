@@ -48,6 +48,7 @@ class BaseWatcher(ABC):
         Args:
             event_bus: 应用事件总线，用于订阅事件。
             alert_manager: 告警管理器，用于发送告警。
+
         """
         self._event_bus = event_bus
         self._alert_manager = alert_manager
@@ -76,6 +77,13 @@ class RiskAlertWatcher(BaseWatcher):
         alert_manager: AlertManager,
         cooldown_seconds: float = 60.0,
     ) -> None:
+        """Initialize the risk alert watcher.
+
+        Args:
+            event_bus: Event bus used for cross-module communication.
+            alert_manager: Alert manager.
+            cooldown_seconds: Cooldown seconds.
+        """
         self._cooldown_seconds = max(0.0, cooldown_seconds)
         self._last_alert_ts: dict[str, float] = {}
         super().__init__(event_bus, alert_manager)
@@ -94,6 +102,7 @@ class RiskAlertWatcher(BaseWatcher):
 
         Args:
             event: RiskAlertEvent 实例。
+
         """
         if not isinstance(event, RiskAlertEvent):
             return
@@ -147,6 +156,7 @@ class DrawdownWatcher(BaseWatcher):
             warning_pct: 触发 ERROR 级别告警的回撤阈值（%），默认 3.0。
             critical_pct: 触发 CRITICAL 级别告警的回撤阈值（%），默认 5.0。
             cooldown_seconds: 同级别告警的最短发送间隔（秒），避免告警风暴，默认 300。
+
         """
         self._warning_pct = warning_pct
         self._critical_pct = critical_pct
@@ -166,6 +176,7 @@ class DrawdownWatcher(BaseWatcher):
 
         Args:
             current_equity: 当前账户净值（USDT）。
+
         """
         if current_equity <= 0:
             return
@@ -200,6 +211,7 @@ class DrawdownWatcher(BaseWatcher):
             level: 告警级别。
             drawdown_pct: 当前回撤百分比。
             threshold: 触发的阈值百分比。
+
         """
         now = time.time()
         last = self._last_alert_ts.get(level.name, 0.0)
@@ -242,6 +254,7 @@ class FillLatencyWatcher(BaseWatcher):
             event_bus: 事件总线。
             alert_manager: 告警管理器。
             latency_threshold_ms: 成交延迟告警阈值（毫秒），默认 1000ms。
+
         """
         self._latency_threshold_ms = latency_threshold_ms
         self._submit_ts: dict[str, int] = {}  # order_id -> submit_timestamp_ns
@@ -258,6 +271,7 @@ class FillLatencyWatcher(BaseWatcher):
 
         Args:
             event: ORDER_SUBMITTED 事件，payload 中需包含 order_id。
+
         """
         order_id = event.payload.get("order_id", "")
         if order_id:
@@ -268,6 +282,7 @@ class FillLatencyWatcher(BaseWatcher):
 
         Args:
             event: ORDER_FILLED 事件，payload 中需包含 order_id。
+
         """
         order_id = event.payload.get("order_id", "")
         if not order_id or order_id not in self._submit_ts:
@@ -312,6 +327,7 @@ def build_watchers(
 
     Returns:
         已注册完毕的 Watcher 实例列表。
+
     """
     watchers: list[BaseWatcher] = []
 

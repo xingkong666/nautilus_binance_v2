@@ -28,6 +28,18 @@ def run_vegas(
     trade_size: str = "0.010",
     starting_balance: int = STARTING_BALANCE,
 ) -> dict[str, Any]:
+    """Run run vegas.
+
+    Args:
+        bars: Bar data used by the operation.
+        tunnel_ema_1: Tunnel EMA 1.
+        tunnel_ema_2: Tunnel EMA 2.
+        trade_size: Trade size.
+        starting_balance: Starting balance.
+
+    Returns:
+        dict[str, Any]: Dictionary representation of the result.
+    """
     engine = build_engine(starting_balance)
     engine.add_data(bars)
 
@@ -64,6 +76,7 @@ def run_vegas(
 
 
 def test_classic_tunnel_sine_baseline_locked() -> None:
+    """Verify that classic tunnel sine baseline locked."""
     bars = make_sine_bars(n=200, base_price=50_000.0, amplitude=500.0, period=30.0)
     metrics = run_vegas(bars)
 
@@ -71,6 +84,7 @@ def test_classic_tunnel_sine_baseline_locked() -> None:
 
 
 def test_fast_tunnel_sine_baseline_locked() -> None:
+    """Verify that fast tunnel sine baseline locked."""
     bars = make_sine_bars(n=400, base_price=50_000.0, amplitude=1200.0, period=24.0)
     metrics = run_vegas(
         bars,
@@ -82,6 +96,7 @@ def test_fast_tunnel_sine_baseline_locked() -> None:
 
 
 def test_fast_tunnel_baseline_is_deterministic() -> None:
+    """Verify that fast tunnel baseline is deterministic."""
     bars = make_sine_bars(n=400, base_price=50_000.0, amplitude=1200.0, period=24.0)
     m1 = run_vegas(bars, tunnel_ema_1=21, tunnel_ema_2=34)
     m2 = run_vegas(bars, tunnel_ema_1=21, tunnel_ema_2=34)
@@ -90,6 +105,7 @@ def test_fast_tunnel_baseline_is_deterministic() -> None:
 
 
 def test_trade_size_does_not_change_signal_count() -> None:
+    """Verify that trade size does not change signal count."""
     bars = make_sine_bars(n=400, base_price=50_000.0, amplitude=1200.0, period=24.0)
     m_small = run_vegas(bars, tunnel_ema_1=21, tunnel_ema_2=34, trade_size="0.001")
     m_large = run_vegas(bars, tunnel_ema_1=21, tunnel_ema_2=34, trade_size="0.100")

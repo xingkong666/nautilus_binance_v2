@@ -54,6 +54,7 @@ class AccountBalance:
         available_balance: 可用余额（可下单部分）。
         unrealized_pnl: 当前未实现盈亏。
         timestamp_ns: 快照时间戳（纳秒）。
+
     """
 
     asset: str
@@ -75,6 +76,7 @@ class PositionSnapshot:
         unrealized_pnl: 未实现盈亏。
         leverage: 当前杠杆倍数。
         timestamp_ns: 快照时间戳（纳秒）。
+
     """
 
     symbol: str
@@ -97,6 +99,7 @@ class SyncResult:
         error: 失败原因（仅失败时有效）。
         duration_ms: 本次同步耗时（毫秒）。
         timestamp_ns: 同步完成时间戳。
+
     """
 
     success: bool
@@ -134,6 +137,7 @@ class AccountSync:
         sync = AccountSync(container, interval_sec=30)
         sync.start()
         sync.stop()
+
     """
 
     def __init__(
@@ -149,6 +153,8 @@ class AccountSync:
             container: 应用依赖容器，提供 event_bus / persistence 等服务。
             interval_sec: 两次同步之间的间隔秒数，默认 30。
             redis_client: 可选 Redis 客户端，用于缓存余额/持仓快照。
+            exchange_snapshot_provider: 可选交易所快照提供器，用于替代默认账户查询实现。
+
         """
         self._container = container
         self._interval = interval_sec
@@ -173,6 +179,7 @@ class AccountSync:
 
         Returns:
             SyncResult 或 None（未执行过同步时）。
+
         """
         return self._last_result
 
@@ -182,6 +189,7 @@ class AccountSync:
 
         Returns:
             True 表示后台线程已启动且未停止。
+
         """
         return self._thread is not None and self._thread.is_alive()
 
@@ -190,6 +198,7 @@ class AccountSync:
 
         Raises:
             RuntimeError: 已在运行时再次调用 start()。
+
         """
         if self.is_running:
             raise RuntimeError("AccountSync is already running")
@@ -208,6 +217,7 @@ class AccountSync:
 
         Args:
             timeout: 最长等待秒数，超时后返回（线程仍可能在跑）。
+
         """
         self._stop_event.set()
         if self._thread:
@@ -219,6 +229,7 @@ class AccountSync:
 
         Returns:
             本次同步的 SyncResult。
+
         """
         return self._do_sync()
 
@@ -265,6 +276,7 @@ class AccountSync:
 
         Returns:
             SyncResult，包含本次同步结果。
+
         """
         t0 = time.monotonic()
         try:
@@ -364,6 +376,7 @@ class AccountSync:
 
         Raises:
             Exception: 交易所 API 调用失败时向上抛出。
+
         """
         provider = self._exchange_snapshot_provider or self._resolve_container_snapshot_provider()
         if provider is None:
@@ -378,6 +391,7 @@ class AccountSync:
 
         Args:
             positions: 从交易所拉取的持仓列表。
+
         """
         local_positions = self._load_local_positions()
         exchange_positions = self._to_reconciliation_positions(positions)
@@ -430,6 +444,7 @@ class AccountSync:
 
         Args:
             result: 本次同步的 SyncResult。
+
         """
         payload: dict[str, Any] = {
             "sync_count": self._sync_count,
@@ -441,9 +456,7 @@ class AccountSync:
         }
 
         # 将余额汇总加入 payload
-        usdt = next(
-            (b for b in result.balances if b.asset == "USDT"), None
-        )
+        usdt = next((b for b in result.balances if b.asset == "USDT"), None)
         if usdt:
             payload["usdt_wallet"] = float(usdt.wallet_balance)
             payload["usdt_available"] = float(usdt.available_balance)
@@ -467,6 +480,7 @@ class AccountSync:
 
         Args:
             result: 本次同步的 SyncResult。
+
         """
         if self._redis is None or not self._redis.is_available:
             return
@@ -524,9 +538,7 @@ class AccountSync:
         fetch_balance = getattr(adapter, "fetch_balance", None)
         fetch_positions = getattr(adapter, "fetch_positions", None)
         if callable(fetch_balance) and callable(fetch_positions):
-            return self._wrap_raw_snapshot_provider(
-                lambda: (fetch_balance(), fetch_positions())
-            )
+            return self._wrap_raw_snapshot_provider(lambda: (fetch_balance(), fetch_positions()))
 
         return None
 

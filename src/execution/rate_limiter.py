@@ -48,6 +48,12 @@ class RateLimiter:
         config: dict[str, Any],
         redis_client: RedisClient | None = None,
     ) -> None:
+        """Initialize the rate limiter.
+
+        Args:
+            config: Configuration values for the component.
+            redis_client: Redis client.
+        """
         self._max_per_second = config.get("max_orders_per_second", 5)
         self._max_per_minute = config.get("max_orders_per_minute", 100)
         self._burst_size = config.get("burst_size", 10)
@@ -121,7 +127,11 @@ class RateLimiter:
         return True
 
     def _cleanup(self, now: float) -> None:
-        """清理过期记录."""
+        """清理过期记录.
+
+        Args:
+            now: Now.
+        """
         while self._second_window and now - self._second_window[0] > 1.0:
             self._second_window.popleft()
         while self._minute_window and now - self._minute_window[0] > 60.0:

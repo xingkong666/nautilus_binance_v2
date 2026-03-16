@@ -39,6 +39,7 @@ class AlertManager:
 
         Args:
             event_bus: 应用事件总线，用于订阅 RiskAlertEvent。
+
         """
         self._event_bus = event_bus
         self._notifiers: list[BaseNotifier] = []
@@ -52,6 +53,7 @@ class AlertManager:
 
         Returns:
             self，支持链式调用。
+
         """
         self._notifiers.append(notifier)
         logger.info("notifier_registered", channel=notifier.__class__.__name__)
@@ -93,6 +95,7 @@ class AlertManager:
 
         Returns:
             成功发送到的渠道数量。
+
         """
         alert = AlertMessage(
             level=level,
@@ -108,6 +111,7 @@ class AlertManager:
 
         Args:
             event: 从 EventBus 接收到的事件，预期为 RiskAlertEvent 类型。
+
         """
         if not isinstance(event, RiskAlertEvent):
             return
@@ -129,6 +133,7 @@ class AlertManager:
 
         Returns:
             成功发送的渠道数量。
+
         """
         if not self._notifiers:
             logger.debug("no_notifiers_registered", rule=alert.rule_name)
@@ -174,6 +179,7 @@ def build_alert_manager(
     Returns:
         已注册好所有通知器、但尚未 start() 的 AlertManager 实例。
         调用方需手动调用 manager.start() 挂载订阅。
+
     """
     from src.monitoring.notifier.slack import SlackNotifier
     from src.monitoring.notifier.telegram import TelegramNotifier

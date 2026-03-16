@@ -16,13 +16,22 @@ from src.core.constants import BASE_DIR, CONFIGS_DIR
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
-    """加载 YAML 文件."""
+    """加载 YAML 文件.
+
+    Args:
+        path: Filesystem path used by the operation.
+    """
     with open(path) as f:
         return yaml.safe_load(f) or {}
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """深度合并两个字典, override 覆盖 base."""
+    """深度合并两个字典, override 覆盖 base.
+
+    Args:
+        base: Base.
+        override: Explicit override value supplied by the caller.
+    """
     result = base.copy()
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -89,6 +98,9 @@ class LiveConfig(BaseModel):
 
     strategy_config: str = ""
     symbol: str = ""
+    symbols: list[str] = []
+    universe_top_n: int = 200
+    exclude_stablecoin_bases: bool = True
     timeout_seconds: float = 0.0
 
 
@@ -150,6 +162,9 @@ def load_app_config(env: str | None = None) -> AppConfig:
     """加载并合并所有配置文件.
 
     优先级: env yaml > 模块 yaml > 默认值
+
+    Args:
+        env: Environment config path or environment name.
     """
     env_settings = EnvSettings()
     current_env = env or env_settings.env

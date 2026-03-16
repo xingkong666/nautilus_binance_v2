@@ -1,3 +1,5 @@
+"""Tests for test walkforward."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -20,10 +22,12 @@ from src.backtest.walkforward import (
 
 
 def test_add_months_clamps_to_month_end() -> None:
+    """Verify that add months clamps to month end."""
     assert add_months(dt.date(2024, 1, 31), 1) == dt.date(2024, 2, 29)
 
 
 def test_generate_walkforward_windows_rolls_forward() -> None:
+    """Verify that generate walkforward windows rolls forward."""
     windows = generate_walkforward_windows(
         start=dt.date(2024, 1, 1),
         end=dt.date(2024, 12, 31),
@@ -40,6 +44,7 @@ def test_generate_walkforward_windows_rolls_forward() -> None:
 
 
 def test_flatten_summary_extracts_cost_adjusted_metrics() -> None:
+    """Verify that flatten summary extracts cost adjusted metrics."""
     row = flatten_summary(
         summary={
             "period": "2024-01-01 ~ 2024-03-31",
@@ -63,6 +68,7 @@ def test_flatten_summary_extracts_cost_adjusted_metrics() -> None:
 
 
 def test_scale_sizing_params_scales_margin_pct() -> None:
+    """Verify that scale sizing params scales margin percent."""
     scaled = scale_sizing_params(
         {"margin_pct_per_trade": 10.0, "trade_size": 0.01},
         allocation_pct=0.25,
@@ -72,6 +78,7 @@ def test_scale_sizing_params_scales_margin_pct() -> None:
 
 
 def test_scale_sizing_params_scales_trade_size_when_no_pct_fields() -> None:
+    """Verify that scale sizing params scales trade size when no percent fields."""
     scaled = scale_sizing_params(
         {"trade_size": 0.02},
         allocation_pct=0.5,
@@ -81,36 +88,49 @@ def test_scale_sizing_params_scales_trade_size_when_no_pct_fields() -> None:
 
 
 def test_selection_passes_respects_min_score() -> None:
+    """Verify that selection passes respects min score."""
     assert selection_passes(1.0, 0.0) is True
     assert selection_passes(-0.1, 0.0) is False
     assert selection_passes(-5.0, None) is True
 
 
 def test_meets_min_active_strategies_respects_threshold() -> None:
+    """Verify that meets min active strategies respects threshold."""
     assert meets_min_active_strategies(2, 2) is True
     assert meets_min_active_strategies(1, 2) is False
     assert meets_min_active_strategies(0, None) is True
 
 
 def test_resolve_min_active_strategies_uses_relaxed_gate_only_when_veto_exists() -> None:
-    assert resolve_min_active_strategies(
-        min_active_strategies=2,
-        min_active_strategies_on_regime_veto=1,
-        regime_veto_count=1,
-    ) == 1
-    assert resolve_min_active_strategies(
-        min_active_strategies=2,
-        min_active_strategies_on_regime_veto=1,
-        regime_veto_count=0,
-    ) == 2
-    assert resolve_min_active_strategies(
-        min_active_strategies=None,
-        min_active_strategies_on_regime_veto=1,
-        regime_veto_count=2,
-    ) == 1
+    """Verify that resolve min active strategies uses relaxed gate only when veto exists."""
+    assert (
+        resolve_min_active_strategies(
+            min_active_strategies=2,
+            min_active_strategies_on_regime_veto=1,
+            regime_veto_count=1,
+        )
+        == 1
+    )
+    assert (
+        resolve_min_active_strategies(
+            min_active_strategies=2,
+            min_active_strategies_on_regime_veto=1,
+            regime_veto_count=0,
+        )
+        == 2
+    )
+    assert (
+        resolve_min_active_strategies(
+            min_active_strategies=None,
+            min_active_strategies_on_regime_veto=1,
+            regime_veto_count=2,
+        )
+        == 1
+    )
 
 
 def test_score_weight_supports_multiple_methods() -> None:
+    """Verify that score weight supports multiple methods."""
     assert score_weight(9.0, "none") == 1.0
     assert score_weight(9.0, "linear") == 9.0
     assert score_weight(9.0, "sqrt") == 3.0
@@ -119,11 +139,13 @@ def test_score_weight_supports_multiple_methods() -> None:
 
 
 def test_combine_risk_score_weight_multiplies_inverse_vol_and_score_weight() -> None:
+    """Verify that combine risk score weight multiplies inverse vol and score weight."""
     weight = combine_risk_score_weight(volatility=2.0, score=9.0, score_weighting_method="sqrt")
     assert weight == 1.5
 
 
 def test_stitch_equity_curves_rolls_capital_forward() -> None:
+    """Verify that stitch equity curves rolls capital forward."""
     first = pd.DataFrame({"equity": [10000.0, 11000.0], "phase": ["test", "test"], "window_index": [1, 1]})
     second = pd.DataFrame({"equity": [10000.0, 9000.0], "phase": ["test", "test"], "window_index": [2, 2]})
 

@@ -1,7 +1,7 @@
 # 项目知识库
 
-**Generated:** 2026-02-28 16:00 Asia/Shanghai  
-**Branch:** `master` (no commits yet)  
+**Generated:** 2026-02-28 16:00 Asia/Shanghai
+**Branch:** `master` (no commits yet)
 **Commit:** `N/A`
 
 ## 概览

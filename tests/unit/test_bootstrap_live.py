@@ -1,15 +1,18 @@
+"""Tests for test bootstrap live."""
+
 from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
 
-from src.app.bootstrap import _bootstrap_live_state, _build_live_strategy
+from src.app.bootstrap import _bootstrap_live_state, _build_live_strategies, _build_live_strategy
 from src.core.events import EventBus
 from src.execution.ignored_instruments import IgnoredInstrumentRegistry
 from src.state.snapshot import SystemSnapshot
 
 
 def test_build_live_strategy_uses_event_bus_and_symbol_override() -> None:
+    """Verify that build live strategy uses event bus and symbol override."""
     container = SimpleNamespace(event_bus=EventBus())
     strategy = _build_live_strategy(
         Path("/root/workSpace/nautilus_binance_v2/configs/strategies/vegas_tunnel.yaml"),
@@ -19,6 +22,22 @@ def test_build_live_strategy_uses_event_bus_and_symbol_override() -> None:
 
     assert str(strategy.config.instrument_id) == "ETHUSDT-PERP.BINANCE"
     assert strategy._event_bus is container.event_bus
+
+
+def test_build_live_strategies_creates_one_instance_per_symbol() -> None:
+    """Verify that build live strategies creates one instance per symbol."""
+    container = SimpleNamespace(event_bus=EventBus())
+
+    strategies = _build_live_strategies(
+        Path("/root/workSpace/nautilus_binance_v2/configs/strategies/vegas_tunnel.yaml"),
+        container,
+        symbols=["BTCUSDT", "ETHUSDT", "BTCUSDT"],
+    )
+
+    assert [str(strategy.config.instrument_id) for strategy in strategies] == [
+        "BTCUSDT-PERP.BINANCE",
+        "ETHUSDT-PERP.BINANCE",
+    ]
 
 
 class _SnapshotManagerStub:
@@ -35,6 +54,7 @@ class _SnapshotManagerStub:
 
 
 def test_bootstrap_live_state_saves_exchange_truth_snapshot() -> None:
+    """Verify that bootstrap live state saves exchange truth snapshot."""
     event_bus = EventBus()
     snapshot_manager = _SnapshotManagerStub()
     container = SimpleNamespace(
@@ -69,6 +89,7 @@ def test_bootstrap_live_state_saves_exchange_truth_snapshot() -> None:
 
 
 def test_bootstrap_live_state_marks_exchange_position_as_ignored() -> None:
+    """Verify that bootstrap live state marks exchange position as ignored."""
     event_bus = EventBus()
     snapshot_manager = _SnapshotManagerStub()
     ignored = IgnoredInstrumentRegistry(event_bus)
@@ -100,6 +121,7 @@ def test_bootstrap_live_state_marks_exchange_position_as_ignored() -> None:
 
 
 def test_bootstrap_live_state_marks_exchange_open_order_as_ignored() -> None:
+    """Verify that bootstrap live state marks exchange open order as ignored."""
     event_bus = EventBus()
     snapshot_manager = _SnapshotManagerStub()
     ignored = IgnoredInstrumentRegistry(event_bus)

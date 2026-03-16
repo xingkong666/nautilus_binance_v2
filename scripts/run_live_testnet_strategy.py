@@ -93,14 +93,8 @@ def _normalize_instrument_id(symbol: str) -> InstrumentId:
 
 
 def _resolve_testnet_credentials() -> tuple[str | None, str | None]:
-    api_key = (
-        os.environ.get("BINANCE_TESTNET_API_KEY")
-        or os.environ.get("BINANCE_FUTURES_TESTNET_API_KEY")
-    )
-    api_secret = (
-        os.environ.get("BINANCE_TESTNET_API_SECRET")
-        or os.environ.get("BINANCE_FUTURES_TESTNET_API_SECRET")
-    )
+    api_key = os.environ.get("BINANCE_TESTNET_API_KEY") or os.environ.get("BINANCE_FUTURES_TESTNET_API_KEY")
+    api_secret = os.environ.get("BINANCE_TESTNET_API_SECRET") or os.environ.get("BINANCE_FUTURES_TESTNET_API_SECRET")
     return api_key, api_secret
 
 
@@ -187,6 +181,7 @@ def _request_node_stop() -> None:
 
 
 def main() -> None:
+    """Run the script entrypoint."""
     global _REQUEST_STOP
 
     _load_env_file()

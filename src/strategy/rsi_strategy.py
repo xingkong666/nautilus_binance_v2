@@ -29,6 +29,7 @@ class RSIStrategyConfig(BaseStrategyConfig, frozen=True):
         rsi_period: RSI 计算周期，默认 14。
         oversold_level: 超卖阈值，RSI 低于此值视为超卖，默认 30.0。
         overbought_level: 超买阈值，RSI 高于此值视为超买，默认 70.0。
+
     """
 
     instrument_id: InstrumentId
@@ -54,6 +55,7 @@ class RSIStrategy(BaseStrategy):
         Args:
             config: RSI 策略配置。
             event_bus: 事件总线，实盘模式下必传，回测模式下可为 None。
+
         """
         super().__init__(config, event_bus)
         self.rsi = RelativeStrengthIndex(config.rsi_period)
@@ -73,6 +75,7 @@ class RSIStrategy(BaseStrategy):
 
         Returns:
             信号方向，若不满足条件返回 None。
+
         """
         current_rsi = self.rsi.value
 

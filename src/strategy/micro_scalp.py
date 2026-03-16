@@ -126,6 +126,12 @@ class MicroScalpStrategy(BaseStrategy):
     """趋势回撤 + 震荡反转的 1m 高频策略."""
 
     def __init__(self, config: MicroScalpConfig, event_bus: EventBus | None = None) -> None:
+        """Initialize the micro scalp strategy.
+
+        Args:
+            config: Configuration values for the component.
+            event_bus: Event bus used for cross-module communication.
+        """
         super().__init__(config, event_bus)
         self.fast_ema = ExponentialMovingAverage(config.fast_ema_period)
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
@@ -150,6 +156,14 @@ class MicroScalpStrategy(BaseStrategy):
         self.register_indicator_for_bars(self.config.bar_type, self.rsi)
 
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
+        """Generate signal.
+
+        Args:
+            bar: Bar data for the current evaluation.
+
+        Returns:
+            SignalDirection: Result of generate signal.
+        """
         self._bar_index += 1
         close = float(bar.close)
         if close <= 0 or self._atr_indicator is None:
@@ -162,9 +176,7 @@ class MicroScalpStrategy(BaseStrategy):
         self._adx.update(float(bar.high), float(bar.low), close)
         adx_value = self._adx.adx
         trend_mode = bool(
-            self._adx.initialized
-            and adx_value is not None
-            and adx_value >= self.config.trend_adx_threshold
+            self._adx.initialized and adx_value is not None and adx_value >= self.config.trend_adx_threshold
         )
         self._last_mode = "trend" if trend_mode else "range"
 
@@ -286,6 +298,7 @@ class MicroScalpStrategy(BaseStrategy):
         self._submit_market_order(direction, bar)
 
     def on_reset(self) -> None:
+        """Run on reset."""
         self.fast_ema.reset()
         self.slow_ema.reset()
         self.rsi.reset()

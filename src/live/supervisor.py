@@ -40,7 +40,7 @@ class SupervisorState(Enum):
     IDLE = "idle"
     STARTING = "starting"
     RUNNING = "running"
-    DEGRADED = "degraded"   # 部分子服务异常，已降级运行
+    DEGRADED = "degraded"  # 部分子服务异常，已降级运行
     STOPPING = "stopping"
     STOPPED = "stopped"
 
@@ -58,6 +58,7 @@ class LiveSupervisor:
         sup.start()
         sup.join()          # 阻塞到停止
         sup.stop()          # 也可由信号触发
+
     """
 
     def __init__(self, container: Container) -> None:
@@ -65,6 +66,7 @@ class LiveSupervisor:
 
         Args:
             container: 已 build 的应用依赖容器，提供 event_bus 等服务。
+
         """
         self._container = container
         self._state = SupervisorState.IDLE
@@ -91,6 +93,7 @@ class LiveSupervisor:
 
         Returns:
             SupervisorState 枚举值。
+
         """
         return self._state
 
@@ -99,6 +102,7 @@ class LiveSupervisor:
 
         Raises:
             RuntimeError: Supervisor 已在运行时调用。
+
         """
         if self._state not in (SupervisorState.IDLE, SupervisorState.STOPPED):
             raise RuntimeError(f"Cannot start in state {self._state}")
@@ -119,6 +123,7 @@ class LiveSupervisor:
 
         Args:
             timeout: 最长等待秒数，超时后强制停止。
+
         """
         logger.info("supervisor_stop_requested")
         self._stop_event.set()
@@ -172,9 +177,7 @@ class LiveSupervisor:
         logger.info("supervisor_running")
 
         # 订阅熔断事件，收到后进入 DEGRADED
-        self._container.event_bus.subscribe(
-            EventType.CIRCUIT_BREAKER, self._on_circuit_breaker
-        )
+        self._container.event_bus.subscribe(EventType.CIRCUIT_BREAKER, self._on_circuit_breaker)
 
         # 主循环：等待停止信号
         while not self._stop_event.is_set():
@@ -187,6 +190,7 @@ class LiveSupervisor:
 
         Raises:
             Exception: 任意子服务启动失败时向上传播。
+
         """
         from src.live.account_sync import AccountSync
         from src.live.health import LiveHealthProbe
@@ -249,6 +253,7 @@ class LiveSupervisor:
 
         Args:
             event: CircuitBreaker 触发的 Event 对象。
+
         """
         logger.warning(
             "supervisor_circuit_breaker_triggered",

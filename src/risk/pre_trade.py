@@ -41,6 +41,12 @@ class PreTradeRiskManager:
         event_bus: EventBus,
         config: dict[str, Any],
     ) -> None:
+        """Initialize the pre trade risk manager.
+
+        Args:
+            event_bus: Event bus used for cross-module communication.
+            config: Configuration values for the component.
+        """
         self._event_bus = event_bus
         self._max_order_size_usd = Decimal(str(config.get("max_order_size_usd", 50000)))
         self._max_position_size_usd = Decimal(str(config.get("max_position_size_usd", 200000)))
@@ -66,6 +72,7 @@ class PreTradeRiskManager:
 
         Returns:
             检查结果
+
         """
         import time
 
@@ -106,7 +113,12 @@ class PreTradeRiskManager:
         return PreTradeCheckResult(passed=True)
 
     def _fail(self, reason: str, intent: OrderIntentEvent) -> PreTradeCheckResult:
-        """风控检查失败."""
+        """风控检查失败.
+
+        Args:
+            reason: Reason.
+            intent: Intent.
+        """
         logger.warning("pre_trade_check_failed", reason=reason, instrument=intent.instrument_id)
         self._event_bus.publish(
             RiskAlertEvent(

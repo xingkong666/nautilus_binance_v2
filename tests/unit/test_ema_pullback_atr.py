@@ -15,6 +15,15 @@ BAR_TYPE = BarType.from_str("BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL")
 
 
 def make_strategy(cooldown: int = 3, adx_threshold: float = 0.0) -> EMAPullbackATRStrategy:
+    """Build strategy.
+
+    Args:
+        cooldown: Cooldown.
+        adx_threshold: ADX threshold.
+
+    Returns:
+        EMAPullbackATRStrategy: Result of make strategy.
+    """
     cfg = EMAPullbackATRConfig(
         instrument_id=INSTRUMENT_ID,
         bar_type=BAR_TYPE,
@@ -29,10 +38,22 @@ def make_strategy(cooldown: int = 3, adx_threshold: float = 0.0) -> EMAPullbackA
 
 
 def make_bar(open_: float, high: float, low: float, close: float) -> SimpleNamespace:
+    """Build bar.
+
+    Args:
+        open_: Open.
+        high: High.
+        low: Low.
+        close: Close.
+
+    Returns:
+        SimpleNamespace: Result of make bar.
+    """
     return SimpleNamespace(open=open_, high=high, low=low, close=close)
 
 
 def test_atr_not_initialized_blocks_signal() -> None:
+    """Verify that ATR not initialized blocks signal."""
     strategy = make_strategy()
     strategy.fast_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=95.0)  # type: ignore[assignment]
@@ -44,6 +65,7 @@ def test_atr_not_initialized_blocks_signal() -> None:
 
 
 def test_uptrend_pullback_rebound_triggers_long() -> None:
+    """Verify that uptrend pullback rebound triggers long."""
     strategy = make_strategy(cooldown=0)
     strategy.fast_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=95.0)  # type: ignore[assignment]
@@ -59,6 +81,7 @@ def test_uptrend_pullback_rebound_triggers_long() -> None:
 
 
 def test_cooldown_blocks_immediate_reentry() -> None:
+    """Verify that cooldown blocks immediate reentry."""
     strategy = make_strategy(cooldown=3)
     strategy.fast_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=95.0)  # type: ignore[assignment]
@@ -74,6 +97,7 @@ def test_cooldown_blocks_immediate_reentry() -> None:
 
 
 def test_downtrend_pullback_rebound_triggers_short() -> None:
+    """Verify that downtrend pullback rebound triggers short."""
     strategy = make_strategy(cooldown=0)
     strategy.fast_ema = SimpleNamespace(value=95.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
@@ -87,6 +111,7 @@ def test_downtrend_pullback_rebound_triggers_short() -> None:
 
 
 def test_on_reset_clears_state() -> None:
+    """Verify that on reset clears state."""
     strategy = make_strategy()
     strategy._prev_close = 100.0
     strategy._bar_index = 9
@@ -104,6 +129,7 @@ def test_on_reset_clears_state() -> None:
 
 
 def test_adx_threshold_blocks_when_trend_strength_low() -> None:
+    """Verify that ADX threshold blocks when trend strength low."""
     strategy = make_strategy(cooldown=0, adx_threshold=25.0)
     strategy.fast_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=95.0)  # type: ignore[assignment]
