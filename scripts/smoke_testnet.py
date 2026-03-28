@@ -64,6 +64,9 @@ from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
+from src.core.config import load_app_config
+from src.core.nautilus_cache import build_nautilus_cache_settings
+
 # ── 配置 ─────────────────────────────────────────────────────────────────────
 SYMBOL = "BTCUSDT-PERP.BINANCE"
 ORDER_QTY = "0.002"  # BTC 约 68k，0.002 × 68k = 136 USDT > 最小名义价值 100 USDT
@@ -201,6 +204,8 @@ def build_node() -> TradingNode:
     """
     api_key = os.environ.get("BINANCE_TESTNET_API_KEY")
     api_secret = os.environ.get("BINANCE_TESTNET_API_SECRET")
+    app_config = load_app_config(env=os.environ.get("ENV", "dev"))
+    cache_settings = build_nautilus_cache_settings(app_config, mode="live")
 
     instrument_provider = BinanceInstrumentProviderConfig(
         load_ids=frozenset([SYMBOL]),
@@ -226,6 +231,8 @@ def build_node() -> TradingNode:
 
     node_config = TradingNodeConfig(
         trader_id="SMOKE-TESTNET-001",
+        instance_id=cache_settings.instance_id,
+        cache=cache_settings.cache,
         data_clients={"BINANCE": data_cfg},
         exec_clients={"BINANCE": exec_cfg},
         data_engine=LiveDataEngineConfig(time_bars_timestamp_on_close=True),

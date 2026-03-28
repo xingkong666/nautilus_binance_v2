@@ -33,6 +33,7 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from src.backtest.costs import BacktestCostAnalyzer
 from src.core.config import AppConfig
 from src.core.enums import INTERVAL_TO_NAUTILUS, Interval
+from src.core.nautilus_cache import build_nautilus_cache_settings
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 
 logger = structlog.get_logger()
@@ -208,8 +209,11 @@ class BacktestRunner:
             配置好 venue 的 BacktestEngine 实例。
 
         """
+        cache_settings = build_nautilus_cache_settings(self._app_cfg, mode="backtest")
         engine_cfg = BacktestEngineConfig(
             trader_id=self._bt_cfg.trader_id,
+            instance_id=cache_settings.instance_id,
+            cache=cache_settings.cache,
             logging=LoggingConfig(bypass_logging=self._bt_cfg.bypass_logging),
             run_analysis=self._bt_cfg.run_analysis,
         )

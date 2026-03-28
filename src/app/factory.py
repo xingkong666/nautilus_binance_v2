@@ -24,6 +24,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 from src.app.container import Container
 from src.backtest.runner import BacktestConfig, BacktestRunner
 from src.core.enums import INTERVAL_TO_NAUTILUS, Interval
+from src.core.nautilus_cache import build_nautilus_cache_settings
 from src.exchange.binance_adapter import BinanceAdapter, build_binance_adapter
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
@@ -613,11 +614,14 @@ class AppFactory:
         # 回退：按参数临时构建（dev 调试 / 单元测试场景）
         if environment is None:
             environment = BinanceEnvironment.LIVE if self._config.env == "prod" else BinanceEnvironment.TESTNET
+        cache_settings = build_nautilus_cache_settings(self._config, mode="live")
         adapter = build_binance_adapter(
             environment=environment,
             symbols=symbols,
             leverages=leverages,
             proxy_url=proxy_url,
+            cache=cache_settings.cache,
+            instance_id=cache_settings.instance_id,
         )
         logger.info(
             "binance_adapter_created",

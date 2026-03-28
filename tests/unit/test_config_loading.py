@@ -51,6 +51,12 @@ exchange:
     - BTCUSDT-PERP.BINANCE
 execution:
   submit_orders: false
+cache:
+  enabled: true
+  database: redis
+  backtest:
+    use_instance_id: true
+    flush_on_start: false
 live:
   strategy_config: configs/strategies/vegas_tunnel.yaml
   symbol: BTCUSDT
@@ -74,6 +80,10 @@ strategies:
     assert app_config.exchange["environment"] == "LIVE"
     assert app_config.exchange["instrument_ids"] == ["BTCUSDT-PERP.BINANCE"]
     assert app_config.execution.submit_orders is False
+    assert app_config.cache.enabled is True
+    assert app_config.cache.database == "redis"
+    assert app_config.cache.backtest.use_instance_id is True
+    assert app_config.cache.backtest.flush_on_start is False
     assert app_config.execution.rate_limit["max_orders_per_second"] == 5
     assert app_config.live.strategy_config == "configs/strategies/vegas_tunnel.yaml"
     assert app_config.live.symbol == "BTCUSDT"
@@ -112,6 +122,9 @@ redis:
 monitoring:
   enabled: true
   prometheus_port: 9100
+cache:
+  enabled: true
+  database: redis
 exchange:
   environment: LIVE
 execution:
@@ -129,6 +142,8 @@ live:
 
     assert app_config.data.database_url == "postgresql://runtime:secret@db:5432/live"
     assert app_config.redis.password == "runtime-pass"
+    assert app_config.cache.enabled is True
+    assert app_config.cache.database == "redis"
     assert app_config.monitoring.prometheus_port == 9200
     assert app_config.live.strategy_config == "configs/strategies/turtle.yaml"
     assert app_config.execution.submit_orders is True

@@ -50,12 +50,14 @@ from nautilus_trader.adapters.binance.futures.http.account import BinanceFutures
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.config import (
+    CacheConfig,
     LiveDataEngineConfig,
     LiveExecEngineConfig,
     LiveRiskEngineConfig,
     LoggingConfig,
     TradingNodeConfig,
 )
+from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.live.node import TradingNode
 
 from src.core.config import EnvSettings
@@ -103,6 +105,8 @@ class BinanceAdapterConfig:
         exec_engine: ExecEngine 配置覆盖。
         risk_engine: RiskEngine 配置覆盖。
         logging: Nautilus logging 配置覆盖。
+        cache: TradingNode cache 配置。
+        instance_id: TradingNode 实例 ID，用于隔离 cache key。
 
     """
 
@@ -127,6 +131,8 @@ class BinanceAdapterConfig:
     exec_engine: dict[str, Any] = field(default_factory=dict)
     risk_engine: dict[str, Any] = field(default_factory=dict)
     logging: dict[str, Any] = field(default_factory=dict)
+    cache: CacheConfig | None = None
+    instance_id: UUID4 | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +567,8 @@ class BinanceAdapter:
 
         return TradingNodeConfig(
             trader_id="BINANCE-FUTURES-001",
+            instance_id=self.config.instance_id,
+            cache=self.config.cache,
             data_clients={"BINANCE": data_cfg},
             exec_clients={"BINANCE": exec_cfg},
             data_engine=LiveDataEngineConfig(**data_engine_defaults),
@@ -675,6 +683,8 @@ def build_binance_adapter(
     symbols: list[str] | None = None,
     leverages: dict[str, int] | None = None,
     proxy_url: str | None = None,
+    cache: CacheConfig | None = None,
+    instance_id: UUID4 | None = None,
 ) -> BinanceAdapter:
     """快速构建 BinanceAdapter 的工厂函数.
 
@@ -687,6 +697,8 @@ def build_binance_adapter(
             会自动转换为 Nautilus instrument_id 格式。
         leverages: 各合约杠杆，格式 {"BTCUSDT": 10}。
         proxy_url: HTTP 代理 URL，无代理传 None。
+        cache: TradingNode cache 配置。
+        instance_id: TradingNode 实例 ID，用于隔离 cache key。
 
     Returns:
         已配置但未启动的 BinanceAdapter 实例。
@@ -717,5 +729,7 @@ def build_binance_adapter(
         instrument_ids=instrument_ids,
         futures_leverages=leverages,
         proxy_url=proxy_url,
+        cache=cache,
+        instance_id=instance_id,
     )
     return BinanceAdapter(cfg)

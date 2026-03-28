@@ -21,6 +21,7 @@ from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
 from src.cache.redis_client import RedisClient
 from src.core.config import EnvSettings
 from src.core.events import EventBus
+from src.core.nautilus_cache import build_nautilus_cache_settings
 from src.exchange.binance_adapter import BinanceAdapter, BinanceAdapterConfig
 from src.execution.fill_handler import FillHandler
 from src.execution.ignored_instruments import IgnoredInstrumentRegistry
@@ -195,6 +196,7 @@ class Container:
                 logger.warning("unknown_binance_environment", value=env_str, fallback="TESTNET")
                 binance_env = BinanceEnvironment.TESTNET
             default_api_key, default_api_secret = self._resolve_binance_credentials(env_settings, binance_env)
+            cache_settings = build_nautilus_cache_settings(cfg, mode="live")
 
             self._binance_adapter = BinanceAdapter(
                 BinanceAdapterConfig(
@@ -209,6 +211,8 @@ class Container:
                     max_retries=exchange_cfg.get("max_retries"),
                     retry_delay_initial_ms=exchange_cfg.get("retry_delay_initial_ms"),
                     retry_delay_max_ms=exchange_cfg.get("retry_delay_max_ms"),
+                    cache=cache_settings.cache,
+                    instance_id=cache_settings.instance_id,
                 )
             )
             logger.info(

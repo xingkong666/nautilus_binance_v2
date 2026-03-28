@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.core.constants import BASE_DIR, CONFIGS_DIR
@@ -152,12 +152,48 @@ class RedisConfig(BaseModel):
         return f"redis://{self.host}:{self.port}/{self.db}"
 
 
+class CacheModeConfig(BaseModel):
+    """按运行模式覆盖的 cache 配置."""
+
+    use_instance_id: bool | None = None
+    flush_on_start: bool | None = None
+    drop_instruments_on_reset: bool | None = None
+
+
+class NautilusCacheConfig(BaseModel):
+    """NautilusTrader Cache 配置."""
+
+    enabled: bool = True
+    database: str = "redis"
+    encoding: str = "msgpack"
+    timestamps_as_iso8601: bool = False
+    persist_account_events: bool = True
+    buffer_interval_ms: int | None = None
+    bulk_read_batch_size: int | None = None
+    use_trader_prefix: bool = True
+    use_instance_id: bool = False
+    flush_on_start: bool = False
+    drop_instruments_on_reset: bool = True
+    tick_capacity: int = 10_000
+    bar_capacity: int = 10_000
+    database_timeout: int = 20
+    live: CacheModeConfig = Field(default_factory=CacheModeConfig)
+    backtest: CacheModeConfig = Field(
+        default_factory=lambda: CacheModeConfig(
+            use_instance_id=True,
+            flush_on_start=False,
+            drop_instruments_on_reset=True,
+        )
+    )
+
+
 class AppConfig(BaseModel):
     """应用总配置, 聚合所有子配置."""
 
     env: str = "dev"
     data: DataConfig = DataConfig()
     redis: RedisConfig = RedisConfig()
+    cache: NautilusCacheConfig = Field(default_factory=NautilusCacheConfig)
     risk: RiskConfig = RiskConfig()
     execution: ExecutionConfig = ExecutionConfig()
     monitoring: MonitoringConfig = MonitoringConfig()
@@ -208,11 +244,13 @@ def load_app_config(env: str | None = None) -> AppConfig:
     merged_monitoring = deep_merge(merged_monitoring, _env_monitoring_overrides(env_settings))
     merged_live = deep_merge(env_cfg.get("live", {}), _env_live_overrides(env_settings))
     merged_exchange = deep_merge(env_cfg.get("exchange", {}), _env_exchange_overrides(env_settings))
+    merged_cache = env_cfg.get("cache", {})
 
     return AppConfig(
         env=current_env,
         data=DataConfig(**merged_data) if merged_data else DataConfig(),
         redis=RedisConfig(**merged_redis) if merged_redis else RedisConfig(),
+        cache=NautilusCacheConfig(**merged_cache) if merged_cache else NautilusCacheConfig(),
         risk=RiskConfig(**merged_risk) if merged_risk else RiskConfig(),
         execution=ExecutionConfig(**merged_execution) if merged_execution else ExecutionConfig(),
         monitoring=MonitoringConfig(**merged_monitoring) if merged_monitoring else MonitoringConfig(),

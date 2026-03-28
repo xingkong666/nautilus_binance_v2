@@ -16,6 +16,15 @@ redis:
   port: 6379
   db: 0
 
+cache:
+  enabled: true
+  database: redis
+  live:
+    flush_on_start: false
+  backtest:
+    use_instance_id: true
+    flush_on_start: false
+
 monitoring:
   enabled: false
   prometheus_port: 9100

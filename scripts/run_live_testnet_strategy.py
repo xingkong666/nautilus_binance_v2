@@ -42,7 +42,8 @@ from nautilus_trader.live.node import TradingNode
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
-from src.core.config import load_yaml
+from src.core.config import load_app_config, load_yaml
+from src.core.nautilus_cache import build_nautilus_cache_settings
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
 from src.strategy.ema_pullback_atr import EMAPullbackATRConfig, EMAPullbackATRStrategy
@@ -128,6 +129,8 @@ def _build_node(
     strategy: BaseStrategy,
     log_level: str,
 ) -> TradingNode:
+    app_config = load_app_config(env=os.environ.get("ENV", "dev"))
+    cache_settings = build_nautilus_cache_settings(app_config, mode="live")
     instrument_provider = BinanceInstrumentProviderConfig(load_ids=frozenset([str(instrument_id)]))
 
     data_cfg = BinanceDataClientConfig(
@@ -151,6 +154,8 @@ def _build_node(
     trader_id = f"LIVE-{strategy.__class__.__name__.upper()}-TESTNET"
     node_config = TradingNodeConfig(
         trader_id=trader_id,
+        instance_id=cache_settings.instance_id,
+        cache=cache_settings.cache,
         data_clients={"BINANCE": data_cfg},
         exec_clients={"BINANCE": exec_cfg},
         data_engine=LiveDataEngineConfig(time_bars_timestamp_on_close=True),

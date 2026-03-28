@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from nautilus_trader.common.config import DatabaseConfig
+from nautilus_trader.config import CacheConfig
+from nautilus_trader.core.uuid import UUID4
+
 from src.exchange import binance_adapter as adapter_module
 
 
@@ -71,6 +75,28 @@ def test_register_strategy_after_build_raises(monkeypatch) -> None:
         assert "after TradingNode is built" in str(exc)
     else:
         raise AssertionError("expected RuntimeError")
+
+
+def test_build_node_includes_cache_and_instance_id(monkeypatch) -> None:
+    """Verify that build node includes cache and instance ID."""
+    monkeypatch.setattr(adapter_module, "TradingNode", _FakeTradingNode)
+
+    cache = CacheConfig(
+        database=DatabaseConfig(type="redis", host="127.0.0.1", port=6379, password="secret", timeout=2),
+        flush_on_start=False,
+    )
+    instance_id = UUID4()
+    adapter = adapter_module.BinanceAdapter(
+        adapter_module.BinanceAdapterConfig(
+            cache=cache,
+            instance_id=instance_id,
+        )
+    )
+
+    node = adapter.build_node()
+
+    assert node.config.cache == cache
+    assert node.config.instance_id == instance_id
 
 
 class _FakeAccountAPI:
