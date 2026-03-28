@@ -24,7 +24,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -115,6 +115,10 @@ class SyncResult:
 AccountSnapshotProvider = Callable[
     [],
     tuple[list[AccountBalance], list[PositionSnapshot]],
+]
+RawSnapshotProvider = Callable[
+    [],
+    tuple[list[dict[str, Any]], list[dict[str, Any]]],
 ]
 
 
@@ -319,7 +323,7 @@ class AccountSync:
             return
 
         try:
-            exchange_open_orders = fetch_open_orders()
+            exchange_open_orders = cast(Callable[[], list[dict[str, Any]]], fetch_open_orders)()
         except Exception:
             logger.exception("account_sync_open_orders_fetch_failed")
             return
@@ -361,7 +365,7 @@ class AccountSync:
             return set()
 
         try:
-            return {str(client_order_id) for client_order_id in client_order_ids_open()}
+            return {str(client_order_id) for client_order_id in cast(Callable[[], list[Any]], client_order_ids_open)()}
         except Exception:
             logger.exception("account_sync_known_open_orders_load_failed")
             return set()
@@ -533,18 +537,20 @@ class AccountSync:
 
         fetch_account_snapshot = getattr(adapter, "fetch_account_snapshot", None)
         if callable(fetch_account_snapshot):
-            return self._wrap_raw_snapshot_provider(fetch_account_snapshot)
+            return self._wrap_raw_snapshot_provider(cast(RawSnapshotProvider, fetch_account_snapshot))
 
         fetch_balance = getattr(adapter, "fetch_balance", None)
         fetch_positions = getattr(adapter, "fetch_positions", None)
         if callable(fetch_balance) and callable(fetch_positions):
-            return self._wrap_raw_snapshot_provider(lambda: (fetch_balance(), fetch_positions()))
+            typed_fetch_balance = cast(Callable[[], list[dict[str, Any]]], fetch_balance)
+            typed_fetch_positions = cast(Callable[[], list[dict[str, Any]]], fetch_positions)
+            return self._wrap_raw_snapshot_provider(lambda: (typed_fetch_balance(), typed_fetch_positions()))
 
         return None
 
     def _wrap_raw_snapshot_provider(
         self,
-        raw_provider: Callable[[], tuple[list[dict[str, Any]], list[dict[str, Any]]]],
+        raw_provider: RawSnapshotProvider,
     ) -> AccountSnapshotProvider:
         def _provider() -> tuple[list[AccountBalance], list[PositionSnapshot]]:
             raw_balances, raw_positions = raw_provider()

@@ -48,7 +48,7 @@ uv run pytest --cov=src --cov-report=html            # 生成覆盖率报告
 ```bash
 uv run ruff check src/ tests/      # Lint（行宽 120）
 uv run ruff format src/ tests/     # 格式化
-uv run mypy src/                   # 类型检查（strict 模式）
+uv run pyrefly check              # 类型检查
 ```
 
 ### 基础设施（Docker）
@@ -145,4 +145,4 @@ PostTradeRisk   — 成交后滑点与 PnL 归因分析
 - 所有导入使用 `from src.xxx`（hatchling editable install）
 - pytest 已配置 `asyncio_mode = "auto"`，async 测试无需 `@pytest.mark.asyncio`
 - 结构化日志使用 `structlog`，上下文信息以关键字参数传入：`logger.info("event_name", key=val)`
-- 要求 Python 3.13，mypy strict 模式强制执行
+- 要求 Python 3.13，pyrefly 类型检查强制执行

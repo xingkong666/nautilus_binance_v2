@@ -33,7 +33,7 @@ nautilus_binance_v2/
 
 ## 约定
 - 使用 `src...` 绝对导入。
-- Python `>=3.13`；`mypy` 为 strict；`ruff` 行宽 `120`。
+- Python `>=3.13`；使用 `pyrefly` 做类型检查；`ruff` 行宽 `120`。
 - `pytest` 使用 `asyncio_mode = "auto"`。
 - 使用结构化日志（`structlog`），保持 key/value 上下文字段。
 
@@ -56,7 +56,7 @@ uv run python scripts/run_backtest.py --config configs/strategies/ema_cross.yaml
 uv run python scripts/smoke_testnet.py
 uv run pytest
 uv run ruff check src/ tests/
-uv run mypy src/
+uv run pyrefly check
 docker compose up -d
 ```
 
