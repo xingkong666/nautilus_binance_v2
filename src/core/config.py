@@ -59,7 +59,15 @@ class EnvSettings(BaseSettings):
     binance_demo_api_secret: str = ""
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
-    prometheus_port: int = 9090
+    prometheus_port: int | None = None
+    database_url: str = ""
+    redis_host: str = ""
+    redis_port: int | None = None
+    redis_password: str = ""
+    redis_db: int | None = None
+    live_strategy_config: str = ""
+    submit_orders: bool | None = None
+    exchange_environment: str = ""
 
 
 class RiskConfig(BaseModel):
@@ -76,6 +84,7 @@ class RiskConfig(BaseModel):
 class ExecutionConfig(BaseModel):
     """执行引擎配置."""
 
+    submit_orders: bool = True
     default_time_in_force: str = "GTC"
     default_order_type: str = "MARKET"
     slippage: dict[str, Any] = {}
@@ -122,7 +131,7 @@ class DataConfig(BaseModel):
     catalog_dir: Path = BASE_DIR / "data" / "processed" / "catalog"
     raw_dir: Path = BASE_DIR / "data" / "raw"
     features_dir: Path = BASE_DIR / "data" / "features"
-    database_url: str = "postgresql://admin:Longmao!666@127.0.0.1:5432/nautilus_trader"
+    database_url: str = "postgresql://postgres:postgres@127.0.0.1:5432/nautilus_trader"
 
 
 class RedisConfig(BaseModel):
@@ -188,20 +197,84 @@ def load_app_config(env: str | None = None) -> AppConfig:
 
     # 3. 合并
     merged_risk = deep_merge(risk_cfg, env_cfg.get("risk", {}))
+    merged_execution = deep_merge(exec_cfg, env_cfg.get("execution", {}))
     merged_monitoring = deep_merge(
         env_cfg.get("monitoring", {}),
         {"alerting": alerts_cfg.get("alerting", {})},
     )
+    merged_data = deep_merge(env_cfg.get("data", {}), _env_data_overrides(env_settings))
+    merged_redis = deep_merge(env_cfg.get("redis", {}), _env_redis_overrides(env_settings))
+    merged_execution = deep_merge(merged_execution, _env_execution_overrides(env_settings))
+    merged_monitoring = deep_merge(merged_monitoring, _env_monitoring_overrides(env_settings))
+    merged_live = deep_merge(env_cfg.get("live", {}), _env_live_overrides(env_settings))
+    merged_exchange = deep_merge(env_cfg.get("exchange", {}), _env_exchange_overrides(env_settings))
 
     return AppConfig(
         env=current_env,
-        data=DataConfig(**env_cfg.get("data", {})) if env_cfg.get("data") else DataConfig(),
-        redis=RedisConfig(**env_cfg.get("redis", {})) if env_cfg.get("redis") else RedisConfig(),
+        data=DataConfig(**merged_data) if merged_data else DataConfig(),
+        redis=RedisConfig(**merged_redis) if merged_redis else RedisConfig(),
         risk=RiskConfig(**merged_risk) if merged_risk else RiskConfig(),
-        execution=ExecutionConfig(**exec_cfg) if exec_cfg else ExecutionConfig(),
+        execution=ExecutionConfig(**merged_execution) if merged_execution else ExecutionConfig(),
         monitoring=MonitoringConfig(**merged_monitoring) if merged_monitoring else MonitoringConfig(),
-        live=LiveConfig(**env_cfg.get("live", {})) if env_cfg.get("live") else LiveConfig(),
+        live=LiveConfig(**merged_live) if merged_live else LiveConfig(),
         account=AccountConfig(**account_cfg) if account_cfg else AccountConfig(),
-        exchange=dict(env_cfg.get("exchange", {})),
+        exchange=dict(merged_exchange),
         strategies=dict(env_cfg.get("strategies", {})),
     )
+
+
+def _env_data_overrides(env_settings: EnvSettings) -> dict[str, Any]:
+    overrides: dict[str, Any] = {}
+    database_url = getattr(env_settings, "database_url", "")
+    if database_url:
+        overrides["database_url"] = database_url
+    return overrides
+
+
+def _env_redis_overrides(env_settings: EnvSettings) -> dict[str, Any]:
+    overrides: dict[str, Any] = {}
+    redis_host = getattr(env_settings, "redis_host", "")
+    redis_port = getattr(env_settings, "redis_port", None)
+    redis_password = getattr(env_settings, "redis_password", "")
+    redis_db = getattr(env_settings, "redis_db", None)
+    if redis_host:
+        overrides["host"] = redis_host
+    if redis_port is not None:
+        overrides["port"] = redis_port
+    if redis_password:
+        overrides["password"] = redis_password
+    if redis_db is not None:
+        overrides["db"] = redis_db
+    return overrides
+
+
+def _env_execution_overrides(env_settings: EnvSettings) -> dict[str, Any]:
+    overrides: dict[str, Any] = {}
+    submit_orders = getattr(env_settings, "submit_orders", None)
+    if submit_orders is not None:
+        overrides["submit_orders"] = submit_orders
+    return overrides
+
+
+def _env_monitoring_overrides(env_settings: EnvSettings) -> dict[str, Any]:
+    overrides: dict[str, Any] = {}
+    prometheus_port = getattr(env_settings, "prometheus_port", None)
+    if prometheus_port is not None:
+        overrides["prometheus_port"] = prometheus_port
+    return overrides
+
+
+def _env_live_overrides(env_settings: EnvSettings) -> dict[str, Any]:
+    overrides: dict[str, Any] = {}
+    strategy_config = getattr(env_settings, "live_strategy_config", "")
+    if strategy_config:
+        overrides["strategy_config"] = strategy_config
+    return overrides
+
+
+def _env_exchange_overrides(env_settings: EnvSettings) -> dict[str, Any]:
+    overrides: dict[str, Any] = {}
+    environment = str(getattr(env_settings, "exchange_environment", "")).strip().upper()
+    if environment:
+        overrides["environment"] = environment
+    return overrides

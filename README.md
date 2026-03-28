@@ -120,15 +120,17 @@ uv run python -m src.app.bootstrap \
   --env configs/env/dev.yaml \
   --strategy-config configs/strategies/vegas_tunnel.yaml
 
-# 生产（标准 live 入口）
-uv run python -m src.app.bootstrap \
-  --env configs/env/prod.yaml \
-  --strategy-config configs/strategies/vegas_tunnel.yaml
+# 生产预检 + 启动（推荐）
+CONFIRM_LIVE=YES SUBMIT_ORDERS=false scripts/run_live_prod.sh
+
+# 生产真实下单（完成 canary 后再显式开启）
+CONFIRM_LIVE=YES SUBMIT_ORDERS=true scripts/run_live_prod.sh
 ```
 
 当前 live 启动行为：
 
 - `bootstrap` 会实际启动 `TradingNode`、挂载策略并运行 live，不再只是初始化容器。
+- `run_live_prod.sh` 会先执行 readiness 预检，再启动实盘进程；未设置 `CONFIRM_LIVE=YES` 会直接拒绝运行。
 - 未显式传 `--symbol/--symbols` 时，会从 `configs/instruments.yaml` 按 `market_cap_rank` / 文件顺序选取前 `live.universe_top_n` 个交易对，且默认排除稳定币 base asset。
 - 可用 `--symbols BTCUSDT ETHUSDT ...` 显式覆盖默认 universe；`--symbols` 优先级高于 `--symbol`。
 - 启动前会先查询账户模式；若账户为 Binance Hedge Mode，会自动关闭 `reduce_only`，避免启动时报错。
@@ -209,6 +211,7 @@ docker compose up -d
 ```
 
 - Prometheus: http://localhost:9090
+- Trading metrics exporter: http://localhost:9100/metrics
 - Grafana:    http://localhost:3000  （默认账密 admin / admin）
 - HealthCheck: http://localhost:8080/health
 
@@ -235,5 +238,6 @@ docker compose up -d
 | [risk.md](docs/risk.md) | 风控体系详解 |
 | [monitoring.md](docs/monitoring.md) | 监控 & 告警配置 |
 | [runbook.md](docs/runbook.md) | 运维操作手册 |
+| [go_live_checklist.md](docs/go_live_checklist.md) | 实盘上线清单与 canary 顺序 |
 | [vegas_tunnel_rollout_2026_03.md](docs/vegas_tunnel_rollout_2026_03.md) | Vegas 策略与执行安全增强变更记录 |
 | [turtle_backtest_4h_sensitivity.md](docs/turtle_backtest_4h_sensitivity.md) | Turtle 4h 参数敏感性与样本外验证 |

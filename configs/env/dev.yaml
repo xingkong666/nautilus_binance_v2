@@ -10,25 +10,27 @@ data:
   catalog_dir: data/processed/catalog
   raw_dir: data/raw
   features_dir: data/features
-  database_url: "postgresql://admin:Longmao!666@127.0.0.1:5432/nautilus_trader"
 
 redis:
   host: "127.0.0.1"
   port: 6379
-  password: "Longmao!666"
   db: 0
 
 monitoring:
   enabled: false
-  prometheus_port: 9090
+  prometheus_port: 9100
 
 risk:
   enabled: true
   mode: soft  # soft=告警不阻断, hard=阻断
 
 exchange:
-  testnet: true
+  environment: TESTNET
+
+execution:
+  submit_orders: true
 
 live:
+  strategy_config: configs/strategies/vegas_tunnel.yaml
   universe_top_n: 200
   exclude_stablecoin_bases: true

@@ -65,6 +65,12 @@ class RSIStrategy(BaseStrategy):
         """注册 RSI 指标."""
         self.register_indicator_for_bars(self.config.bar_type, self.rsi)
 
+    def _history_warmup_bars(self) -> int:
+        return int(self.config.rsi_period) + 2
+
+    def _on_historical_bar(self, bar: Bar) -> None:
+        self._prev_rsi = float(self.rsi.value)
+
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
         """生成 RSI 超买超卖信号.
 

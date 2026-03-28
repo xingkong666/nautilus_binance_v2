@@ -75,6 +75,19 @@ class TurtleStrategy(BaseStrategy):
     def _register_indicators(self) -> None:
         """仅依赖 ATR 指标."""
 
+    def _history_warmup_bars(self) -> int:
+        return (
+            max(
+                int(self.config.entry_period),
+                int(self.config.exit_period),
+                int(self.config.atr_period),
+            )
+            + 2
+        )
+
+    def _on_historical_bar(self, bar: Bar) -> None:
+        self._append_bar(bar)
+
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
         """Generate signal.
 

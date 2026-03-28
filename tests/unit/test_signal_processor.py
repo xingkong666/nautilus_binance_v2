@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from src.core.events import EventBus, EventType, SignalDirection, SignalEvent
 from src.execution.ignored_instruments import IgnoredInstrumentRegistry
+from src.execution.order_router import OrderRouter
 from src.execution.signal_processor import SignalProcessor
 
 
@@ -42,6 +45,24 @@ class _PreTradeRiskStub:
     def check(self, **kwargs):
         self.calls.append(kwargs)
         return type("CheckResult", (), {"passed": self._passed, "reason": "blocked"})()
+
+
+def _make_router_strategy(instrument_id: str = "BTCUSDT-PERP.BINANCE") -> MagicMock:
+    strategy = MagicMock()
+    strategy.config.instrument_id = instrument_id
+
+    instrument = MagicMock()
+    instrument.id = MagicMock()
+    instrument.id.__str__ = lambda self: instrument_id
+    instrument.make_qty = lambda qty: qty
+    instrument.make_price = lambda price: price
+    strategy.cache.instrument.return_value = instrument
+
+    fake_order = MagicMock()
+    strategy.order_factory.market.return_value = fake_order
+    strategy.order_factory.limit.return_value = fake_order
+    strategy.submit_order.return_value = None
+    return strategy
 
 
 def test_metadata_order_fields_take_precedence() -> None:
@@ -232,6 +253,26 @@ def test_rate_limiter_not_recorded_when_router_rejects() -> None:
 
     assert len(router.intents) == 1
     assert rate_limiter.record_count == 0
+
+
+def test_rate_limiter_recorded_when_submission_disabled_but_route_succeeds() -> None:
+    """Verify that dry-run routing still records rate limit after success."""
+    bus = EventBus()
+    rate_limiter = _RateLimiterStub(can_proceed=True)
+    router = OrderRouter(event_bus=bus, submit_orders=False)
+    router.bind_strategy(_make_router_strategy())
+    SignalProcessor(event_bus=bus, order_router=router, rate_limiter=rate_limiter)
+
+    bus.publish(
+        SignalEvent(
+            source="EMACrossStrategy",
+            instrument_id="BTCUSDT-PERP.BINANCE",
+            direction=SignalDirection.LONG,
+            metadata={"bar_close": "50000"},
+        )
+    )
+
+    assert rate_limiter.record_count == 1
 
 
 def test_ignored_instrument_blocks_routing_and_emits_alert() -> None:

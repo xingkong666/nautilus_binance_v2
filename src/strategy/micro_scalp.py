@@ -155,6 +155,25 @@ class MicroScalpStrategy(BaseStrategy):
         self.register_indicator_for_bars(self.config.bar_type, self.slow_ema)
         self.register_indicator_for_bars(self.config.bar_type, self.rsi)
 
+    def _history_warmup_bars(self) -> int:
+        return (
+            max(
+                int(self.config.fast_ema_period),
+                int(self.config.slow_ema_period),
+                int(self.config.rsi_period),
+                int(self.config.atr_period),
+                int(self.config.adx_period) * 2,
+            )
+            + 2
+        )
+
+    def _on_historical_bar(self, bar: Bar) -> None:
+        self._bar_index += 1
+        close = float(bar.close)
+        self._adx.update(float(bar.high), float(bar.low), close)
+        self._prev_close = close
+        self._prev_rsi = float(self.rsi.value)
+
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
         """Generate signal.
 

@@ -30,6 +30,7 @@ from src.execution.signal_processor import SignalProcessor
 from src.monitoring.alerting import AlertManager, build_alert_manager
 from src.monitoring.health_server import HealthServer
 from src.monitoring.metrics import EVENT_BUS_EVENTS
+from src.monitoring.prometheus_server import PrometheusServer
 from src.monitoring.watchers import BaseWatcher, build_watchers
 from src.portfolio.allocator import PortfolioAllocator
 from src.risk.circuit_breaker import CircuitBreaker
@@ -79,6 +80,7 @@ class Container:
         self._alert_manager: AlertManager | None = None
         self._watchers: list[BaseWatcher] = []
         self._health_server: HealthServer | None = None
+        self._prometheus_server: PrometheusServer | None = None
         self._portfolio_allocator: PortfolioAllocator | None = None
         self._binance_adapter: BinanceAdapter | None = None
 
@@ -213,7 +215,10 @@ class Container:
             event_bus=self._event_bus,
             persistence=self._persistence,
         )
-        self._order_router = OrderRouter(event_bus=self._event_bus)
+        self._order_router = OrderRouter(
+            event_bus=self._event_bus,
+            submit_orders=cfg.execution.submit_orders,
+        )
         self._signal_processor = SignalProcessor(
             event_bus=self._event_bus,
             order_router=self._order_router,
@@ -236,6 +241,9 @@ class Container:
 
         # 8. 监控
         if cfg.monitoring.enabled:
+            self._prometheus_server = PrometheusServer(port=cfg.monitoring.prometheus_port)
+            self._prometheus_server.start()
+            logger.info("prometheus_exporter_started", port=cfg.monitoring.prometheus_port)
             self._health_server = HealthServer(port=8080)
             self._health_server.start()
             logger.info("health_server_started", port=8080)
@@ -262,6 +270,12 @@ class Container:
                 self._health_server.stop()
             except Exception:
                 logger.exception("health_server_stop_failed")
+
+        if self._prometheus_server is not None:
+            try:
+                self._prometheus_server.stop()
+            except Exception:
+                logger.exception("prometheus_server_stop_failed")
 
         if self._binance_adapter and self._binance_adapter.is_started:
             # adapter.stop() 是 async；同步 teardown 中仅记录警告，
@@ -542,6 +556,12 @@ class Container:
         """
         self._ensure_built()
         return self._health_server
+
+    @property
+    def prometheus_server(self) -> PrometheusServer | None:
+        """返回 Prometheus exporter 服务（monitoring.enabled=False 时为 None）."""
+        self._ensure_built()
+        return self._prometheus_server
 
     @property
     def portfolio_allocator(self) -> PortfolioAllocator | None:

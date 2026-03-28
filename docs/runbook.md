@@ -14,22 +14,25 @@ uv run python -m src.app.bootstrap \
   --env configs/env/dev.yaml \
   --strategy-config configs/strategies/vegas_tunnel.yaml
 
-# 生产
-uv run python -m src.app.bootstrap \
-  --env configs/env/prod.yaml \
-  --strategy-config configs/strategies/vegas_tunnel.yaml
+# 生产 dry-run（推荐先跑）
+CONFIRM_LIVE=YES SUBMIT_ORDERS=false scripts/run_live_prod.sh
+
+# 生产真实下单（完成 canary 后再开启）
+CONFIRM_LIVE=YES SUBMIT_ORDERS=true scripts/run_live_prod.sh
 ```
 
 启动时会依次执行：
 
-1. 配置加载 & 校验
-2. 数据库初始化（SQLite）
-3. 查询账户模式（若为 Hedge Mode，自动关闭 `reduce_only`）
-4. 拉取交易所余额 / 持仓 / open orders
-5. 按环境加载快照（`snapshots/dev`、`snapshots/prod` 等）
-6. 恢复状态并标记有外部活动的交易对为 ignored
-7. TradingNode 启动 & 行情订阅
-8. Supervisor 进入 RUNNING 状态
+1. readiness 预检（凭证 / 策略配置 / symbols）
+2. 配置加载 & 校验
+3. 数据库初始化（PostgreSQL）
+4. Redis / 监控服务初始化
+5. 查询账户模式（若为 Hedge Mode，自动关闭 `reduce_only`）
+6. 拉取交易所余额 / 持仓 / open orders
+7. 按环境加载快照（`snapshots/dev`、`snapshots/prod` 等）
+8. 恢复状态并标记有外部活动的交易对为 ignored
+9. TradingNode 启动 & 行情订阅
+10. Supervisor 进入 RUNNING 状态
 
 补充说明：
 
@@ -37,6 +40,7 @@ uv run python -m src.app.bootstrap \
 2. `ignored` 是运行期保护，不会自动替你撤销外部挂单或平掉外部持仓。
 3. 未传 `--symbol/--symbols` 时，默认从 `configs/instruments.yaml` 取前 `live.universe_top_n` 个交易对，并默认排除稳定币 base asset。
 4. 显式指定多标的时使用 `--symbols BTCUSDT ETHUSDT ...`，其优先级高于 `--symbol`。
+5. 推荐把 `.env` 中 `SUBMIT_ORDERS=false` 作为生产默认值，完成 canary 后再临时切到 `true`。
 
 ### 优雅停止
 

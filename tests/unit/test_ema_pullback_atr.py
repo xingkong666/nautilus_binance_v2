@@ -141,3 +141,15 @@ def test_adx_threshold_blocks_when_trend_strength_low() -> None:
     signal = strategy.generate_signal(make_bar(98.0, 103.0, 97.0, 101.0))
 
     assert signal is None
+
+
+def test_historical_bar_updates_prev_close_and_adx_state() -> None:
+    """Verify that historical bar updates prev close and ADX state."""
+    strategy = make_strategy(cooldown=0)
+
+    strategy._on_historical_bar(make_bar(100.0, 101.0, 99.0, 100.0))  # type: ignore[arg-type]
+    strategy._on_historical_bar(make_bar(100.0, 102.0, 98.0, 101.0))  # type: ignore[arg-type]
+
+    assert strategy._bar_index == 2
+    assert strategy._prev_close == 101.0
+    assert strategy._adx.prev_close == 101.0

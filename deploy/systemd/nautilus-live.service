@@ -1,0 +1,21 @@
+[Unit]
+Description=Nautilus Binance V2 Live Trading
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/workSpace/nautilus_binance_v2
+EnvironmentFile=/root/workSpace/nautilus_binance_v2/.env
+Environment=CONFIRM_LIVE=YES
+ExecStart=/root/workSpace/nautilus_binance_v2/scripts/run_live_prod.sh
+Restart=always
+RestartSec=10
+TimeoutStopSec=45
+KillSignal=SIGTERM
+StandardOutput=append:/root/workSpace/nautilus_binance_v2/data/live.stdout.log
+StandardError=append:/root/workSpace/nautilus_binance_v2/data/live.stderr.log
+
+[Install]
+WantedBy=multi-user.target

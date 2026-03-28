@@ -195,3 +195,15 @@ def test_unit_quantity_uses_base_step_splitting() -> None:
     assert signal == SignalDirection.LONG
     assert strategy._pending_order is not None
     assert strategy._pending_order.qty == Decimal("0.001")
+
+
+def test_historical_bar_prefills_donchian_windows() -> None:
+    """Verify that historical bar prefills Donchian windows."""
+    strategy = make_strategy()
+
+    strategy._on_historical_bar(make_bar(100.0, 101.0, 99.0, 100.0))  # type: ignore[arg-type]
+    strategy._on_historical_bar(make_bar(100.0, 102.0, 98.0, 101.0))  # type: ignore[arg-type]
+    strategy._on_historical_bar(make_bar(101.0, 103.0, 97.0, 102.0))  # type: ignore[arg-type]
+
+    assert list(strategy._highs) == [101.0, 102.0, 103.0]
+    assert list(strategy._lows) == [99.0, 98.0, 97.0]

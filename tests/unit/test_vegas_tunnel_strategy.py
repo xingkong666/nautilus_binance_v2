@@ -208,3 +208,15 @@ def test_split_quantities_respects_min_step_for_tiny_position() -> None:
     assert q2 % Decimal("0.001") == Decimal("0")
     assert q3 % Decimal("0.001") == Decimal("0")
     assert sum(1 for q in (q1, q2, q3) if q > 0) == 1
+
+
+def test_historical_bar_prefills_cross_state() -> None:
+    """Verify that historical bar prefills cross state."""
+    strategy = make_strategy(cooldown=0)
+    strategy.fast_ema = SimpleNamespace(value=120.0)  # type: ignore[assignment]
+    strategy.slow_ema = SimpleNamespace(value=110.0)  # type: ignore[assignment]
+
+    strategy._on_historical_bar(make_bar(close=125.0))  # type: ignore[arg-type]
+
+    assert strategy._bar_index == 1
+    assert strategy._prev_fast_above_slow is True

@@ -30,6 +30,7 @@ data/versioned/*
 experiments/reports/*
 experiments/artifacts/*
 experiments/sweep/*
+experiments/walkforward/*
 !experiments/**/.gitkeep
 
 # Runtime backups

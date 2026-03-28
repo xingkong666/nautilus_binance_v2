@@ -1,5 +1,5 @@
 # Prometheus 配置
-# 抓取目标：交易系统指标（:9090/metrics）+ Prometheus 自身
+# 抓取目标：交易系统指标（:9100/metrics）+ Prometheus 自身
 # 文档：https://prometheus.io/docs/prometheus/latest/configuration/configuration/
 
 global:
@@ -36,13 +36,13 @@ scrape_configs:
       - targets: ["localhost:9090"]
 
   # 交易系统：由 PrometheusServer（prometheus_client.start_http_server）暴露
-  # 端口对应 configs/env/{dev,prod}.yaml 中 monitoring.prometheus_port: 9090
-  # 容器外运行时 target 改为 host.docker.internal:9090 或宿主机 IP
+  # 端口对应 configs/env/{dev,prod}.yaml 中 monitoring.prometheus_port: 9100
+  # 容器外运行时 target 改为 host.docker.internal:9100 或宿主机 IP
   - job_name: "nautilus_trading"
     scrape_interval: 5s           # 交易指标刷新更频繁
     scrape_timeout: 4s
     static_configs:
-      - targets: ["host.docker.internal:9090"]
+      - targets: ["host.docker.internal:9100"]
         labels:
           component: "trading_engine"
     metrics_path: /metrics

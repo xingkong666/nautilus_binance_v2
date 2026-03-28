@@ -38,7 +38,7 @@ from src.app.container import Container
 from src.app.factory import AppFactory
 from src.core.config import AppConfig, load_app_config, load_yaml
 from src.core.logging import setup_logging
-from src.live.readiness import resolve_live_symbols
+from src.live.readiness import ensure_live_readiness
 from src.state.reconciliation import ReconciliationEngine
 from src.state.recovery import RecoveryManager
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
@@ -363,22 +363,19 @@ def run_live(
         symbols: Trading symbols to process.
         timeout_seconds: Maximum runtime in seconds.
     """
+    resolved_config = load_app_config(env=env)
+    strategy_config_path, live_symbols = ensure_live_readiness(
+        config=resolved_config,
+        strategy_override=strategy_config,
+        symbol_override=symbol,
+        symbols_override=symbols,
+        cwd=Path.cwd(),
+    )
     ctx = bootstrap_app(env=env, log_level=log_level)
     supervisor = None
     stop_timer: Timer | None = None
 
     try:
-        strategy_config_path = Path(strategy_config or ctx.config.live.strategy_config).expanduser()
-        if not strategy_config_path.is_absolute():
-            strategy_config_path = Path.cwd() / strategy_config_path
-        if not strategy_config_path.exists():
-            raise FileNotFoundError(f"Strategy config not found: {strategy_config_path}")
-
-        live_symbols = resolve_live_symbols(
-            config=ctx.config,
-            symbol_override=symbol,
-            symbols_override=symbols,
-        )
         effective_timeout = timeout_seconds if timeout_seconds > 0 else ctx.config.live.timeout_seconds
 
         strategies = _build_live_strategies(strategy_config_path, ctx.container, symbols=live_symbols)

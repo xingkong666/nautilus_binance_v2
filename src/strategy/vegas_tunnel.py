@@ -98,6 +98,22 @@ class VegasTunnelStrategy(BaseStrategy):
         self.register_indicator_for_bars(self.config.bar_type, self.tunnel_ema_1)
         self.register_indicator_for_bars(self.config.bar_type, self.tunnel_ema_2)
 
+    def _history_warmup_bars(self) -> int:
+        return (
+            max(
+                int(self.config.fast_ema_period),
+                int(self.config.slow_ema_period),
+                int(self.config.tunnel_ema_period_1),
+                int(self.config.tunnel_ema_period_2),
+                int(self.config.atr_period),
+            )
+            + 2
+        )
+
+    def _on_historical_bar(self, bar: Bar) -> None:
+        self._bar_index += 1
+        self._prev_fast_above_slow = float(self.fast_ema.value) > float(self.slow_ema.value)
+
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
         """Generate signal.
 

@@ -10,19 +10,22 @@ data:
   catalog_dir: data/processed/catalog
   raw_dir: data/raw
   features_dir: data/features
-  database_url: "postgresql://admin:Longmao!666@127.0.0.1:5432/nautilus_trader"
 
 monitoring:
   enabled: true
-  prometheus_port: 9090
+  prometheus_port: 9100
 
 risk:
   enabled: true
   mode: hard
 
 exchange:
-  testnet: true
+  environment: TESTNET
+
+execution:
+  submit_orders: false
 
 live:
+  strategy_config: configs/strategies/vegas_tunnel.yaml
   universe_top_n: 200
   exclude_stablecoin_bases: true

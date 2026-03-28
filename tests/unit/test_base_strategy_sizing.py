@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
+from src.core.events import EventBus
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
 
 INSTRUMENT_ID = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
@@ -235,3 +237,64 @@ def test_resolve_order_quantity_decimal_fallback_trade_size() -> None:
     )
 
     assert qty == Decimal("0.01")
+
+
+def test_bar_type_interval_parses_external_and_internal_specs() -> None:
+    """Verify that bar type interval parses external and internal specs."""
+    external = _make_strategy(capital_pct=None)
+    internal = EMACrossStrategy(
+        config=EMACrossConfig(
+            instrument_id=INSTRUMENT_ID,
+            bar_type=BarType.from_str("BTCUSDT-PERP.BINANCE-1-HOUR-LAST-INTERNAL@1-MINUTE-EXTERNAL"),
+            fast_ema_period=5,
+            slow_ema_period=20,
+        )
+    )
+
+    assert external._bar_type_interval() == timedelta(minutes=15)
+    assert internal._bar_type_interval() == timedelta(hours=1)
+
+
+def test_resolved_warmup_bars_uses_strategy_default_and_explicit_override() -> None:
+    """Verify that resolved warmup bars uses strategy default and explicit override."""
+    strategy = _make_strategy(capital_pct=None)
+    overridden = EMACrossStrategy(
+        config=EMACrossConfig(
+            instrument_id=INSTRUMENT_ID,
+            bar_type=BAR_TYPE,
+            fast_ema_period=5,
+            slow_ema_period=20,
+            live_warmup_bars=50,
+        )
+    )
+
+    assert strategy._resolved_warmup_bars() == 22
+    assert overridden._resolved_warmup_bars() == 50
+
+
+def test_request_warmup_history_uses_strategy_warmup_and_margin() -> None:
+    """Verify that request warmup history uses strategy warmup and margin."""
+    strategy = EMACrossStrategy(
+        config=EMACrossConfig(
+            instrument_id=INSTRUMENT_ID,
+            bar_type=BAR_TYPE,
+            fast_ema_period=5,
+            slow_ema_period=20,
+            live_warmup_margin_bars=3,
+        ),
+        event_bus=EventBus(),
+    )
+    requested: dict[str, object] = {}
+
+    def _capture_request_bars(bar_type: BarType, *, start, limit: int) -> None:
+        requested["bar_type"] = bar_type
+        requested["start"] = start
+        requested["limit"] = limit
+
+    strategy.request_bars = _capture_request_bars  # type: ignore[method-assign]
+
+    strategy._request_warmup_history()
+
+    assert requested["bar_type"] == BAR_TYPE
+    assert requested["limit"] == 25
+    assert strategy._warmup_history_requested is True

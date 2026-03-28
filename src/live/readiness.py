@@ -236,3 +236,64 @@ def credential_checks(config: AppConfig) -> list[ReadinessCheck]:
         ),
     ]
     return checks
+
+
+def collect_live_readiness_checks(
+    config: AppConfig,
+    strategy_override: str = "",
+    symbol_override: str = "",
+    symbols_override: list[str] | None = None,
+    cwd: Path | None = None,
+) -> tuple[list[ReadinessCheck], Path, list[str]]:
+    """收集 live 启动前的关键预检结果."""
+    checks = credential_checks(config)
+    strategy_config_path = resolve_strategy_config_path(config, override=strategy_override, cwd=cwd)
+    checks.append(
+        ReadinessCheck(
+            name="strategy_config_exists",
+            passed=strategy_config_path.exists(),
+            detail=str(strategy_config_path),
+        )
+    )
+
+    live_symbols: list[str] = []
+    symbol_error: Exception | None = None
+    try:
+        live_symbols = resolve_live_symbols(
+            config=config,
+            symbol_override=symbol_override,
+            symbols_override=symbols_override,
+        )
+    except Exception as exc:
+        symbol_error = exc
+
+    checks.append(
+        ReadinessCheck(
+            name="live_symbols_resolved",
+            passed=symbol_error is None and len(live_symbols) > 0,
+            detail=",".join(live_symbols[:5]) if symbol_error is None else str(symbol_error),
+        )
+    )
+    return checks, strategy_config_path, live_symbols
+
+
+def ensure_live_readiness(
+    config: AppConfig,
+    strategy_override: str = "",
+    symbol_override: str = "",
+    symbols_override: list[str] | None = None,
+    cwd: Path | None = None,
+) -> tuple[Path, list[str]]:
+    """验证 live 启动预检，失败时抛异常阻断启动."""
+    checks, strategy_config_path, live_symbols = collect_live_readiness_checks(
+        config=config,
+        strategy_override=strategy_override,
+        symbol_override=symbol_override,
+        symbols_override=symbols_override,
+        cwd=cwd,
+    )
+    failed = [check for check in checks if not check.passed]
+    if failed:
+        details = "; ".join(f"{check.name}={check.detail}" for check in failed)
+        raise RuntimeError(f"Live readiness failed: {details}")
+    return strategy_config_path, live_symbols

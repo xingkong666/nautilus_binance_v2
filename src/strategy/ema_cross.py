@@ -70,6 +70,16 @@ class EMACrossStrategy(BaseStrategy):
         self.register_indicator_for_bars(self.config.bar_type, self.fast_ema)
         self.register_indicator_for_bars(self.config.bar_type, self.slow_ema)
 
+    def _history_warmup_bars(self) -> int:
+        periods = [int(self.config.fast_ema_period), int(self.config.slow_ema_period)]
+        if float(self.config.entry_min_atr_ratio) > 0:
+            periods.append(int(self.config.atr_period))
+        return max(periods) + 2
+
+    def _on_historical_bar(self, bar: Bar) -> None:
+        self._bar_index += 1
+        self._prev_fast_above = self.fast_ema.value >= self.slow_ema.value
+
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
         """生成 EMA 交叉信号.
 

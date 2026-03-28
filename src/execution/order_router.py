@@ -26,15 +26,18 @@ class OrderRouter:
     """订单路由器.
 
     负责将 OrderIntent 转化为 Nautilus 订单并通过 Strategy 提交.
+    当 submit_orders=False 时，仍执行校验和事件发布，只跳过真实 submit_order().
     """
 
-    def __init__(self, event_bus: EventBus) -> None:
+    def __init__(self, event_bus: EventBus, submit_orders: bool = True) -> None:
         """Initialize the order router.
 
         Args:
             event_bus: Event bus used for cross-module communication.
+            submit_orders: Whether real order submission is enabled.
         """
         self._event_bus = event_bus
+        self._submit_orders = submit_orders
         self._strategy: Strategy | None = None
         self._strategies: dict[str, Strategy] = {}
 
@@ -56,7 +59,7 @@ class OrderRouter:
             intent: 订单意图
 
         Returns:
-            是否成功提交
+            是否成功路由
 
         """
         strategy = self._strategies.get(intent.instrument_id)
@@ -73,28 +76,37 @@ class OrderRouter:
 
         try:
             order = self._create_order(intent=intent, instrument=instrument, strategy=strategy)
-            strategy.submit_order(order)
 
-            logger.info(
-                "order_submitted",
-                instrument=intent.instrument_id,
-                side=intent.side,
-                quantity=str(intent.quantity),
-                order_type=intent.order_type,
-            )
-
-            # 发布提交事件
-            self._event_bus.publish(
-                OrderIntentEvent(
-                    instrument_id=intent.instrument_id,
+            if self._submit_orders:
+                strategy.submit_order(order)
+                logger.info(
+                    "order_submitted",
+                    instrument=intent.instrument_id,
                     side=intent.side,
-                    quantity=intent.quantity,
+                    quantity=str(intent.quantity),
                     order_type=intent.order_type,
-                    price=intent.price,
-                    metadata=intent.metadata,
-                    source="order_router",
                 )
-            )
+            else:
+                logger.warning(
+                    "order_submission_disabled",
+                    instrument=intent.instrument_id,
+                    strategy=intent.strategy_id,
+                )
+                self._event_bus.publish(
+                    RiskAlertEvent(
+                        level="WARNING",
+                        rule_name="order_submission_disabled",
+                        message="Order submission disabled by execution config",
+                        details={
+                            "instrument_id": intent.instrument_id,
+                            "strategy_id": intent.strategy_id,
+                            "order_type": intent.order_type,
+                        },
+                        source="order_router",
+                    )
+                )
+
+            self._publish_order_intent_event(intent)
 
             return True
 
@@ -102,12 +114,20 @@ class OrderRouter:
             logger.exception("order_submit_failed", instrument=intent.instrument_id)
             return False
 
-    def _create_order(
-        self,
-        intent: OrderIntent,
-        instrument: Instrument,
-        strategy: Strategy,
-    ) -> Any:
+    def _publish_order_intent_event(self, intent: OrderIntent) -> None:
+        self._event_bus.publish(
+            OrderIntentEvent(
+                instrument_id=intent.instrument_id,
+                side=intent.side,
+                quantity=intent.quantity,
+                order_type=intent.order_type,
+                price=intent.price,
+                metadata=intent.metadata,
+                source="order_router",
+            )
+        )
+
+    def _create_order(self, intent: OrderIntent, instrument: Instrument, strategy: Strategy) -> Any:
         """创建 Nautilus 订单.
 
         Args:

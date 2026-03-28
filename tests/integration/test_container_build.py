@@ -165,6 +165,7 @@ class TestContainerBuild:
             tmp_container: Tmp container.
         """
         assert tmp_container.health_server is None
+        assert tmp_container.prometheus_server is None
 
 
 class TestContainerWithPortfolio:
@@ -213,4 +214,21 @@ class TestContainerWithPortfolio:
         alloc = c.portfolio_allocator
         assert alloc is not None
         assert alloc._mode == "weight"
+        c.teardown()
+
+
+class TestContainerMonitoring:
+    """Test cases for container monitoring services."""
+
+    def test_monitoring_enabled_starts_exporters(self, tmp_path):
+        """Verify that monitoring enabled starts health and metrics exporters."""
+        cfg = make_config(tmp_path)
+        cfg.monitoring = MonitoringConfig(enabled=True, prometheus_port=9201)
+
+        c = Container(cfg)
+        c.build()
+
+        assert c.health_server is not None
+        assert c.prometheus_server is not None
+        assert c.prometheus_server.is_running is True
         c.teardown()

@@ -14,9 +14,7 @@ sys.path.insert(0, str(ROOT))
 from src.app.bootstrap import _build_live_strategy, bootstrap_app
 from src.live.readiness import (
     ReadinessCheck,
-    credential_checks,
-    resolve_live_symbols,
-    resolve_strategy_config_path,
+    collect_live_readiness_checks,
 )
 
 
@@ -54,28 +52,16 @@ def main() -> int:
     try:
         ctx = bootstrap_app(env=args.env, log_level=args.log_level)
         checks.append(ReadinessCheck("config_loaded", True, f"env={ctx.config.env}"))
-        checks.extend(credential_checks(ctx.config))
-
-        strategy_config_path = resolve_strategy_config_path(
-            ctx.config,
-            override=args.strategy_config,
-            cwd=ROOT,
-        )
-        checks.append(
-            ReadinessCheck(
-                "strategy_config_exists",
-                strategy_config_path.exists(),
-                str(strategy_config_path),
-            )
-        )
-        if not strategy_config_path.exists():
-            raise FileNotFoundError(f"Strategy config not found: {strategy_config_path}")
-
-        live_symbols = resolve_live_symbols(
+        readiness_checks, strategy_config_path, live_symbols = collect_live_readiness_checks(
             config=ctx.config,
+            strategy_override=args.strategy_config,
             symbol_override=args.symbol,
             symbols_override=args.symbols,
+            cwd=ROOT,
         )
+        checks.extend(readiness_checks)
+        if not strategy_config_path.exists():
+            raise FileNotFoundError(f"Strategy config not found: {strategy_config_path}")
         strategies = [
             _build_live_strategy(
                 strategy_config_path=strategy_config_path,

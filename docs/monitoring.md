@@ -4,7 +4,7 @@
 
 ```
 交易节点
-  ├── PrometheusServer (:9090/metrics)   → Prometheus → Grafana
+  ├── PrometheusServer (:9100/metrics)   → Prometheus → Grafana
   ├── HealthServer     (:8080/health)    → 负载均衡 / K8s 探针
   ├── Alerting Engine                    → Telegram / Slack
   └── Watchers (定时巡检)
@@ -14,7 +14,7 @@
 
 ## Prometheus 指标
 
-启动后访问 `http://localhost:9090/metrics` 查看所有指标。
+启动后访问 `http://localhost:9100/metrics` 查看所有指标。
 
 ### 核心指标
 
@@ -173,6 +173,15 @@ scrape_configs:
   - job_name: 'trading-node'
     static_configs:
       - targets: ['host.docker.internal:9090']
+```
+
+当前仓库默认 exporter 端口为 `9100`，因此推荐配置应为：
+
+```yaml
+scrape_configs:
+  - job_name: 'trading-node'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
     scrape_interval: 10s
 ```
 
@@ -180,11 +189,10 @@ scrape_configs:
 
 ## Watchers（定时巡检）
 
-`src/monitoring/watchers.py` 中的后台任务，默认每 60 秒执行一次：
+`src/monitoring/watchers.py` 当前实际落地的是：
 
-- **AccountWatcher** — 检查账户余额异常变动
-- **PositionWatcher** — 检查仓位是否超限
-- **LatencyWatcher** — 统计近期成交延迟
-- **ReconciliationWatcher** — 触发定期对账（默认每 15 分钟）
+- **RiskAlertWatcher** — 转发风控/熔断/执行层告警，并按 `rule_name + instrument_id` 去重
+- **DrawdownWatcher** — 监控回撤并在超过阈值时告警
+- **FillLatencyWatcher** — 基于 `ORDER_SUBMITTED` / `ORDER_FILLED` 统计成交延迟
 
-巡检间隔可在 `container.py` 中配置。
+账户余额巡检、持仓巡检、定时对账巡检目前还没有实现为独立 watcher；如果要在实盘中依赖这些能力，需要另外补齐。

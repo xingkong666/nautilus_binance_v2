@@ -1,5 +1,8 @@
 # 执行引擎配置
 execution:
+  # 是否允许真实提交订单；关闭后保留信号/风控链路，但不会调用 submit_order
+  submit_orders: true
+
   # 默认订单设置
   default_time_in_force: GTC
   default_order_type: MARKET

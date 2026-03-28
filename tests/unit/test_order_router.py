@@ -403,6 +403,28 @@ class TestOrderSideMapping:
 class TestOrderRouterEvents:
     """Test cases for order router events."""
 
+    def test_disabled_submission_keeps_routing_semantics(self, event_bus):
+        """Verify that disabled submission keeps routing semantics."""
+        alerts = []
+        received = []
+        event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
+        event_bus.subscribe(EventType.ORDER_INTENT, received.append)
+
+        router = OrderRouter(event_bus=event_bus, submit_orders=False)
+        strategy = make_mock_strategy()
+        router.bind_strategy(strategy)
+
+        result = router.route(make_intent())
+
+        assert result is True
+        strategy.order_factory.market.assert_called_once()
+        strategy.submit_order.assert_not_called()
+        assert len(received) == 1
+        assert len(alerts) == 1
+        alert = alerts[0]
+        assert alert.level == "WARNING"
+        assert alert.rule_name == "order_submission_disabled"
+
     def test_successful_route_publishes_order_intent_event(self, router, event_bus):
         """成功路由后发布 ORDER_INTENT 事件。.
 

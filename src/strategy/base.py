@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+import re
 from abc import abstractmethod
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_FLOOR, Decimal
 
 from nautilus_trader.common.enums import LogColor
@@ -57,6 +60,8 @@ class BaseStrategyConfig(StrategyConfig, frozen=True):
     atr_period: int = 14
     atr_sl_multiplier: float | None = None
     atr_tp_multiplier: float | None = None
+    live_warmup_bars: int = 0
+    live_warmup_margin_bars: int = 5
 
 
 class BaseStrategy(Strategy):  # type: ignore[misc]
@@ -84,6 +89,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         # bracket 订单跟踪：position_id -> (sl_order_id, tp_order_id)
         self._sl_orders: dict[str, ClientOrderId] = {}
         self._tp_orders: dict[str, ClientOrderId] = {}
+        self._warmup_history_requested = False
 
         self._atr_indicator: AverageTrueRange | None = None
         if config.atr_sl_multiplier is not None or config.atr_tp_multiplier is not None:
@@ -101,6 +107,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
             self.register_indicator_for_bars(self.config.bar_type, self._atr_indicator)
 
         self._register_indicators()
+        self._request_warmup_history()
         self.subscribe_bars(self.config.bar_type)
 
     @abstractmethod
@@ -118,6 +125,78 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
             信号方向，如果不产生信号返回 None。
 
         """
+
+    def _history_warmup_bars(self) -> int:
+        """返回策略默认需要的历史预热 bars 数量。."""
+        return 0
+
+    def _on_historical_bar(self, bar: Bar) -> None:
+        """消费历史 bar，用于构建最小运行态而不发出交易信号。."""
+
+    def _resolved_warmup_bars(self) -> int:
+        explicit = max(0, int(getattr(self.config, "live_warmup_bars", 0)))
+        return explicit if explicit > 0 else max(0, self._history_warmup_bars())
+
+    def _request_warmup_history(self) -> None:
+        if self._event_bus is None:
+            return
+
+        warmup_bars = self._resolved_warmup_bars()
+        if warmup_bars <= 0:
+            return
+
+        bar_span = self._bar_type_interval()
+        if bar_span is None:
+            self.log.warning(f"Skipping warmup history: unsupported bar_type={self.config.bar_type}")
+            return
+
+        margin_bars = max(0, int(getattr(self.config, "live_warmup_margin_bars", 5)))
+        request_limit = warmup_bars + margin_bars
+        start = datetime.now(UTC) - (bar_span * request_limit)
+        self.request_bars(
+            self.config.bar_type,
+            start=start,
+            limit=request_limit,
+        )
+        self._warmup_history_requested = True
+        self.log.info(
+            f"Requested warmup history bars={request_limit} bar_type={self.config.bar_type}",
+            color=LogColor.BLUE,
+        )
+
+    def on_historical_data(self, data) -> None:
+        """消费历史数据，用于预热指标和策略最小状态。."""
+        for bar in self._iter_historical_bars(data):
+            self._on_historical_bar(bar)
+
+    def _iter_historical_bars(self, data) -> list[Bar]:
+        if isinstance(data, Bar):
+            return [data]
+        if isinstance(data, Iterable) and not isinstance(data, (str, bytes, bytearray)):
+            bars: list[Bar] = []
+            for item in data:
+                if isinstance(item, Bar):
+                    bars.append(item)
+            return bars
+        return []
+
+    def _bar_type_interval(self) -> timedelta | None:
+        spec = str(self.config.bar_type.spec)
+        match = re.match(r"(?P<count>\d+)-(?P<unit>SECOND|MINUTE|HOUR|DAY)", spec)
+        if match is None:
+            return None
+
+        count = int(match.group("count"))
+        unit = match.group("unit")
+        if unit == "SECOND":
+            return timedelta(seconds=count)
+        if unit == "MINUTE":
+            return timedelta(minutes=count)
+        if unit == "HOUR":
+            return timedelta(hours=count)
+        if unit == "DAY":
+            return timedelta(days=count)
+        return None
 
     def on_bar(self, bar: Bar) -> None:
         """接收 Bar，生成信号.

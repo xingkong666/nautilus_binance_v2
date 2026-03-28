@@ -141,11 +141,11 @@ PostTradeRisk   → 成交后分析（滑点 / PnL 归因）
 | 文件 | 职责 |
 |---|---|
 | `metrics.py` | Prometheus Counter / Gauge / Histogram 定义 |
-| `prometheus_server.py` | 暴露 `/metrics` HTTP 端点（默认 :9090） |
+| `prometheus_server.py` | 暴露 `/metrics` HTTP 端点（默认 :9100） |
 | `health_server.py` | 暴露 `/health` HTTP 端点（默认 :8080） |
 | `alerting.py` | 告警规则引擎，触发条件 → 通知 |
 | `notifier/` | Telegram / Slack 通知实现 |
-| `watchers.py` | 定期巡检（资金 / 仓位 / 延迟） |
+| `watchers.py` | 已落地 RiskAlert / Drawdown / FillLatency 三类 watcher |
 
 ### `src/exchange/` — 交易所适配
 
