@@ -89,7 +89,9 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         # bracket 订单跟踪：position_id -> (sl_order_id, tp_order_id)
         self._sl_orders: dict[str, ClientOrderId] = {}
         self._tp_orders: dict[str, ClientOrderId] = {}
+        self._indicators_registered = False
         self._warmup_history_requested = False
+        self._warmup_history_preloaded = False
 
         self._atr_indicator: AverageTrueRange | None = None
         if config.atr_sl_multiplier is not None or config.atr_tp_multiplier is not None:
@@ -103,10 +105,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
             self.stop()
             return
 
-        if self._atr_indicator is not None:
-            self.register_indicator_for_bars(self.config.bar_type, self._atr_indicator)
-
-        self._register_indicators()
+        self._ensure_indicators_registered()
         self._request_warmup_history()
         self.subscribe_bars(self.config.bar_type)
 
@@ -138,6 +137,8 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         return explicit if explicit > 0 else max(0, self._history_warmup_bars())
 
     def _request_warmup_history(self) -> None:
+        if self._warmup_history_preloaded:
+            return
         if self._event_bus is None:
             return
 
@@ -163,6 +164,40 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
             f"Requested warmup history bars={request_limit} bar_type={self.config.bar_type}",
             color=LogColor.BLUE,
         )
+
+    def _ensure_indicators_registered(self) -> None:
+        if self._indicators_registered:
+            return
+
+        if self._atr_indicator is not None:
+            self.register_indicator_for_bars(self.config.bar_type, self._atr_indicator)
+
+        self._register_indicators()
+        self._indicators_registered = True
+
+    def preload_history(self, bars: Iterable[Bar]) -> int:
+        """预加载历史 bars，用于 live 启动前预热指标和最小运行态。."""
+        self._ensure_indicators_registered()
+
+        count = 0
+        for bar in bars:
+            self.handle_historical_bar(bar)
+            self._on_historical_bar(bar)
+            count += 1
+
+        if count > 0:
+            self._warmup_history_preloaded = True
+            self._warmup_history_requested = True
+            self.log.info(
+                "Warmup history preloaded: "
+                f"strategy={self.__class__.__name__} "
+                f"instrument_id={self.config.instrument_id} "
+                f"bar_type={self.config.bar_type} "
+                f"loaded_bars={count}",
+                color=LogColor.BLUE,
+            )
+
+        return count
 
     def on_historical_data(self, data) -> None:
         """消费历史数据，用于预热指标和策略最小状态。."""

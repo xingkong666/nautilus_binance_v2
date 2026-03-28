@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.objects import Price, Quantity
 
 from src.core.events import EventBus
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
@@ -69,6 +70,26 @@ def _make_strategy(capital_pct: float | None) -> EMACrossStrategy:
         capital_pct_per_trade=capital_pct,
     )
     return EMACrossStrategy(config=cfg)
+
+
+def _make_historical_bars(prices: list[int]) -> list[Bar]:
+    base_ts = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp() * 1_000_000_000)
+    bars: list[Bar] = []
+    for index, close in enumerate(prices):
+        ts = base_ts + index * 900 * 1_000_000_000
+        bars.append(
+            Bar(
+                bar_type=BAR_TYPE,
+                open=Price.from_str(str(close)),
+                high=Price.from_str(str(close + 1)),
+                low=Price.from_str(str(close - 1)),
+                close=Price.from_str(str(close)),
+                volume=Quantity.from_str("1"),
+                ts_event=ts,
+                ts_init=ts,
+            )
+        )
+    return bars
 
 
 def test_fixed_trade_size_used_when_no_capital_pct() -> None:
@@ -298,3 +319,31 @@ def test_request_warmup_history_uses_strategy_warmup_and_margin() -> None:
     assert requested["bar_type"] == BAR_TYPE
     assert requested["limit"] == 25
     assert strategy._warmup_history_requested is True
+
+
+def test_preload_history_primes_indicators_and_skips_runtime_request() -> None:
+    """Verify that preload history primes indicators and skips runtime request."""
+    strategy = EMACrossStrategy(
+        config=EMACrossConfig(
+            instrument_id=INSTRUMENT_ID,
+            bar_type=BAR_TYPE,
+            fast_ema_period=3,
+            slow_ema_period=5,
+            entry_min_atr_ratio=0.0,
+        ),
+        event_bus=EventBus(),
+    )
+    loaded = strategy.preload_history(_make_historical_bars([100, 101, 102, 103, 104, 105]))
+    requested = {"called": False}
+
+    strategy.request_bars = lambda *args, **kwargs: requested.__setitem__("called", True)  # type: ignore[method-assign]
+    strategy._request_warmup_history()
+
+    assert loaded == 6
+    assert strategy.fast_ema.initialized is True
+    assert strategy.slow_ema.initialized is True
+    assert strategy.indicators_initialized() is True
+    assert strategy._bar_index == 6
+    assert strategy._prev_fast_above is True
+    assert strategy._warmup_history_preloaded is True
+    assert requested["called"] is False

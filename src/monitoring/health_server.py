@@ -105,6 +105,10 @@ class _HealthHandler(BaseHTTPRequestHandler):
         pass  # 静默 HTTP 日志
 
 
+class _ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+
+
 class HealthServer:
     """健康检查 HTTP 服务."""
 
@@ -124,7 +128,7 @@ class HealthServer:
             return
 
         def _run() -> None:
-            server = HTTPServer(("0.0.0.0", self._port), _HealthHandler)
+            server = _ReusableHTTPServer(("0.0.0.0", self._port), _HealthHandler)
             self._server = server
             logger.info("health_server_started", port=self._port)
             server.serve_forever()

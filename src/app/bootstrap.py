@@ -39,6 +39,7 @@ from src.app.factory import AppFactory
 from src.core.config import AppConfig, load_app_config, load_yaml
 from src.core.logging import setup_logging
 from src.live.readiness import ensure_live_readiness
+from src.live.warmup import preload_strategies_warmup
 from src.state.reconciliation import ReconciliationEngine
 from src.state.recovery import RecoveryManager
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
@@ -386,6 +387,11 @@ def run_live(
             symbols=live_symbols,
         )
         adapter.prepare_runtime_config()
+        preload_strategies_warmup(
+            strategies,
+            environment=adapter.config.environment,
+            base_url_http=adapter.config.base_url_http,
+        )
         _bootstrap_live_state(ctx.container, adapter)
         for strategy in strategies:
             adapter.register_strategy(strategy)
