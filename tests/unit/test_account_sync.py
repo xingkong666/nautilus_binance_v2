@@ -28,6 +28,34 @@ class _CacheStub:
         return self._client_order_ids_open
 
 
+class _RedisStub:
+    def __init__(self) -> None:
+        self.is_available = True
+        self.hashes: dict[str, dict[str, str]] = {}
+        self.expirations: dict[str, int] = {}
+
+    def hset(self, name: str, mapping: dict[str, str]) -> int:
+        self.hashes[name] = dict(mapping)
+        return len(mapping)
+
+    def expire(self, name: str, seconds: int) -> bool:
+        self.expirations[name] = seconds
+        return True
+
+
+class _RealTimeRiskMonitorStub:
+    def __init__(self) -> None:
+        self.initialized: list[Decimal] = []
+        self.updated: list[Decimal] = []
+
+    def initialize(self, equity: Decimal) -> None:
+        self.initialized.append(equity)
+
+    def update(self, current_equity: Decimal) -> list[str]:
+        self.updated.append(current_equity)
+        return []
+
+
 def _make_container(snapshot: SystemSnapshot | None = None):
     event_bus = EventBus()
     return SimpleNamespace(
@@ -35,6 +63,8 @@ def _make_container(snapshot: SystemSnapshot | None = None):
         snapshot_manager=_SnapshotManagerStub(snapshot),
         binance_adapter=None,
         ignored_instruments=IgnoredInstrumentRegistry(event_bus),
+        redis_client=None,
+        real_time_risk_monitor=None,
     )
 
 
@@ -187,3 +217,69 @@ def test_sync_once_ignores_external_open_order_but_not_known_local_open_order() 
     assert result.success is True
     assert container.ignored_instruments.is_ignored("BTCUSDT-PERP.BINANCE") is False
     assert container.ignored_instruments.is_ignored("ETHUSDC-PERP.BINANCE") is True
+
+
+def test_sync_once_uses_container_redis_client_for_balance_and_position_cache() -> None:
+    """Verify that sync once writes account snapshot to container redis client."""
+    container = _make_container()
+    redis_client = _RedisStub()
+    container.redis_client = redis_client
+    sync = AccountSync(
+        container=container,
+        interval_sec=30.0,
+        exchange_snapshot_provider=lambda: (
+            [
+                AccountBalance(
+                    asset="USDT",
+                    wallet_balance=Decimal("1000"),
+                    available_balance=Decimal("900"),
+                    unrealized_pnl=Decimal("5"),
+                )
+            ],
+            [
+                PositionSnapshot(
+                    symbol="BTCUSDT",
+                    side="LONG",
+                    quantity=Decimal("0.01"),
+                    entry_price=Decimal("50000"),
+                    unrealized_pnl=Decimal("10"),
+                    leverage=5,
+                )
+            ],
+        ),
+    )
+
+    result = sync.sync_once()
+
+    assert result.success is True
+    assert redis_client.hashes["nautilus:account:balance:USDT"]["wallet_balance"] == "1000"
+    assert redis_client.hashes["nautilus:account:position:BTCUSDT:LONG"]["quantity"] == "0.01"
+    assert redis_client.expirations["nautilus:account:balance:USDT"] == 35
+    assert redis_client.expirations["nautilus:account:position:BTCUSDT:LONG"] == 35
+
+
+def test_sync_once_updates_real_time_risk_monitor_from_usdt_balance() -> None:
+    """Verify that sync once initializes and updates real time risk monitor."""
+    container = _make_container()
+    monitor = _RealTimeRiskMonitorStub()
+    container.real_time_risk_monitor = monitor
+    sync = AccountSync(
+        container=container,
+        exchange_snapshot_provider=lambda: (
+            [
+                AccountBalance(
+                    asset="USDT",
+                    wallet_balance=Decimal("1000"),
+                    available_balance=Decimal("900"),
+                    unrealized_pnl=Decimal("0"),
+                )
+            ],
+            [],
+        ),
+    )
+
+    result = sync.sync_once()
+
+    assert result.success is True
+    assert monitor.initialized == [Decimal("1000")]
+    assert monitor.updated == [Decimal("1000")]

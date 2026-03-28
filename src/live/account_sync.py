@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, cast
 import structlog
 
 from src.core.events import Event, EventType
+from src.risk.real_time import RealTimeRiskMonitor
 from src.state.reconciliation import ReconciliationEngine, ReconciliationResult
 from src.state.snapshot import SystemSnapshot
 
@@ -162,12 +163,17 @@ class AccountSync:
         """
         self._container = container
         self._interval = interval_sec
-        self._redis = redis_client
+        self._redis = redis_client if redis_client is not None else getattr(container, "redis_client", None)
         self._exchange_snapshot_provider = exchange_snapshot_provider
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._last_result: SyncResult | None = None
         self._reconciler = ReconciliationEngine(container.event_bus)
+        self._real_time_risk_monitor = cast(
+            RealTimeRiskMonitor | None,
+            getattr(container, "real_time_risk_monitor", None),
+        )
+        self._risk_monitor_initialized = False
 
         # 统计
         self._sync_count = 0
@@ -301,6 +307,7 @@ class AccountSync:
             )
 
             # 发布对账事件
+            self._update_real_time_risk(balances)
             self._publish_reconciliation(result)
             return result
 
@@ -478,6 +485,22 @@ class AccountSync:
 
         # 写入 Redis 缓存（TTL = interval + 5s 安全余量）
         self._cache_to_redis(result)
+
+    def _update_real_time_risk(self, balances: list[AccountBalance]) -> None:
+        """用最新账户权益驱动实时风控监控器."""
+        if self._real_time_risk_monitor is None:
+            return
+
+        usdt = next((balance for balance in balances if balance.asset == "USDT"), None)
+        if usdt is None or usdt.wallet_balance <= 0:
+            return
+
+        current_equity = usdt.wallet_balance
+        if not self._risk_monitor_initialized:
+            self._real_time_risk_monitor.initialize(current_equity)
+            self._risk_monitor_initialized = True
+
+        self._real_time_risk_monitor.update(current_equity)
 
     def _cache_to_redis(self, result: SyncResult) -> None:
         """将余额和持仓快照写入 Redis 缓存.

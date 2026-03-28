@@ -199,7 +199,10 @@ class LiveSupervisor:
         logger.info("starting_live_services")
 
         self._health_probe = LiveHealthProbe(container=self._container)
-        self._account_sync = AccountSync(container=self._container)
+        self._account_sync = AccountSync(
+            container=self._container,
+            redis_client=self._container.redis_client,
+        )
         self._watchdog = Watchdog(container=self._container)
 
         self._health_probe.start()

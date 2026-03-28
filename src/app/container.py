@@ -37,6 +37,7 @@ from src.risk.circuit_breaker import CircuitBreaker
 from src.risk.drawdown_control import DrawdownController
 from src.risk.position_sizer import PositionSizer
 from src.risk.pre_trade import PreTradeRiskManager
+from src.risk.real_time import RealTimeRiskMonitor
 from src.state.persistence import TradePersistence
 from src.state.snapshot import SnapshotManager
 
@@ -74,6 +75,7 @@ class Container:
         self._pre_trade_risk: PreTradeRiskManager | None = None
         self._circuit_breaker: CircuitBreaker | None = None
         self._drawdown_controller: DrawdownController | None = None
+        self._real_time_risk_monitor: RealTimeRiskMonitor | None = None
         self._fill_handler: FillHandler | None = None
         self._order_router: OrderRouter | None = None
         self._signal_processor: SignalProcessor | None = None
@@ -136,6 +138,11 @@ class Container:
         self._drawdown_controller = DrawdownController(
             warning_pct=float(rt_cfg.get("trailing_drawdown_pct", 3.0)),
             critical_pct=float(rt_cfg.get("max_drawdown_pct", 5.0)),
+        )
+        self._real_time_risk_monitor = RealTimeRiskMonitor(
+            event_bus=self._event_bus,
+            config=rt_cfg,
+            redis_client=self._redis_client,
         )
 
         # 4. 资金分配
@@ -497,6 +504,18 @@ class Container:
         self._ensure_built()
         assert self._drawdown_controller is not None
         return self._drawdown_controller
+
+    @property
+    def real_time_risk_monitor(self) -> RealTimeRiskMonitor:
+        """返回实时风控监控器.
+
+        Raises:
+            RuntimeError: 容器未 build。
+
+        """
+        self._ensure_built()
+        assert self._real_time_risk_monitor is not None
+        return self._real_time_risk_monitor
 
     @property
     def fill_handler(self) -> FillHandler:
