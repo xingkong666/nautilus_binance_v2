@@ -1,0 +1,5 @@
+MICRO_SCALP_GRID: 8 params, ~4374 combos
+VEGAS_TUNNEL_GRID: 8 params, ~6561 combos
+TURTLE_GRID: 6 params, ~486 combos
+EMA_PULLBACK_GRID: 5 params, ~243 combos
+PASS

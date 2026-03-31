@@ -1,0 +1,5 @@
+MicroScalpConfig: MicroScalpConfig
+VegasTunnelConfig: VegasTunnelConfig
+TurtleConfig: TurtleConfig
+EMAPullbackATRConfig: EMAPullbackATRConfig
+PASS
