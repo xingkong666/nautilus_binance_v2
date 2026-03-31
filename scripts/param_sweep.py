@@ -84,6 +84,29 @@ EMA_PULLBACK_GRID: dict[str, list[Any]] = {  # ~810 combos
     "signal_cooldown_bars": [2, 3, 5],
 }
 
+# Fast grids (2 values per param) for time-constrained runs (~256 combos each)
+FAST_MICRO_SCALP_GRID: dict[str, list[Any]] = {  # ~256 combos
+    "fast_ema_period": [5, 12],
+    "slow_ema_period": [15, 30],
+    "rsi_period": [5, 10],
+    "trend_adx_threshold": [15.0, 22.0],
+    "atr_sl_multiplier": [0.3, 0.6],
+    "atr_tp_multiplier": [0.6, 1.2],
+    "maker_offset_ticks": [1, 2],
+    "signal_cooldown_bars": [1, 3],
+}
+
+FAST_VEGAS_TUNNEL_GRID: dict[str, list[Any]] = {  # ~256 combos
+    "fast_ema_period": [10, 14],
+    "slow_ema_period": [30, 45],
+    "signal_cooldown_bars": [2, 5],
+    "stop_atr_multiplier": [0.8, 1.5],
+    "tp_fib_1": [0.8, 1.2],
+    "tp_fib_2": [1.382, 2.0],
+    "tp_fib_3": [2.0, 3.0],
+    "atr_filter_min_ratio": [0.3, 0.8],
+}
+
 # --------------------------------
 
 # 固定基准配置
@@ -679,11 +702,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="保存最优结果到 experiments/param_sweep/<strategy>_<symbol>_best.json",
     )
+    parser.add_argument(
+        "--grid",
+        choices=["full", "fast"],
+        default="full",
+        help="Grid mode: 'full'=exhaustive, 'fast'=compact 2-value grids",
+    )
 
     return parser.parse_args()
 
 
-def _build_sweep_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
+def _build_sweep_tasks(args: argparse.Namespace, grid: str = "full") -> list[dict[str, Any]]:
     tasks: list[dict[str, Any]] = []
 
     for symbol in args.symbols:
@@ -696,10 +725,12 @@ def _build_sweep_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
                 tasks.append({"symbol": symbol, "strategy_type": "rsi", **combo})
 
         if args.strategy in ("all", "micro_scalp"):
-            tasks.extend([{"symbol": symbol, **t} for t in _grid_product("micro_scalp", MICRO_SCALP_GRID)])
+            micro_scalp_grid = FAST_MICRO_SCALP_GRID if grid == "fast" else MICRO_SCALP_GRID
+            tasks.extend([{"symbol": symbol, **t} for t in _grid_product("micro_scalp", micro_scalp_grid)])
 
         if args.strategy in ("all", "vegas_tunnel"):
-            tasks.extend([{"symbol": symbol, **t} for t in _grid_product("vegas_tunnel", VEGAS_TUNNEL_GRID)])
+            vegas_grid = FAST_VEGAS_TUNNEL_GRID if grid == "fast" else VEGAS_TUNNEL_GRID
+            tasks.extend([{"symbol": symbol, **t} for t in _grid_product("vegas_tunnel", vegas_grid)])
 
         if args.strategy in ("all", "turtle"):
             tasks.extend([{"symbol": symbol, **t} for t in _grid_product("turtle", TURTLE_GRID)])
@@ -797,7 +828,7 @@ def main() -> None:
     args = parse_args()
     interval = Interval(args.interval)
 
-    sweep_tasks = _build_sweep_tasks(args)
+    sweep_tasks = _build_sweep_tasks(args, grid=args.grid)
 
     # Inject interval into every task so run_single_backtest can read it
     is_tasks = [
