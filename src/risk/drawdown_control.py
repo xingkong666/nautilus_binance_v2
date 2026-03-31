@@ -36,6 +36,7 @@ class DrawdownController:
         self._critical_pct = critical_pct
         self._reduce_factor = reduce_factor
         self._peak_equity = Decimal(0)
+        self._current_equity = Decimal(0)
 
     def update_equity(self, equity: Decimal) -> None:
         """更新权益峰值.
@@ -43,6 +44,7 @@ class DrawdownController:
         Args:
             equity: Current account equity value.
         """
+        self._current_equity = equity
         if equity > self._peak_equity:
             self._peak_equity = equity
 
@@ -51,7 +53,7 @@ class DrawdownController:
         """当前回撤百分比."""
         if self._peak_equity <= 0:
             return 0.0
-        return float((self._peak_equity - self._peak_equity) / self._peak_equity * 100)
+        return float((self._peak_equity - self._current_equity) / self._peak_equity * 100)
 
     def get_size_multiplier(self, current_equity: Decimal) -> float:
         """根据回撤状态返回仓位乘数.
