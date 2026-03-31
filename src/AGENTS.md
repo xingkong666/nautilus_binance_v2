@@ -1,48 +1,54 @@
-# SRC 目录知识库
+# AGENTS.md — src/
 
-## 概览
-`src/` 包含生产运行核心逻辑。请保持领域边界清晰，并遵循 EventBus 驱动的交互方式。
+所有生产代码的源码根目录。每个子包是一个独立的有界上下文，职责单一。
 
-## 目录结构
-```text
-src/
-├── app/         # container/factory/bootstrap 生命周期
-├── core/        # config/events/logging/constants
-├── strategy/    # 仅产出信号的策略层
-├── execution/   # 信号到订单的执行流水线
-├── risk/        # pre/realtime/breaker/post 风控
-├── monitoring/  # 指标、watchers、notifiers
-├── state/       # 持久化/快照/恢复
-├── live/        # supervisor/watchdog/账户同步
-├── backtest/    # 回测 runner/report
-├── exchange/    # Binance 适配层
-└── portfolio/   # 多策略资金分配
+---
+
+## 包结构一览
+
+| 包 | 职责 | 关键文件 |
+|---|---|---|
+| `app/` | 依赖注入连接、启动引导、工厂 | `bootstrap.py`、`container.py`、`factory.py` |
+| `core/` | 共享基础类型（不依赖其他 src 包） | `config.py`、`events.py`、`enums.py`、`constants.py` |
+| `strategy/` | 仅负责产出信号 — 绝不提交订单 | `base.py`、`ema_cross.py`、`turtle.py`、`vegas_tunnel.py` |
+| `execution/` | 信号→意图→订单管道 | `signal_processor.py`、`order_router.py`、`algo.py` |
+| `risk/` | 事前 / 实时 / 事后风控、熔断器 | `pre_trade.py`、`real_time.py`、`circuit_breaker.py` |
+| `portfolio/` | 多策略资金分配 | `allocator.py` |
+| `state/` | 快照、持久化、对账、崩溃恢复 | `snapshot.py`、`persistence.py`、`reconciliation.py` |
+| `live/` | 实盘编排与健康探针 | `supervisor.py`、`watchdog.py`、`readiness.py` |
+| `monitoring/` | Prometheus 指标、HTTP 健康接口、告警 | `metrics.py`、`alerting.py`、`health_server.py` |
+| `backtest/` | 回测引擎封装、滚动优化、市场状态检测 | `runner.py`、`walkforward.py`、`regime.py` |
+| `data/` | 数据加载、特征仓库、校验器 | `loaders.py`、`feature_store.py`、`validators.py` |
+| `exchange/` | Binance 合约适配器（NautilusTrader 胶水层） | `binance_adapter.py` |
+| `cache/` | Redis 客户端封装 | `redis_client.py` |
+
+---
+
+## 依赖方向（严格单向，禁止循环）
+
+```
+core  ←  strategy  ←  execution  ←  app
+              ↓              ↓
+            risk          portfolio
+              ↓              ↓
+            state         monitoring
+              ↓
+            live
+              ↓
+           exchange
+              ↓
+            cache
 ```
 
-## 快速定位
-| 任务 | 位置 | 说明 |
-|---|---|---|
-| 依赖装配关系 | `src/app/container.py` | 组装中心与生命周期顺序 |
-| 安全启动入口 | `src/app/bootstrap.py` | 优先使用 `bootstrap_context(...)` |
-| 配置合并语义 | `src/core/config.py` | 优先级与类型化配置模型 |
-| 事件契约 | `src/core/events.py` | 事件类型与载荷结构 |
-| 信号发布模式 | `src/strategy/base.py` | 策略只发事件，不直接下单 |
-| 执行路径 | `src/execution/` | intent → routing → algo → fill |
-| 风控与告警 | `src/risk/` | 风控事件与 breaker 联动 |
-| 告警 watcher 管道 | `src/monitoring/watchers.py` | EventBus 订阅与 alert manager |
-| 状态持久化 | `src/state/persistence.py`, `src/state/snapshot.py` | PostgreSQL 表与快照序列化 |
+`core` **零内部依赖**。其他所有包均可导入 `core`。
+`exchange` 和 `cache` 是叶子节点 — `src/` 内部只有 `app/` 和 `live/` 可以导入它们。
 
-## 约定
-- 跨模块通信统一走 `EventBus`。
-- 延续 `structlog` key/value 结构化日志风格。
-- 策略层保持无交易所 API 副作用。
-- 事件载荷与配置单元使用明确的数据模型（dataclass/model）。
+---
 
-## 反模式
-- 不要绕过 `src/core/events.py` 做跨模块直接调用。
-- 不要把订单执行逻辑放进 `src/strategy/`。
-- 不要在运行时代码里用临时拼装替代 container/bootstrap。
+## 不变量
 
-## 备注
-- `src/monitoring/notifier/` 在 Slack/Telegram 后端行为不同，但共享同一 notifier 基类契约。
-- `src/app/bootstrap.py` 负责进程信号关闭处理，清理流程要保持确定性。
+- `from __future__ import annotations` 是每个模块的**第一行**。
+- 禁止相对导入，始终使用 `from src.<包>.<模块> import ...`。
+- 禁止同层包之间产生循环引用。
+- 财务数值始终使用 `decimal.Decimal`，禁止 `float`。
+- 结构化日志：模块级 `logger = structlog.get_logger()`。
