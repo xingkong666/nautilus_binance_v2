@@ -9,3 +9,9 @@ instruments:
   ETHUSDT:
     provider: ethusdt_perp_binance
     market_cap_rank: 2
+  SOLUSDT:
+    provider: solusdt_perp_binance
+    market_cap_rank: 5
+  BNBUSDT:
+    provider: bnbusdt_perp_binance
+    market_cap_rank: 4

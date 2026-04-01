@@ -1,0 +1,124 @@
+# 小资金方案：本金 2500 USDT → 目标 20000 USDT
+#
+# 定仓逻辑（以 2500U 权益、10x 杠杆为基准）：
+#   margin_pct_per_trade: 6.0  → 每笔保证金 = 2500 × 6% = 150 U
+#   sizing_leverage: 10.0      → 名义仓位 = 1500 U
+#   4 个策略同时持仓：最大总保证金占用 ~600 U（24% 权益）
+#
+# 成长路径：
+#   Phase 1（2500 → 5000 U）：6% 保证金比，单日止损 6%
+#   Phase 2（5000 → 10000U）：可手动调高至 margin_pct_per_trade: 5.0
+#   Phase 3（10000→ 20000U）：回归到 4%，优先稳定性
+
+portfolio:
+  name: small_capital_2500u
+
+  backtest:
+    interval: 1h
+    starting_balance_usdt: 2500
+    leverage: 10
+
+  allocation:
+    mode: risk_parity
+    reserve_pct: 15.0      # 保留 15% 缓冲（375 U），避免爆仓
+    min_allocation: 50     # 低于 50U 不分配（2500U 本金下的下限）
+    score_weighting:
+      method: sqrt
+
+  walkforward:
+    start: 2024-01-01
+    end: 2025-12-31
+    train_months: 6
+    test_months: 3
+    step_months: 3
+    selection_metric: pnl_pct_after_costs
+    selection_min_score: 0.0
+    min_active_strategies: 2
+
+  strategies:
+    # ---- BTC 主力 --------------------------------------------------------
+    - strategy_id: vegas_btc
+      name: vegas_tunnel
+      symbol: BTCUSDT
+      enabled: true
+      params:
+        fast_ema_period: 12
+        slow_ema_period: 36
+        tunnel_ema_period_1: 144
+        tunnel_ema_period_2: 169
+        signal_cooldown_bars: 3
+        atr_filter_min_ratio: 0.0008   # 过滤低波动假突破
+        stop_atr_multiplier: 1.0
+        tp_fib_1: 1.0
+        tp_fib_2: 1.618
+        tp_fib_3: 2.618
+        tp_split_1: 0.4
+        tp_split_2: 0.3
+        tp_split_3: 0.3
+        margin_pct_per_trade: 6.0      # 小资金激进成长：每笔 6% 保证金
+        sizing_leverage: 10.0
+        trade_size: 0.001              # 兜底最小下单量（BTC 最小步进）
+
+    # ---- BTC 回调补充 ----------------------------------------------------
+    - strategy_id: pullback_btc
+      name: ema_pullback_atr
+      symbol: BTCUSDT
+      enabled: true
+      params:
+        fast_ema_period: 20
+        slow_ema_period: 50
+        pullback_atr_multiplier: 1.0
+        min_trend_gap_ratio: 0.0003
+        signal_cooldown_bars: 3
+        adx_period: 14
+        adx_threshold: 35.0            # 高 ADX 门槛，只在强趋势中入场
+        atr_period: 14
+        margin_pct_per_trade: 5.0
+        sizing_leverage: 10.0
+        trade_size: 0.001
+
+    # ---- ETH 趋势 --------------------------------------------------------
+    - strategy_id: vegas_eth
+      name: vegas_tunnel
+      symbol: ETHUSDT
+      enabled: true
+      params:
+        fast_ema_period: 12
+        slow_ema_period: 36
+        tunnel_ema_period_1: 144
+        tunnel_ema_period_2: 169
+        signal_cooldown_bars: 3
+        atr_filter_min_ratio: 0.001
+        stop_atr_multiplier: 1.0
+        tp_fib_1: 1.0
+        tp_fib_2: 1.618
+        tp_fib_3: 2.618
+        tp_split_1: 0.4
+        tp_split_2: 0.3
+        tp_split_3: 0.3
+        margin_pct_per_trade: 5.0
+        sizing_leverage: 10.0
+        trade_size: 0.01
+
+    # ---- SOL 高弹性品种 --------------------------------------------------
+    - strategy_id: vegas_sol
+      name: vegas_tunnel
+      symbol: SOLUSDT
+      enabled: true
+      params:
+        fast_ema_period: 12
+        slow_ema_period: 36
+        tunnel_ema_period_1: 144
+        tunnel_ema_period_2: 169
+        signal_cooldown_bars: 4        # SOL 波动大，冷却更长
+        atr_filter_min_ratio: 0.0012
+        stop_atr_multiplier: 1.2       # 止损稍宽，避免被洗出
+        tp_fib_1: 1.0
+        tp_fib_2: 1.618
+        tp_fib_3: 2.618
+        tp_split_1: 0.4
+        tp_split_2: 0.3
+        tp_split_3: 0.3
+        margin_pct_per_trade: 4.0      # SOL 仓位相对保守
+        sizing_leverage: 10.0
+        trade_size: 0.1

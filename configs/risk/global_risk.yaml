@@ -1,4 +1,5 @@
 # 全局风控配置
+# 注意：小资金模式（≤5000U）使用 configs/env/small_cap.yaml 覆盖以下参数
 risk:
   # 事前风控
   pre_trade:
@@ -39,3 +40,46 @@ risk:
     reconciliation_interval_minutes: 15
     pnl_attribution: true
     slippage_tracking: true
+
+# -----------------------------------------------------------------------
+# 小资金风控参数（2500U 本金）
+# 由 configs/env/small_cap.yaml 通过 risk.override 段激活
+#
+# 计算依据：
+#   单日止损上限   = 权益 × 6%   = 150 U（2500U 本金）
+#   单笔最大订单   = 权益 × 25%  = 625 U（名义敞口上限）
+#   最大总仓位     = 权益 × 80%  = 2000 U
+#   回撤熔断       = 8%（给趋势策略留呼吸空间）
+#   连续亏损熔断   = 3 笔 / 10 分钟（保持不变）
+# -----------------------------------------------------------------------
+small_capital:
+  pre_trade:
+    max_order_size_usd: 625
+    max_position_size_usd: 2000
+    max_leverage: 10
+    min_order_interval_ms: 500
+    max_open_orders: 8
+
+  real_time:
+    max_drawdown_pct: 8.0
+    daily_loss_limit_usd: 150
+    trailing_drawdown_pct: 5.0
+
+  circuit_breaker:
+    enabled: true
+    triggers:
+      - type: daily_loss
+        threshold_usd: 150
+        action: halt_all
+        cooldown_minutes: 60
+
+      - type: drawdown
+        threshold_pct: 8.0
+        action: halt_all
+        cooldown_minutes: 120
+
+      - type: rapid_loss
+        window_minutes: 10
+        max_losses: 3
+        action: reduce_only
+        cooldown_minutes: 30

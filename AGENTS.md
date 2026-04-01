@@ -1,5 +1,7 @@
 # AGENTS.md — Nautilus Binance V2
 
+**Generated:** 2026-03-31 | **Commit:** 81179a4 | **Branch:** master
+
 基于 [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) 构建的机构级 Binance 合约交易系统。
 策略只产信号，执行 / 风控 / 监控完全解耦。
 
@@ -23,10 +25,30 @@ src/
   exchange/     # BinanceAdapter
   cache/        # RedisClient
 tests/
-  unit/         # 快速隔离单元测试
-  integration/  # 多组件集成测试
-  regression/   # 回归基准测试
+  unit/         # 快速隔离单元测试（30 文件）
+  integration/  # 多组件集成测试（5 文件）
+  regression/   # 回归基准测试（6 文件）
+scripts/        # 入口脚本：回测、数据下载、参数扫描、冒烟测试、生产启动
+configs/        # 分层 YAML 配置（env / accounts / strategies / risk / execution / monitoring）
 ```
+
+---
+
+## WHERE TO LOOK
+
+| 任务 | 位置 | 备注 |
+|---|---|---|
+| 添加新策略 | `src/strategy/<name>.py` + `src/app/bootstrap.py` `_STRATEGY_REGISTRY` + `src/app/factory.py` | 详见 `src/strategy/AGENTS.md` |
+| 添加风控规则 | `src/risk/pre_trade.py` 或 `src/monitoring/watchers.py` | 违规发布事件，不抛异常 |
+| 修改启动流程 | `src/app/bootstrap.py` `run_live()` | 主入口：`python -m src.app.bootstrap` |
+| 修改容器服务 | `src/app/container.py` `build()` | 按依赖顺序初始化 |
+| 修改订单管道 | `src/execution/signal_processor.py` → `order_router.py` | 信号→意图→风控→路由 |
+| 修改告警通道 | `src/monitoring/notifier/telegram.py` 或 `slack.py` | 继承 `BaseNotifier` |
+| 修改回测引擎 | `src/backtest/runner.py` | 数据需先下载到 `data/` |
+| 修改配置加载 | `src/core/config.py` `load_app_config()` | 四层合并：env → YAML → config → defaults |
+| 运行生产实盘 | `scripts/run_live_prod.sh` | 需 `CONFIRM_LIVE=YES` |
+| 运行回测 | `scripts/run_backtest.py` | 支持所有已注册策略 |
+| 下载数据 | `scripts/download_data.py` | 输出到 `data/raw/` + catalog |
 
 ---
 
@@ -231,6 +253,26 @@ def check(
 
 ---
 
+## CODE MAP（复杂度热点）
+
+| 文件 | 行数 | 角色 |
+|---|---|---|
+| `src/strategy/base.py` | 834 | 所有策略基类；定仓、止损/止盈、信号发布 |
+| `src/exchange/binance_adapter.py` | 735 | Binance 适配器；节点构建与运行 |
+| `src/data/loaders.py` | 723 | K 线下载 + Parquet 导入 |
+| `src/app/factory.py` | 676 | 策略/适配器/回测运行器工厂 |
+| `src/live/account_sync.py` | 652 | 定期账户对账与偏差检测 |
+| `src/app/container.py` | 614 | 依赖注入容器 — 所有服务单例 |
+| `src/app/bootstrap.py` | 457 | 启动引导 + `run_live()` 实盘入口 |
+| `src/portfolio/allocator.py` | 464 | 多策略资金分配 |
+| `src/live/watchdog.py` | 432 | 心跳监控 + 自动重启 |
+| `src/backtest/runner.py` | 432 | 回测引擎封装 |
+| `src/strategy/vegas_tunnel.py` | 416 | Vegas 隧道策略 |
+| `src/monitoring/watchers.py` | 359 | 事件 Watcher 集合 |
+| `src/backtest/regime.py` | 359 | 市场状态检测 |
+
+---
+
 ## 关键架构规则
 
 1. **策略绝不直接提交订单**，只调用 `self._event_bus.publish(SignalEvent(...))`。
@@ -239,3 +281,27 @@ def check(
 4. **忽略的交易对**：启动时检测到外部持仓或挂单，对应交易对加入忽略列表，此后不再对其下单。
 5. **配置分层**：`configs/env/<env>.yaml` 覆盖基础配置；`.env` 环境变量覆盖 YAML。
 6. **所有配置模型**使用 Pydantic v2（`BaseModel` / `BaseSettings`），公共 API 禁止裸 dict。
+
+---
+
+## 反模式（此项目特有禁令）
+
+- **禁止 `assert` 做运行时校验** — `container.py`、`redis_client.py`、策略文件中存在 `assert` 做 None 检查。`python -O` 会移除 assert，导致生产隐患。应改用 `if x is None: raise RuntimeError(...)`。
+- **禁止策略层导入执行层** — `src/execution/` 不得从 `src/strategy/` 导入；信号单向流入。
+- **禁止裸 `except Exception:`** — 当前 `base.py` 和 `param_sweep.py` 使用 `# noqa: BLE001` 绕过。需收窄异常类型。
+- **`# type: ignore[return-value]`** — `redis_client.py` 有大量类型忽略，应通过规范化返回类型消除。
+- **`exchange` 和 `cache` 的导入约束** — `src/AGENTS.md` 声明只有 `app/` 和 `live/` 可导入。**实际** `risk/real_time.py`、`risk/circuit_breaker.py`、`execution/rate_limiter.py` 也直接导入 `RedisClient`。需决定：更新文档以反映现实，或重构为通过 Container 注入。
+- **禁止 `float` 表示财务数值** — 始终使用 `decimal.Decimal`。
+- **禁止通配符导入和相对导入**。
+
+---
+
+## 注意事项
+
+- **无 CI 工作流** — 仓库中无 `.github/workflows/`，测试/lint 依赖本地执行或外部 CI。
+- **无应用 Dockerfile** — `docker-compose.yml` 仅启动基础设施（Postgres/Redis/Prometheus/Grafana），应用直接在主机运行。
+- **`.env` 含真实密钥** — 已提交到仓库，需清理 git 历史并加入 `.gitignore`。
+- **Python ≥ 3.13** — 编译/CI 需显式指定版本。
+- **pyrefly 替代 mypy** — `nautilus_trader.*`、`pandas`、`yaml` 的导入被替换为 `Any`（`replace_imports_with_any`），类型检查对这些库宽松。
+- **hatchling 构建后端** — 非 setuptools，CI 需安装 hatchling 或使用 `python -m build`。
+- **uv 包管理器** — `uv.lock` 锁定依赖，推荐 `uv sync` 安装。

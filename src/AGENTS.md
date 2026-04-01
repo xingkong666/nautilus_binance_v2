@@ -43,6 +43,8 @@ core  ←  strategy  ←  execution  ←  app
 `core` **零内部依赖**。其他所有包均可导入 `core`。
 `exchange` 和 `cache` 是叶子节点 — `src/` 内部只有 `app/` 和 `live/` 可以导入它们。
 
+**⚠ 已知偏差**：`risk/real_time.py`、`risk/circuit_breaker.py`、`execution/rate_limiter.py` 直接导入 `cache.RedisClient`，绕过了 Container 注入。当前无循环风险（`RedisClient` 仅依赖 `core`），但违反了 "只有 `app/` 和 `live/` 可导入 `cache`" 的约束。待决定：更新规则以反映现实，或重构为通过 Container 注入。
+
 ---
 
 ## 不变量

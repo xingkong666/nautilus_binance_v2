@@ -19,6 +19,7 @@ from typing import Any
 import pandas as pd
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 from src.backtest.runner import BacktestConfig, BacktestRunner
 from src.core.config import load_app_config
@@ -64,7 +65,7 @@ VEGAS_TUNNEL_GRID: dict[str, list[Any]] = {  # ~6561 combos
     "tp_fib_1": [0.8, 1.0, 1.2],
     "tp_fib_2": [1.382, 1.618, 2.0],
     "tp_fib_3": [2.0, 2.618, 3.0],
-    "atr_filter_min_ratio": [0.3, 0.5, 0.8],
+    "atr_filter_min_ratio": [0.003, 0.005, 0.008],
 }
 
 TURTLE_GRID: dict[str, list[Any]] = {  # ~648 combos
@@ -104,7 +105,24 @@ FAST_VEGAS_TUNNEL_GRID: dict[str, list[Any]] = {  # ~256 combos
     "tp_fib_1": [0.8, 1.2],
     "tp_fib_2": [1.382, 2.0],
     "tp_fib_3": [2.0, 3.0],
-    "atr_filter_min_ratio": [0.3, 0.8],
+    "atr_filter_min_ratio": [0.003, 0.008],
+}
+
+FAST_TURTLE_GRID: dict[str, list[Any]] = {  # ~64 combos
+    "entry_period": [15, 25],
+    "exit_period": [8, 12],
+    "atr_period": [14, 20],
+    "stop_atr_multiplier": [1.5, 2.5],
+    "unit_add_atr_step": [0.3, 0.8],
+    "max_units": [2, 4],
+}
+
+FAST_EMA_PULLBACK_GRID: dict[str, list[Any]] = {  # ~32 combos
+    "fast_ema_period": [10, 30],
+    "slow_ema_period": [30, 100],
+    "pullback_atr_multiplier": [0.5, 1.5],
+    "adx_threshold": [25.0, 35.0],
+    "signal_cooldown_bars": [2, 5],
 }
 
 # --------------------------------
@@ -306,6 +324,55 @@ def _smooth_score(stats: dict[str, float], orders: int) -> float:
     )
 
 
+def _patch_add_bar_data(runner: BacktestRunner, interval: Interval) -> None:
+    """Monkey-patch runner._add_bar_data to load pre-aggregated EXTERNAL bars.
+
+    For non-1m intervals, the default runner always loads 1m bars for internal
+    aggregation.  When pre-aggregated bars (e.g. 1-HOUR-LAST-EXTERNAL) have
+    been written to the catalog, this patch replaces the data-loading method so
+    the engine receives native-interval bars directly.
+
+    Args:
+        runner: BacktestRunner instance to patch.
+        interval: Target bar interval (must not be MINUTE_1).
+
+    """
+    import types
+
+    catalog: ParquetDataCatalog = runner._catalog  # noqa: SLF001
+    bt_cfg = runner._bt_cfg  # noqa: SLF001
+    nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
+
+    def _patched_add_bar_data(self, engine, instruments):  # type: ignore[no-untyped-def]
+        start_ns = self._date_to_ns(bt_cfg.start)  # noqa: SLF001
+        end_ns = self._date_to_ns(bt_cfg.end, end_of_day=True)  # noqa: SLF001
+        total = 0
+        for inst in instruments:
+            bar_type_str = f"{inst.id}-{nautilus_interval}-LAST-EXTERNAL"
+            bars = catalog.bars(
+                bar_types=[bar_type_str],
+                start=start_ns,
+                end=end_ns,
+            )
+            if not bars:
+                import structlog as _sl
+
+                _sl.get_logger().warning(
+                    "native_bars_missing_falling_back_to_1m",
+                    symbol=inst.raw_symbol.value,
+                    bar_type=bar_type_str,
+                )
+                src_type = f"{inst.id}-1-MINUTE-LAST-EXTERNAL"
+                bars = catalog.bars(bar_types=[src_type], start=start_ns, end=end_ns)
+                if not bars:
+                    continue
+            engine.add_data(bars)
+            total += len(bars)
+        return total
+
+    runner._add_bar_data = types.MethodType(_patched_add_bar_data, runner)  # noqa: SLF001
+
+
 def run_single_backtest(task: dict[str, Any]) -> dict[str, Any]:
     """多进程执行单一参数回测.
 
@@ -336,14 +403,12 @@ def run_single_backtest(task: dict[str, Any]) -> dict[str, Any]:
     app_config = load_app_config(env=os.getenv("ENV", "dev"))
     runner = BacktestRunner(app_config=app_config, backtest_config=runner_config)
 
+    if interval != Interval.MINUTE_1:
+        _patch_add_bar_data(runner, interval)
+
     instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
     nautilus_interval = INTERVAL_TO_NAUTILUS[interval]
-    if interval == Interval.MINUTE_1:
-        bar_type = BarType.from_str(f"{instrument_id}-{nautilus_interval}-LAST-EXTERNAL")
-    else:
-        bar_type = BarType.from_str(
-            f"{instrument_id}-{nautilus_interval}-LAST-INTERNAL@1-MINUTE-EXTERNAL",
-        )
+    bar_type = BarType.from_str(f"{instrument_id}-{nautilus_interval}-LAST-EXTERNAL")
 
     result_row: dict[str, Any] = {
         "symbol": symbol,
@@ -733,10 +798,12 @@ def _build_sweep_tasks(args: argparse.Namespace, grid: str = "full") -> list[dic
             tasks.extend([{"symbol": symbol, **t} for t in _grid_product("vegas_tunnel", vegas_grid)])
 
         if args.strategy in ("all", "turtle"):
-            tasks.extend([{"symbol": symbol, **t} for t in _grid_product("turtle", TURTLE_GRID)])
+            turtle_grid = FAST_TURTLE_GRID if grid == "fast" else TURTLE_GRID
+            tasks.extend([{"symbol": symbol, **t} for t in _grid_product("turtle", turtle_grid)])
 
         if args.strategy in ("all", "ema_pullback_atr"):
-            tasks.extend([{"symbol": symbol, **t} for t in _grid_product("ema_pullback_atr", EMA_PULLBACK_GRID)])
+            pullback_grid = FAST_EMA_PULLBACK_GRID if grid == "fast" else EMA_PULLBACK_GRID
+            tasks.extend([{"symbol": symbol, **t} for t in _grid_product("ema_pullback_atr", pullback_grid)])
 
     return tasks
 
