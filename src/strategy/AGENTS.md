@@ -1,85 +1,113 @@
-# AGENTS.md — src/strategy/
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-04-01 | Updated: 2026-04-01 -->
 
-信号生成层。**策略绝不直接调用 `submit_order()`。**
+# strategy
 
----
+## Purpose
 
-## 文件说明
+Contains the strategy base class and all concrete trading strategies. **Strategies are pure signal generators** — their only output is a `SignalDirection` returned from `generate_signal()`. The base class translates that into a `SignalEvent` on the `EventBus` (live mode) or a direct `submit_order` call (backtest-local mode, no EventBus). No strategy may call exchange APIs, access `OrderRouter`, or interact with risk/execution layers directly.
 
-| 文件 | 职责 |
-|---|---|
-| `base.py` | `BaseStrategy` + `BaseStrategyConfig`。所有策略的基类。 |
-| `signal.py` | 信号构建与校验的辅助工具函数。 |
-| `ema_cross.py` | `EMACrossStrategy` — EMA 交叉策略，可选 ADX/RSI 过滤器。 |
-| `ema_pullback_atr.py` | `EMAPullbackATRStrategy` — EMA 趋势 + ATR 回调入场。 |
-| `micro_scalp.py` | `MicroScalpStrategy` — 短线刷单，使用限价单。 |
-| `rsi_strategy.py` | `RSIStrategy` — RSI 均值回归。 |
-| `turtle.py` | `TurtleStrategy` — 唐奇安通道突破，ATR 止损 + 单位加仓金字塔。 |
-| `vegas_tunnel.py` | `VegasTunnelStrategy` — EMA 通道突破，斐波那契分批止盈。 |
+## Key Files
 
----
+| File | Description |
+|------|-------------|
+| `base.py` | `BaseStrategyConfig` (Pydantic frozen `StrategyConfig`) and `BaseStrategy` (abstract NautilusTrader `Strategy` subclass); handles indicator registration, bar subscription, ATR bracket SL/TP order management, three sizing modes, live warmup history requests, and position lifecycle callbacks |
+| `signal.py` | `TradeSignal` frozen dataclass — richer signal format with `suggested_size`, `stop_loss`, `take_profit`, `metadata`; `is_entry` / `is_exit` properties |
+| `ema_cross.py` | `EMACrossStrategy` / `EMACrossConfig` — classic dual-EMA crossover; golden cross → LONG, death cross → SHORT |
+| `ema_pullback_atr.py` | `EMAPullbackATRStrategy` / `EMAPullbackATRConfig` — EMA trend + ATR-measured pullback entry filter + optional ADX trend-strength gate |
+| `micro_scalp.py` | `MicroScalpStrategy` / `MicroScalpConfig` — high-frequency EMA/RSI/ADX confluence scalper with limit-order entry, maker offset ticks, limit TTL, and chase logic |
+| `rsi_strategy.py` | `RSIStrategy` / `RSIConfig` — mean-reversion strategy driven by RSI oversold/overbought levels |
+| `turtle.py` | `TurtleStrategy` / `TurtleConfig` — Donchian-channel breakout trend-following with multi-unit pyramiding (up to `max_units`) and ATR-based N-unit stop |
+| `vegas_tunnel.py` | `VegasTunnelStrategy` / `VegasTunnelConfig` — four-EMA tunnel system (fast/slow signal EMAs + two tunnel EMAs at periods 144/169) with Fibonacci TP split across three targets |
 
-## BaseStrategy 职责
+## For AI Agents
 
-`BaseStrategy(Strategy)`（继承 NautilusTrader `Strategy`）：
+### Working In This Directory
 
-- 在 `on_start()` 中订阅 `bar_type`。
-- 每根新 K 线触发 `generate_signal(bar)` — 子类实现此方法。
-- 将 `SignalEvent` 发布到 `EventBus`（不直接提交订单）。
-- 管理基于 ATR 和百分比的止损/止盈订单。
-- 处理 `on_stop()`：可选在策略停止时平掉所有持仓（`close_positions_on_stop=True`）。
-- 提供 `_size_order()`，根据 `trade_size`、`margin_pct_per_trade`、`gross_exposure_pct_per_trade` 或 `capital_pct_per_trade` 计算下单数量。
-
----
-
-## BaseStrategyConfig 字段
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `instrument_id` | `InstrumentId` | Nautilus 交易对标识符 |
-| `bar_type` | `BarType` | 订阅的 K 线类型 |
-| `close_positions_on_stop` | `bool` | 策略停止时平仓（默认 `True`） |
-| `trade_size` | `Decimal` | 固定数量兜底值 |
-| `margin_pct_per_trade` | `float \| None` | 按保证金占权益比 × 杠杆定仓 |
-| `gross_exposure_pct_per_trade` | `float \| None` | 按名义价值占权益比定仓 |
-| `capital_pct_per_trade` | `float \| None` | 按资金占权益比定仓 |
-| `sizing_leverage` | `float` | 保证金比定仓的杠杆乘数 |
-| `atr_period` | `int` | ATR 周期（默认 14） |
-| `atr_sl_multiplier` | `float \| None` | ATR 止损乘数 |
-| `atr_tp_multiplier` | `float \| None` | ATR 止盈乘数 |
-| `live_warmup_bars` | `int` | 实盘开始前跳过的预热 K 线数 |
-
----
-
-## 新增策略步骤
-
-1. 在 `src/strategy/<name>.py` 中创建 `<Name>Config(BaseStrategyConfig, frozen=True)` 和 `<Name>Strategy(BaseStrategy)`。
-2. 实现 `generate_signal(self, bar: Bar) -> SignalDirection | None`。
-3. 在 `bootstrap._STRATEGY_REGISTRY` 中注册，并在 `AppFactory` 中添加 `create_<name>_strategy()`。
-4. 在 `AppFactory.create_strategy_from_config()` 中添加对应分支。
-5. 在 `tests/unit/test_<name>_strategy.py` 中编写单元测试。
-6. 在 `tests/regression/test_<name>_baseline.py` 中添加回归基准。
-
----
-
-## 信号契约
+**The two abstract methods every strategy must implement:**
 
 ```python
-# 发布做多信号：
-self._event_bus.publish(
-    SignalEvent(
-        instrument_id=str(self.config.instrument_id),
-        direction=SignalDirection.LONG,
-        strength=1.0,
-        source=self.id.value,
-    )
+def _register_indicators(self) -> None:
+    """Register NautilusTrader indicators with register_indicator_for_bars()."""
+
+def generate_signal(self, bar: Bar) -> SignalDirection | None:
+    """Return LONG, SHORT, FLAT, or None (no signal this bar)."""
+```
+
+**Base class responsibilities (do NOT re-implement in subclasses):**
+- `on_start()` — resolves instrument, registers indicators, requests warmup history, subscribes to bars.
+- `on_bar()` — guards on `indicators_initialized()` and `bar.is_single_price()`, then calls `generate_signal()`.
+- `_publish_signal()` — publishes `SignalEvent` to EventBus (live) or calls `_submit_market_order()` (backtest).
+- `on_position_opened/changed/closed()` — ATR/pct bracket SL/TP order lifecycle management.
+- `on_stop()` — cancels all orders, optionally flattens positions (`close_positions_on_stop`).
+
+**Sizing modes** (evaluated in priority order; first non-zero result wins):
+1. `margin_pct_per_trade` — margin as % of equity × `sizing_leverage` → notional → qty
+2. `gross_exposure_pct_per_trade` — notional as % of equity → qty
+3. `capital_pct_per_trade` — alias for gross exposure (legacy name)
+4. `trade_size` (Decimal) — fixed coin quantity fallback
+
+**ATR bracket orders** (`atr_sl_multiplier` / `atr_tp_multiplier` on config):
+- Base class auto-registers an `AverageTrueRange(atr_period)` indicator when either multiplier is set.
+- SL is a `stop_market` order (`reduce_only=True`); TP is a `limit` order (`reduce_only=True`).
+- Both are re-placed on every `on_position_changed` event (re-centres on new avg entry price).
+
+**Live warmup** (`live_warmup_bars`, `live_warmup_margin_bars` on config):
+- `_resolved_warmup_bars()` returns `live_warmup_bars` if > 0, else `_history_warmup_bars()` (subclass override).
+- `preload_history(bars)` can be called externally (e.g., by `preload_strategies_warmup`) to feed historical bars without emitting signals.
+
+**Adding a new strategy:**
+1. Create `src/strategy/my_strategy.py` with `MyStrategyConfig(BaseStrategyConfig, frozen=True)` and `MyStrategy(BaseStrategy)`.
+2. Implement `_register_indicators()` and `generate_signal(bar) -> SignalDirection | None`.
+3. Register in `bootstrap.py` `_STRATEGY_REGISTRY` and add a factory method to `AppFactory`.
+4. Add YAML config to `configs/strategies/my_strategy.yaml`.
+
+### Testing Requirements
+
+- Instantiate strategies with a mock `EventBus` or `event_bus=None` (backtest mode).
+- Use `NautilusTrader` test harness (`BacktestEngine` or `MockActor`) to feed bars and assert signals.
+- Test sizing modes by mocking `strategy.portfolio.account()` to return a known equity balance.
+- ATR bracket tests: assert `_sl_orders` and `_tp_orders` dicts are populated after `on_position_opened`.
+- Test `on_stop()` asserts `close_all_positions` is called when `close_positions_on_stop=True`.
+
+### Common Patterns
+
+```python
+# Minimal concrete strategy
+class MyStrategy(BaseStrategy):
+    def _register_indicators(self) -> None:
+        self._ema = ExponentialMovingAverage(20)
+        self.register_indicator_for_bars(self.config.bar_type, self._ema)
+
+    def generate_signal(self, bar: Bar) -> SignalDirection | None:
+        if bar.close > self._ema.value:
+            return SignalDirection.LONG
+        if bar.close < self._ema.value:
+            return SignalDirection.SHORT
+        return None
+
+# Config with ATR brackets and margin sizing
+config = MyStrategyConfig(
+    instrument_id=InstrumentId.from_str("BTCUSDT-PERP.BINANCE"),
+    bar_type=BarType.from_str("BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"),
+    margin_pct_per_trade=2.0,
+    sizing_leverage=10.0,
+    atr_sl_multiplier=1.5,
+    atr_tp_multiplier=3.0,
+    atr_period=14,
 )
 ```
 
-`generate_signal()` 返回 `SignalDirection.LONG`、`SignalDirection.SHORT`、`SignalDirection.FLAT` 或 `None`（本 K 线无信号）。基类负责调用 `EventBus.publish()`。
+## Dependencies
 
----
+### Internal
+- `src.core.events` — `EventBus`, `SignalDirection`, `SignalEvent`
 
-## 定仓优先级
+### External
+- `nautilus_trader.trading.strategy` — `Strategy` base class
+- `nautilus_trader.config` — `StrategyConfig`
+- `nautilus_trader.indicators` — `AverageTrueRange`, EMA, RSI, ADX, Donchian, etc.
+- `nautilus_trader.model.*` — `Bar`, `BarType`, `InstrumentId`, `OrderSide`, `Quantity`, `Position`
+- `pydantic` — frozen config model validation
 
-`capital_pct_per_trade` > `gross_exposure_pct_per_trade` > `margin_pct_per_trade` > `trade_size`（固定数量）。
+<!-- MANUAL: -->

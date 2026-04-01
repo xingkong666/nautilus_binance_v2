@@ -1,79 +1,84 @@
-# AGENTS.md — src/risk/
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-04-01 | Updated: 2026-04-01 -->
 
-完整风控链：事前 → 实时 → 熔断器 → 事后。
+# risk
 
-风控违规**发布 `RiskAlertEvent` — 绝不抛出异常**。
+## Purpose
+Three-layer independent risk management system. Any single layer can halt trading without coordination from the others. Layers are fully decoupled from strategy and execution via the `EventBus` — they never call exchange APIs directly.
 
----
+```
+PreTradeRisk    — gate checks before any order leaves the system
+RealTimeRisk    — continuous per-bar/tick monitoring (drawdown, daily loss)
+CircuitBreaker  — escalating action: alert_only → reduce_only → halt_all
+DrawdownControl — dynamic position-size reducer triggered by equity drawdown
+PostTradeRisk   — slippage and PnL attribution after fills
+```
 
-## 文件说明
+## Key Files
 
-| 文件 | 职责 |
-|---|---|
-| `pre_trade.py` | `PreTradeRiskManager` — 提交前的订单级检查。 |
-| `real_time.py` | `RealTimeRiskMonitor` — 实盘运行期间的持续持仓/PnL 监控。 |
-| `drawdown_control.py` | `DrawdownController` — 追踪回撤水位线；触发 WARNING / CRITICAL 告警。 |
-| `circuit_breaker.py` | `CircuitBreaker` — 连续亏损、日亏损达限或手动触发时熔断。 |
-| `position_sizer.py` | `PositionSizer` — 根据权益和定仓配置计算下单数量。 |
-| `post_trade.py` | `PostTradeRiskAnalyzer` — 会话结束后的指标统计：夏普比率、最大回撤、胜率。 |
+| File | Description |
+|------|-------------|
+| `pre_trade.py` | `PreTradeRiskManager` — synchronous gate called by `SignalProcessor` before `OrderRouter`. Returns `PreTradeCheckResult(passed, reason)`. Checks: single-order size limit, total position size, max leverage, minimum order interval, max open order count |
+| `real_time.py` | `RealTimeRiskMonitor` — called on every bar/tick update. Monitors max drawdown (`max_drawdown_pct`), daily loss limit (`daily_loss_limit_usd`), and trailing drawdown. Publishes `RiskAlertEvent` and triggers `CircuitBreaker` when thresholds are breached. Optionally persists metrics to Redis key `nautilus:risk:metrics` |
+| `circuit_breaker.py` | `CircuitBreaker` — evaluates `CircuitBreakerTrigger` rules; sets `CircuitBreakerState` (stored in Redis key `nautilus:cb:state`). **Actions**: `halt_all` (block all new orders), `reduce_only` (close-only mode), `alert_only` (log + notify, no order block). **Trigger types**: `daily_loss`, `drawdown`, `rapid_loss`. Supports `cooldown_minutes` auto-reset |
+| `drawdown_control.py` | `DrawdownController` — tracks peak equity and current equity; computes drawdown percentage; returns a `reduce_factor` (0–1) applied to position sizing when `warning_pct` or `critical_pct` thresholds are exceeded |
+| `position_sizer.py` | Kelly / fixed-fraction / volatility-scaled position sizing helpers consumed by `PortfolioAllocator` and `PreTradeRiskManager` |
+| `post_trade.py` | `PostTradeRiskAnalyzer` — invoked by `FillHandler` after each fill; computes realized slippage vs. arrival price and PnL attribution; publishes results to `EventBus` |
 
----
+## For AI Agents
 
-## PreTradeRiskManager 检查项
+### Working In This Directory
 
-通过 `configs/risk/global_risk.yaml` → `risk.pre_trade.*` 配置：
+- **All three active layers (`PreTradeRisk`, `RealTimeRisk`, `CircuitBreaker`) are independently sufficient to halt trading** — do not assume they share state.
+- `CircuitBreakerState` is stored in Redis (`nautilus:cb:state`) so that state survives process restarts and is visible across any future worker processes.
+- `RealTimeRiskMonitor` also uses Redis (`nautilus:risk:metrics`) as a fallback metrics store; it degrades gracefully to in-memory when Redis is unavailable.
+- `PreTradeRiskManager.check(intent)` must be called **before** `OrderRouter.route(intent)`. The `SignalProcessor` orchestrates this — do not call `OrderRouter` directly from strategy code.
+- `DrawdownController` does **not** publish events — it returns a scalar factor. The caller (`PortfolioAllocator` or `PreTradeRiskManager`) is responsible for applying it to quantity.
+- Cooldown auto-reset in `CircuitBreaker`: once `cooldown_until_ns` is passed, `is_triggered` resets to `False` on the next `check()` call.
+- All monetary thresholds use `Decimal`; percentages use `float`. Never mix types in comparisons.
+- Use `from src.core.constants import CB_HALT_ALL` (and `CB_REDUCE_ONLY`, `CB_ALERT_ONLY`) for action string constants — do not hardcode strings.
 
-| 检查项 | 配置键 | 默认值 |
-|---|---|---|
-| 最大订单名义价值（USD） | `max_order_size_usd` | 50 000 |
-| 最大总持仓规模（USD） | `max_position_size_usd` | 200 000 |
-| 最大杠杆 | `max_leverage` | 10 |
-| 最小下单间隔（毫秒） | `min_order_interval_ms` | 500 |
-| 最大挂单数 | `max_open_orders` | 20 |
+### Testing Requirements
 
-`check(intent, current_price)` 返回 `PreTradeCheckResult(passed, reason)`。失败时发布 `RiskAlertEvent(level="WARNING", rule_name=<check>)`。
+- `PreTradeRiskManager`: test each check rule in isolation (size, leverage, interval, open-order count). Use `PreTradeCheckResult.passed == False` assertions with expected `reason` strings.
+- `CircuitBreaker`: test all three actions; test cooldown expiry (mock `time.time_ns()`); test Redis persistence path and in-memory fallback.
+- `RealTimeRiskMonitor`: mock equity updates to cross `max_drawdown_pct` and `daily_loss_limit_usd`; assert `RiskAlertEvent` is published and `CircuitBreaker.trigger()` is called.
+- `DrawdownController`: feed equity sequence with known peak; assert `get_reduce_factor()` returns `reduce_factor` at `critical_pct` and `1.0` below `warning_pct`.
 
----
+### Common Patterns
 
-## DrawdownController
+```python
+# Pre-trade gate (called inside SignalProcessor)
+result = pre_trade_risk.check(intent)
+if not result.passed:
+    logger.warning("pre_trade_rejected", reason=result.reason)
+    return
 
-- `warning_pct`（默认 3%）：发布 `RiskAlertEvent(level="WARNING")`。
-- `critical_pct`（默认 5%）：发布 `RiskAlertEvent(level="CRITICAL")` — `LiveSupervisor` 响应后暂停新订单。
-- 基于权益的追踪高水位线；通过 `reset_watermark()` 显式重置。
+# Real-time equity update (called in strategy.on_bar())
+real_time_monitor.update(equity=current_equity, unrealized_pnl=upnl)
 
----
+# Circuit breaker manual trigger
+circuit_breaker.trigger(
+    trigger_type="daily_loss",
+    current_value=-6500.0,
+    threshold=-5000.0,
+)
 
-## CircuitBreaker
+# Drawdown-adjusted quantity
+factor = drawdown_controller.get_reduce_factor()
+adjusted_qty = base_qty * Decimal(str(factor))
+```
 
-以下情况触发熔断（状态 → `TRIPPED`）：
-- 连续亏损订单数 ≥ `max_consecutive_losses`（默认 5）
-- 当日已实现亏损 ≥ `daily_loss_limit_usd`
-- 手动调用 `trip()`
+## Dependencies
 
-熔断后：
-- 发布 `EventType.CIRCUIT_BREAKER` 事件。
-- `SignalProcessor` 在路由前检查 `is_tripped()` — 所有新信号被阻断。
-- 通过 `reset()` 重置（手动或新交易日时）。
+### Internal
+- `src.core.events` — `EventBus`, `RiskAlertEvent`, `OrderIntentEvent`
+- `src.core.constants` — `CB_HALT_ALL`, `CB_REDUCE_ONLY`, `CB_ALERT_ONLY`
+- `src.cache.redis_client` — `RedisClient` (optional; used by `CircuitBreaker` and `RealTimeRiskMonitor`)
 
-Redis 可用时用于跨进程状态同步；否则回退到进程内状态。
+### External
+- `structlog` — structured logging
+- `decimal` — all monetary calculations
+- `time` — nanosecond timestamps via `time.time_ns()`
 
----
-
-## PositionSizer
-
-`compute_quantity(equity, price, sizing_config)` → `Decimal` 数量。
-
-定仓模式（来自 `BaseStrategyConfig`）：
-1. `capital_pct_per_trade` — `(权益 × pct / 100) / 价格`
-2. `gross_exposure_pct_per_trade` — 名义价值占权益比
-3. `margin_pct_per_trade` — `(权益 × pct / 100 × 杠杆) / 价格`
-4. `trade_size` — 固定数量兜底
-
----
-
-## 新增风控规则
-
-1. 将检查项添加到 `PreTradeRiskManager.check()` 或在 `src/monitoring/watchers.py` 中创建新的 Watcher。
-2. 违规时：`self._event_bus.publish(RiskAlertEvent(...))` — 禁止抛出异常。
-3. 在 `configs/risk/global_risk.yaml` 中添加新配置键和默认值。
-4. 在 `tests/unit/test_pre_trade_risk.py` 或相关测试文件中添加单元测试。
+<!-- MANUAL: -->

@@ -1,74 +1,95 @@
-# AGENTS.md — src/core/
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-04-01 | Updated: 2026-04-01 -->
 
-共享基础类型。**不依赖任何其他 `src.*` 包。** 其余所有包均可从此处导入。
+# core
 
----
+## Purpose
 
-## 文件说明
+Foundational layer shared by every other module in the system. Defines the event model and in-process pub/sub bus (`events.py`), the full typed configuration hierarchy (`config.py`), project-wide path constants and event-name strings (`constants.py`), trading enums and Binance-to-Nautilus interval mappings (`enums.py`), structured logging setup (`logging.py`), NautilusTrader cache configuration builder (`nautilus_cache.py`), and exchange clock sync utilities (`time_sync.py`). **No other `src/` module is imported here** — `core` is the base of the dependency graph.
 
-| 文件 | 职责 |
-|---|---|
-| `config.py` | `AppConfig` 及所有子配置（Pydantic v2）。`load_app_config()` 合并多层 YAML + 环境变量。 |
-| `events.py` | `EventBus`、`Event`、`SignalEvent`、`OrderIntentEvent`、`RiskAlertEvent`、`EventType`、`SignalDirection`。 |
-| `enums.py` | `Interval` 枚举 + `INTERVAL_TO_NAUTILUS` 到 NautilusTrader K 线类型字符串的映射。 |
-| `constants.py` | `BASE_DIR`、`CONFIGS_DIR` 及其他路径常量。 |
-| `logging.py` | `setup_logging()` — 配置 structlog，支持 JSON 或控制台渲染器。 |
-| `nautilus_cache.py` | `build_nautilus_cache_settings()` — 构建实盘/回测模式的 `NautilusCacheConfig`。 |
-| `time_sync.py` | 轻量级时间工具函数（UTC 辅助函数）。 |
+## Key Files
 
----
+| File | Description |
+|------|-------------|
+| `events.py` | `EventType` enum (17 types), `SignalDirection` enum, frozen `Event` / `SignalEvent` / `OrderIntentEvent` / `RiskAlertEvent` dataclasses, `EventBus` pub/sub with per-type and global (`subscribe_all`) handlers |
+| `config.py` | `AppConfig` and all sub-config Pydantic models (`RiskConfig`, `ExecutionConfig`, `MonitoringConfig`, `LiveConfig`, `AccountConfig`, `DataConfig`, `RedisConfig`, `NautilusCacheConfig`); `EnvSettings` (pydantic-settings, reads `.env`); `load_app_config()` multi-file merge; `load_yaml()` and `deep_merge()` helpers |
+| `constants.py` | `BASE_DIR`, `CONFIGS_DIR`, `DATA_DIR` path constants; event-name string literals; risk mode and circuit-breaker action constants |
+| `enums.py` | `TraderType`, `Interval` (12 bar intervals), `INTERVAL_TO_MS`, `INTERVAL_TO_NAUTILUS` mapping dicts, `DEFAULT_INSTRUMENTS` list |
+| `logging.py` | `setup_logging(level)` — configures `structlog` with JSON or console renderer based on environment |
+| `nautilus_cache.py` | `build_nautilus_cache_settings(config, mode)` — produces NautilusTrader `CacheConfig` + `instance_id` tuple for live or backtest modes |
+| `time_sync.py` | Exchange clock synchronisation utilities for latency-sensitive live operation |
 
-## 配置分层（`load_app_config`）
+## For AI Agents
 
-优先级从高到低：
+### Working In This Directory
 
-1. 环境变量（通过 `EnvSettings` 读取 `.env` 文件）
-2. `configs/env/<env>.yaml`（按环境的覆盖配置）
-3. `configs/risk/global_risk.yaml`、`configs/execution/execution.yaml`、`configs/accounts/binance_futures.yaml`、`configs/monitoring/alerts.yaml`
-4. Pydantic 模型默认值
+**EventBus usage contract:**
+- `bus.subscribe(EventType.X, handler)` — typed subscription; handler receives the concrete `Event` subclass.
+- `bus.subscribe_all(handler)` — global handler (used by Prometheus metrics counter in `Container`).
+- `bus.publish(event)` — synchronous, in-process fan-out; exceptions in individual handlers are caught and logged, not re-raised.
+- `bus.clear()` — called by `Container.teardown()`; removes all handlers.
+- The bus is **not thread-safe** by design. All publishing happens on the main trading thread.
 
-每一层均使用 `deep_merge(base, override)` — 嵌套 dict 递归合并，而非整体替换。
+**Event authoring rules:**
+- All event dataclasses must be `frozen=True`.
+- Subclasses must set `event_type` in `__post_init__` via `object.__setattr__(self, "event_type", EventType.X)` (required because the base dataclass is frozen).
+- `timestamp_ns` defaults to `time.time_ns()` — do not pass a manual value unless writing deterministic tests.
 
----
+**Config loading priority** (highest → lowest):
+1. Environment variables / `.env` file (via `EnvSettings`)
+2. `configs/env/{env}.yaml`
+3. Module YAMLs (`configs/risk/global_risk.yaml`, `configs/execution/execution.yaml`, `configs/accounts/binance_futures.yaml`, `configs/monitoring/alerts.yaml`)
+4. Pydantic field defaults
 
-## EventBus
+`deep_merge()` performs recursive dict merge; scalar values in the higher-priority source always win.
+
+**Adding a new config field:**
+1. Add the field with a default to the appropriate Pydantic sub-model.
+2. If it should be overridable from `.env`, add a corresponding field to `EnvSettings` and wire it in the relevant `_env_*_overrides()` helper in `config.py`.
+3. Never add `dict[str, Any]` fields to sub-models unless they are genuinely freeform (like `pre_trade` risk rules).
+
+**Interval mapping:** use `INTERVAL_TO_NAUTILUS[interval]` to get the NautilusTrader bar-spec string. For non-`MINUTE_1` intervals the `AppFactory` appends `@1-MINUTE-EXTERNAL` to create a synthetic bar type.
+
+### Testing Requirements
+
+- `EventBus` is stateless between tests — instantiate a fresh one per test; do not share instances.
+- `load_app_config(env="dev")` can be called in tests; ensure `configs/env/dev.yaml` exists or pass a temp path.
+- Config models are Pydantic — test invalid inputs with `pytest.raises(ValidationError)`.
+
+### Common Patterns
 
 ```python
+# EventBus publish/subscribe
+from src.core.events import EventBus, EventType, SignalEvent, SignalDirection
+
 bus = EventBus()
-bus.subscribe(EventType.SIGNAL, handler)   # 按类型订阅
-bus.subscribe_all(handler)                  # 订阅所有事件（用于监控）
-bus.publish(event)
-bus.clear()                                 # 测试 teardown 时调用
+bus.subscribe(EventType.SIGNAL, lambda e: print(e))
+bus.publish(SignalEvent(instrument_id="BTCUSDT-PERP.BINANCE", direction=SignalDirection.LONG))
+
+# Config loading
+from src.core.config import load_app_config
+config = load_app_config(env="dev")
+db_url = config.data.database_url
+
+# Interval mapping
+from src.core.enums import Interval, INTERVAL_TO_NAUTILUS
+nautilus_str = INTERVAL_TO_NAUTILUS[Interval.HOUR_4]  # "4-HOUR"
+
+# Path constants
+from src.core.constants import BASE_DIR, CONFIGS_DIR
+yaml_path = CONFIGS_DIR / "env" / "dev.yaml"
 ```
 
-- 处理器在 `publish` 时同步调用，按订阅顺序执行。
-- 处理器内的异常会被记录日志，**不会向上传播** — EventBus 不会因为坏处理器而崩溃。
-- `subscribe_all` 由 Prometheus 计数器钩子和审计日志使用。
+## Dependencies
 
----
+### Internal
+None — `core` has no imports from other `src/` modules.
 
-## 事件参考
+### External
+- `pydantic` — config model validation
+- `pydantic-settings` — `EnvSettings` env-var / `.env` loading
+- `structlog` — logger access
+- `yaml` (PyYAML) — YAML file loading
+- `nautilus_trader` — `CacheConfig`, `MessageBusConfig` (in `nautilus_cache.py`)
 
-| 类 | `event_type` | 关键字段 |
-|---|---|---|
-| `SignalEvent` | `SIGNAL` | `instrument_id`、`direction`（`LONG`/`SHORT`/`FLAT`）、`strength` |
-| `OrderIntentEvent` | `ORDER_INTENT` | `instrument_id`、`side`、`quantity`、`order_type`、`price`、`stop_loss`、`take_profit` |
-| `RiskAlertEvent` | `RISK_ALERT` | `level`（`WARNING`/`ERROR`/`CRITICAL`）、`rule_name`、`message` |
-
-所有事件均为**冻结数据类** — 创建后不可修改。
-
----
-
-## Interval → BarType 映射
-
-| `Interval` | Nautilus K 线类型字符串 |
-|---|---|
-| `MINUTE_1` | `1-MINUTE` |
-| `MINUTE_5` | `5-MINUTE` |
-| `MINUTE_15` | `15-MINUTE` |
-| `HOUR_1` | `1-HOUR` |
-| `HOUR_4` | `4-HOUR` |
-| `DAY_1` | `1-DAY` |
-
-`MINUTE_1` K 线：`BarType.from_str(f"{instrument_id}-1-MINUTE-LAST-EXTERNAL")`
-其他周期：从 1 分钟外部 K 线采样：`...-LAST-INTERNAL@1-MINUTE-EXTERNAL`
+<!-- MANUAL: -->

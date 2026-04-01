@@ -1,67 +1,63 @@
-# AGENTS.md — src/portfolio/
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-04-01 | Updated: 2026-04-01 -->
 
-多策略资金分配。
+# portfolio
 
----
+## Purpose
+Multi-strategy capital allocation layer. `PortfolioAllocator` sits between the `EventBus` (receiving `SignalEvent`s) and the execution pipeline. It determines how much capital each strategy may deploy given total account equity, current margin usage, and the configured allocation mode. It does **not** route orders directly — it emits sized `OrderIntent`s consumed downstream by `PreTradeRisk` and `OrderRouter`.
 
-## 文件说明
+## Key Files
 
-| 文件 | 职责 |
-|---|---|
-| `allocator.py` | `PortfolioAllocator` — 将总权益分配给各策略，生成每个策略的资金上限。 |
+| File | Description |
+|------|-------------|
+| `allocator.py` | `PortfolioAllocator` — core allocator. Holds a list of `StrategyAllocation` configs and computes `AllocationResult` per strategy. Three modes: `equal` (uniform split), `weight` (proportional to `StrategyAllocation.weight`), `risk_parity` (equal risk contribution weighted by inverse volatility). Enforces `max_allocation_pct` cap per strategy. Produces re-balance `OrderIntent` lists via `rebalance()` |
 
----
+## For AI Agents
 
-## 分配模式
+### Working In This Directory
 
-| 模式 | 说明 |
-|---|---|
-| `equal` | 每个启用的策略获得 `总资金 / N`。 |
-| `weight` | 资金按 `StrategyAllocation.weight` 比例分配。 |
-| `risk_parity` | 风险贡献相等；权重与近期波动率成反比。 |
+- **Allocation modes**: `equal`, `weight`, `risk_parity`. Mode is set at construction time from `AppConfig`; switching modes at runtime requires rebuilding the allocator.
+- `StrategyAllocation.enabled = False` excludes a strategy from all allocation computations — useful for pausing a strategy without removing its config.
+- `max_allocation_pct = 0.0` means **no cap** (unlimited within the mode's computed share).
+- `AllocationResult.available_capital` = allocated capital minus currently used margin for that strategy. Use this value — not `allocated_capital` — when sizing new orders.
+- `rebalance()` returns a list of `OrderIntent`s (using `reduce_only=True` for size-down intents). These must still pass through the normal `PreTradeRisk → OrderRouter` pipeline.
+- `risk_parity` mode requires volatility estimates passed in as `vol_map: dict[str, float]`. If a strategy's volatility is missing or zero, it defaults to equal weight for that strategy.
+- All capital values are `Decimal` in USDT; weights are `float` — convert carefully when mixing types.
+- Import path: `from src.portfolio.allocator import PortfolioAllocator, StrategyAllocation, AllocationResult`.
 
----
+### Testing Requirements
 
-## 关键类
+- Test `equal` mode: verify each enabled strategy receives `total_capital / N`, disabled strategies receive `Decimal(0)`.
+- Test `weight` mode: verify allocations are proportional to weights and sum to `total_capital`.
+- Test `risk_parity` mode: supply known `vol_map`; verify inverse-vol weighting.
+- Test `max_allocation_pct` cap: verify no strategy exceeds its cap even when weights would produce a larger share.
+- Test `rebalance()`: mock current positions; verify returned `OrderIntent`s have correct `reduce_only` flags and quantities.
 
-**`StrategyAllocation`**（数据类）
-- `strategy_id: str`
-- `weight: float` — 相对权重（`equal` 模式下忽略）
-- `max_allocation_pct: float` — 占总资金的硬上限（%）；`0` 表示无上限
-- `enabled: bool`
+### Common Patterns
 
-**`AllocationResult`**（数据类）
-- `strategy_id: str`
-- `allocated_capital: Decimal` — USDT 金额
-- `allocation_pct: float` — 0–1 的分配比例
-- `available_capital: Decimal` — 扣除已用保证金后的可用资金
+```python
+from decimal import Decimal
+from src.portfolio.allocator import PortfolioAllocator, StrategyAllocation
 
-**`PortfolioAllocator`**
-- `allocate(total_equity, used_margin_by_strategy)` → `list[AllocationResult]`
-- `reserve_pct`（配置，默认 5%）— 保留一部分权益作为缓冲，不分配给任何策略
-- `min_allocation`（配置，默认 "100"）— 每个策略的最小 USDT 分配额；低于此值的策略被跳过
+allocations = [
+    StrategyAllocation(strategy_id="ema_cross", weight=1.0, enabled=True),
+    StrategyAllocation(strategy_id="breakout",  weight=2.0, max_allocation_pct=40.0),
+]
+allocator = PortfolioAllocator(allocations=allocations, mode="weight")
 
----
-
-## 配置（env YAML 中的 `strategies.portfolio` 块）
-
-```yaml
-strategies:
-  portfolio:
-    mode: equal          # equal | weight | risk_parity
-    reserve_pct: 5.0
-    min_allocation: "100"
-    strategies:
-      - strategy_id: ema_cross
-        weight: 1.0
-        max_allocation_pct: 40.0
-        enabled: true
+results = allocator.allocate(total_capital=Decimal("100000"), margin_used={})
+for r in results:
+    print(r.strategy_id, r.allocated_capital, r.available_capital)
 ```
 
-`PortfolioAllocator` 是可选的 — 若配置中无 `strategies.portfolio`，则 `Container._portfolio_allocator` 为 `None`，系统以单策略模式运行。
+## Dependencies
 
----
+### Internal
+- `src.execution.order_intent` — `OrderIntent` (produced by `rebalance()`)
+- `src.core.events` — `EventBus`, `SignalEvent` (allocator subscribes to signals)
 
-## 集成说明
+### External
+- `structlog` — structured logging
+- `decimal` — all capital arithmetic (`ROUND_DOWN` for lot-size compliance)
 
-`PortfolioAllocator` 由 `SignalProcessor`（或专用的再平衡钩子）在定仓前查询，以获取每个策略的资金上限，结果传入 `PositionSizer`。
+<!-- MANUAL: -->

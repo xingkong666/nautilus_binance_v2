@@ -1,78 +1,77 @@
-# AGENTS.md — src/exchange/
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-04-01 | Updated: 2026-04-01 -->
 
-Binance 合约适配器 — 将 NautilusTrader 与 Binance REST/WebSocket 对接。
+# Exchange
 
----
+## Purpose
+交易所接入层，封装 NautilusTrader 的 Binance Futures 客户端（`BinanceLiveDataClientFactory` + `BinanceLiveExecClientFactory`），提供统一的 `BinanceAdapter` 接口。负责 `TradingNode` 的配置和生命周期管理，支持 `LIVE / TESTNET` 环境切换。架构位置：`OrderRouter → BinanceAdapter → NautilusTrader BinanceFutures{Data,Exec}Client`。
 
-## 文件说明
+## Key Files
 
-| 文件 | 职责 |
-|---|---|
-| `binance_adapter.py` | `BinanceAdapter` + `BinanceAdapterConfig` + `build_binance_adapter()` 辅助函数。 |
+| File | Description |
+|------|-------------|
+| `binance_adapter.py` | `BinanceAdapter` + `BinanceAdapterConfig` — 封装 `TradingNode`，注册 DataClient 和 ExecClient 工厂，暴露 `start()` / `stop()` 异步接口；`adapter.node` 可访问底层 `TradingNode` |
+| `__init__.py` | 模块公开导出：`BinanceAdapter`、`BinanceAdapterConfig` |
 
----
+## For AI Agents
 
-## BinanceAdapterConfig
+### Working In This Directory
+- **`start()` / `stop()` 均为 `async`**，必须在异步上下文中 `await` 调用
+- **调用顺序**：`await adapter.start()` → 使用 → `await adapter.stop()` → `container.teardown()`（必须先 stop adapter 再 teardown）
+- 环境配置使用 `BinanceEnvironment` 枚举（`LIVE` / `TESTNET`），推荐方式（NautilusTrader 1.223.0+）
+- API Key 优先读取环境变量（`.env`），`BinanceAdapterConfig` 中可配置 YAML fallback
+- `BinanceAdapterConfig` 为 dataclass，字段：`api_key`、`api_secret`、`environment: BinanceEnvironment`
+- Testnet 基础 URL：通过 `get_http_base_url(BinanceEnvironment.TESTNET)` 获取
+- `TradingNode` 实例通过 `adapter.node` 访问，可直接订阅数据或提交订单（通常由 NautilusTrader 策略机制自动处理）
+- `BinanceFuturesAccountHttpAPI` 用于直接 REST 调用（如 `account_sync.py` 获取余额），绕过 EventBus 机制
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `api_key` | `str \| None` | Binance API 密钥（实盘或测试网） |
-| `api_secret` | `str \| None` | Binance API 密钥 Secret |
-| `environment` | `BinanceEnvironment` | `LIVE`、`TESTNET` 或 `DEMO` |
-| `instrument_ids` | `list[str]` | 预配置的交易对列表 |
-| `futures_leverages` | `dict \| None` | 每个交易对的杠杆覆盖值 |
-| `proxy_url` | `str \| None` | 受限网络的 HTTP/SOCKS5 代理 |
-| `use_reduce_only` | `bool` | 附加 `reduce_only` 标志（双向持仓账户需禁用） |
-| `use_position_ids` | `bool` | 双向持仓模式使用持仓 ID |
-| `max_retries` | `int \| None` | 瞬态 API 错误的重试次数 |
-| `base_url_http` | `str` | REST 基础 URL（根据环境自动设置） |
+### Testing Requirements
+- 集成测试使用 testnet 配置（`configs/env/dev.yaml`）
+- Smoke 测试：`uv run python scripts/smoke_testnet.py`（行情接收 → 市价单 → 成交 → 停止）
+- 单元测试 mock `TradingNode` 验证 `start()` / `stop()` 调用顺序
+- 测试时确保 `.env` 中已配置 testnet API Key：`BINANCE_API_KEY` / `BINANCE_API_SECRET`
 
----
-
-## BinanceAdapter 关键方法
-
-| 方法 | 说明 |
-|---|---|
-| `prepare_runtime_config()` | 查询账户模式（单向/双向），自动调整 `use_reduce_only`。 |
-| `register_strategy(strategy)` | 将策略挂载到底层 NautilusTrader `TradingNode`。 |
-| `build_node()` | 用所有已注册策略和交易对构建 `TradingNode`。 |
-| `run()` | **阻塞。** 启动节点事件循环；停止或出错时返回。 |
-| `request_stop()` | 发送信号，使节点优雅停机。 |
-| `fetch_account_snapshot()` | HTTP 请求 → `(余额, 持仓)` 用于启动状态引导。 |
-| `fetch_open_orders()` | HTTP 请求 → 挂单列表，用于启动时填充忽略列表。 |
-
----
-
-## 凭证解析优先级
-
-从高到低：
-
-1. `BinanceAdapterConfig` 中显式传入的 `api_key` / `api_secret`
-2. 通过 `EnvSettings` 读取的环境变量：
-   - `TESTNET` → `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET`
-   - `DEMO` → `BINANCE_DEMO_API_KEY` / `BINANCE_DEMO_API_SECRET`
-   - `LIVE` → `BINANCE_API_KEY` / `BINANCE_API_SECRET`
-
----
-
-## 双向持仓模式处理
-
-启动时 `prepare_runtime_config()` 调用 Binance 账户 API：
-- 若账户为**双向持仓模式**：自动将 `use_reduce_only` 设为 `False`，避免下单被拒。
-- 此检查在 `build_node()` 之前执行。
-
----
-
-## build_binance_adapter() 辅助函数
-
-快速构建，用于脚本和测试：
-
-```python
-adapter = build_binance_adapter(
-    environment=BinanceEnvironment.TESTNET,
-    symbols=["BTCUSDT"],
-    leverages={"BTCUSDT": 10},
-)
+```bash
+# Testnet 冒烟测试
+uv run python scripts/smoke_testnet.py
 ```
 
-自动从环境变量读取 API 密钥。**不会**启动节点。
+### Common Patterns
+```python
+from src.exchange.binance_adapter import BinanceAdapter, BinanceAdapterConfig
+from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
+
+# 配置（推荐方式）
+cfg = BinanceAdapterConfig(
+    api_key="YOUR_KEY",      # 或省略，从环境变量读取
+    api_secret="YOUR_SECRET",
+    environment=BinanceEnvironment.TESTNET,
+)
+
+# 生命周期
+adapter = BinanceAdapter(cfg)
+await adapter.start()
+
+node = adapter.node  # 访问底层 TradingNode
+
+# 关闭（必须在 container.teardown() 之前）
+await adapter.stop()
+await container.teardown()
+```
+
+## Dependencies
+
+### Internal
+- `src.core.config` — `AppConfig`（API Key、环境配置读取）
+
+### External
+- `nautilus_trader.adapters.binance` — `BinanceLiveDataClientFactory`、`BinanceLiveExecClientFactory`
+- `nautilus_trader.adapters.binance.common.enums` — `BinanceEnvironment`
+- `nautilus_trader.adapters.binance.config` — `BinanceDataClientConfig`、`BinanceExecClientConfig`、`BinanceInstrumentProviderConfig`
+- `nautilus_trader.adapters.binance.futures.http.account` — `BinanceFuturesAccountHttpAPI`
+- `nautilus_trader.adapters.binance.http.client` — `BinanceHttpClient`
+- `nautilus_trader.adapters.binance.common.urls` — `get_http_base_url`
+- `structlog` — 结构化日志
+- `asyncio` / `threading` — 异步生命周期管理
+
+<!-- MANUAL: -->

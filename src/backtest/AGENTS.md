@@ -1,92 +1,95 @@
-# AGENTS.md — src/backtest/
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-04-01 | Updated: 2026-04-01 -->
 
-NautilusTrader 回测引擎封装，含滚动优化、市场状态检测和报告生成。
+# Backtest
 
----
+## Purpose
+回测执行与分析层，封装 NautilusTrader `BacktestEngine` 提供统一入口。支持单/多 symbol 回测、walk-forward 滚动样本外验证、市场状态过滤（Regime Filter）、成本与资金费率分析、报告生成。数据源为 `ParquetDataCatalog`，策略通过 `AppFactory` 注入。
 
-## 文件说明
+## Key Files
 
-| 文件 | 职责 |
-|---|---|
-| `runner.py` | `BacktestRunner` + `BacktestConfig` — 构建引擎、从 Parquet 目录加载数据、运行策略。 |
-| `walkforward.py` | `WalkForwardOptimizer` — 滚动样本内/样本外参数搜索。 |
-| `regime.py` | `RegimeDetector` — 基于 ADX + ATR/收盘价比率，将市场分类为趋势/震荡/高波动。 |
-| `report.py` | `BacktestReport` — 回测后指标：夏普比率、索提诺比率、最大回撤、胜率、盈亏比。 |
-| `costs.py` | `BacktestCostAnalyzer` — 按成交归因手续费/资金费/滑点成本。 |
+| File | Description |
+|------|-------------|
+| `runner.py` | `BacktestRunner` + `BacktestConfig` + `BacktestRunResult` — 核心执行引擎；封装 NautilusTrader `BacktestEngine`，配置 venue / instrument / data，注册策略，返回 `BacktestRunResult` |
+| `walkforward.py` | `WalkforwardWindow` + `generate_walkforward_windows()` — 生成滚动样本内/样本外窗口（按月滑动），供外部循环调用 `BacktestRunner` |
+| `regime.py` | `SymbolRegimeSnapshot` + `regime_allows_strategy()` — 市场状态过滤；计算趋势强度（slope_ratio、EMA gap）、ADX、资金费率均值，判断当前市场是否适合运行该策略 |
+| `report.py` | `BacktestReporter` — 将 `BacktestRunResult` 格式化为文本报告（收益、回撤、胜率、夏普等）并支持保存为 JSON |
+| `costs.py` | `BacktestCostAnalyzer` + `CostAnalysis` — 成本与资金费率分析；整合 `CostModel`、`SlippageModel`，计算佣金/滑点/资金费用，输出扣费后 PnL |
+| `__init__.py` | 模块公开导出：`BacktestRunner`、`BacktestConfig`、`BacktestRunResult` |
 
----
+## For AI Agents
 
-## BacktestConfig
+### Working In This Directory
+- `BacktestRunner.run()` 流程：构建 `BacktestEngine`（venue/instrument/data）→ 注册策略 → `engine.run()` → 返回 `BacktestRunResult`
+- 数据通过 `ParquetDataCatalog` 加载（路径由 `AppConfig` 配置），需先用 `scripts/download_data.py` 下载
+- `BacktestConfig` 为 dataclass，包含 symbol、interval、start/end 日期、初始资金等参数
+- Walk-forward 用法：`generate_walkforward_windows()` 返回 `WalkforwardWindow` 列表，外部循环对每个窗口调用 `BacktestRunner`
+- Regime 过滤：`regime_allows_strategy()` 返回 `bool`，`snapshot=None` 时默认放行；`veto_strategy_names` 可按策略名豁免过滤
+- `BacktestCostAnalyzer` 依赖 `src.execution.cost_model.CostModel` 和 `src.execution.slippage.SlippageModel`，需确保两者已正确配置
+- 回测模式下策略的 `generate_signal()` 直接调用 `submit_order()`，不经过 `EventBus`（BaseStrategy 基类处理此分支）
 
-```python
-@dataclass
-class BacktestConfig:
-    start: dt.date
-    end: dt.date
-    symbols: list[str]           # 例如 ["BTCUSDT"]
-    interval: Interval           # 默认 MINUTE_1
-    starting_balance_usdt: int   # 默认来自 AppConfig.account.starting_balance
-    leverage: float              # 默认来自 AppConfig.account.max_leverage
-    trader_id: str               # 默认 "BACKTESTER-001"
-    bypass_logging: bool         # 默认 True（加速运行）
-    run_analysis: bool           # 默认 True
-```
-
----
-
-## BacktestRunner.run()
-
-```python
-result = runner.run(strategy_cls, strategy_config)
-```
-
-1. 构建带 BINANCE 场所、USDT 账户、配置杠杆的 `BacktestEngine`。
-2. 从 `AppConfig.data.catalog_dir` 的 `ParquetDataCatalog` 加载合约和 K 线数据。
-3. 向引擎添加策略。
-4. 调用 `engine.run()`。
-5. 返回含 `engine`、`stats`、`report` 的 `BacktestResult`。
-
-**数据必须预先通过 `scripts/download_data.py` 下载到 `data/raw/`，并导入到 `data/processed/catalog/` 的 Parquet 目录中。**
-
----
-
-## WalkForwardOptimizer
-
-- 将完整日期范围划分为滚动窗口：`in_sample_days`、`out_of_sample_days`。
-- 针对每个窗口在参数网格上运行 `BacktestRunner.run()`。
-- 选取样本内最优参数，在 OOS 窗口上评估。
-- 返回含每窗口指标和最优参数集的 `WalkForwardResult`。
-
----
-
-## RegimeDetector
-
-- 使用 ADX + ATR/收盘价比率将每根 K 线分类为 `TRENDING`、`RANGING` 或 `VOLATILE`。
-- 用于条件性启用/禁用策略或调整仓位大小。
-- 可以喂入历史 K 线，用于回测市场状态条件策略。
-
----
-
-## 运行回测
+### Testing Requirements
+- 回测测试路径：`tests/regression/`（基准回测，防止性能退化）
+- `BacktestRunner` 集成测试需要 ParquetDataCatalog 中有数据，建议使用小样本 fixture
+- `generate_walkforward_windows()` 可纯单元测试（无外部依赖），验证窗口数量和日期正确性
+- `regime.py` 中的 `regime_allows_strategy()` 可用固定 `SymbolRegimeSnapshot` 数据单元测试
+- 运行：`uv run pytest tests/regression/ -v`
 
 ```bash
-# EMA 交叉策略
-uv run python scripts/run_backtest.py --strategy ema_cross --symbols BTCUSDT \
-  --start 2024-01-01 --end 2024-06-30 --interval 15m --fast-ema 10 --slow-ema 20
-
-# 海龟策略
-uv run python scripts/run_backtest.py --strategy turtle --symbols BTCUSDT \
-  --start 2024-01-01 --end 2024-06-30 --entry-period 20 --exit-period 10
-
-# 维加斯通道策略
-uv run python scripts/run_backtest.py --strategy vegas_tunnel --symbols BTCUSDT \
+# 运行回测脚本
+uv run python scripts/run_backtest.py \
+  --config configs/strategies/ema_cross.yaml \
+  --env configs/env/dev.yaml \
   --start 2024-01-01 --end 2024-06-30
 ```
 
----
+### Common Patterns
+```python
+from src.backtest.runner import BacktestRunner, BacktestConfig
+from src.core.enums import Interval
 
-## 关键不变量
+config = BacktestConfig(
+    symbol="BTCUSDT",
+    interval=Interval.MIN_1,
+    start=dt.date(2024, 1, 1),
+    end=dt.date(2024, 6, 30),
+    initial_balance=Decimal("10000"),
+)
+runner = BacktestRunner(app_config, strategy_config)
+result = runner.run(config)
 
-- 回测数据从 Parquet 目录只读 — 运行期间禁止写入。
-- `bypass_logging=True` 禁用 Nautilus 内部控制台输出，保持开启以提升速度。
-- `tests/regression/` 中的回归基准在未重新运行完整回测前禁止收紧阈值。
+# Walk-forward
+from src.backtest.walkforward import generate_walkforward_windows
+
+windows = generate_walkforward_windows(
+    start=dt.date(2023, 1, 1), end=dt.date(2024, 12, 31),
+    train_months=6, test_months=1, step_months=1,
+)
+for w in windows:
+    result = runner.run(BacktestConfig(start=w.test_start, end=w.test_end, ...))
+
+# 生成报告
+from src.backtest.report import BacktestReporter
+BacktestReporter(result).print_summary()
+BacktestReporter(result).save_json(Path("reports/result.json"))
+```
+
+## Dependencies
+
+### Internal
+- `src.core.config` — `AppConfig`
+- `src.core.enums` — `Interval`、`INTERVAL_TO_NAUTILUS`
+- `src.core.nautilus_cache` — `build_nautilus_cache_settings`
+- `src.strategy.base` — `BaseStrategy`、`BaseStrategyConfig`
+- `src.execution.cost_model` — `CostModel`（`costs.py` 使用）
+- `src.execution.slippage` — `SlippageModel`（`costs.py` 使用）
+
+### External
+- `nautilus_trader.backtest.engine` — `BacktestEngine`
+- `nautilus_trader.config` — `BacktestEngineConfig`
+- `nautilus_trader.persistence.catalog` — `ParquetDataCatalog`
+- `nautilus_trader.model` — `CryptoPerpetual`、`Venue`、`Money`、`USDT`
+- `pandas` — walk-forward 窗口和 regime 数据处理
+- `structlog` — 结构化日志
+
+<!-- MANUAL: -->

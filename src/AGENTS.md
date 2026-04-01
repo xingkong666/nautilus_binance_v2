@@ -1,56 +1,90 @@
-# AGENTS.md — src/
+# src
 
-所有生产代码的源码根目录。每个子包是一个独立的有界上下文，职责单一。
+## Purpose
 
----
+Core application source code for the nautilus_binance_v2 institutional Binance futures trading system. Contains 13 Python modules implementing the complete trading pipeline: signal generation, execution, risk management, state persistence, monitoring, and infrastructure wiring.
 
-## 包结构一览
+## Key Files
 
-| 包 | 职责 | 关键文件 |
-|---|---|---|
-| `app/` | 依赖注入连接、启动引导、工厂 | `bootstrap.py`、`container.py`、`factory.py` |
-| `core/` | 共享基础类型（不依赖其他 src 包） | `config.py`、`events.py`、`enums.py`、`constants.py` |
-| `strategy/` | 仅负责产出信号 — 绝不提交订单 | `base.py`、`ema_cross.py`、`turtle.py`、`vegas_tunnel.py` |
-| `execution/` | 信号→意图→订单管道 | `signal_processor.py`、`order_router.py`、`algo.py` |
-| `risk/` | 事前 / 实时 / 事后风控、熔断器 | `pre_trade.py`、`real_time.py`、`circuit_breaker.py` |
-| `portfolio/` | 多策略资金分配 | `allocator.py` |
-| `state/` | 快照、持久化、对账、崩溃恢复 | `snapshot.py`、`persistence.py`、`reconciliation.py` |
-| `live/` | 实盘编排与健康探针 | `supervisor.py`、`watchdog.py`、`readiness.py` |
-| `monitoring/` | Prometheus 指标、HTTP 健康接口、告警 | `metrics.py`、`alerting.py`、`health_server.py` |
-| `backtest/` | 回测引擎封装、滚动优化、市场状态检测 | `runner.py`、`walkforward.py`、`regime.py` |
-| `data/` | 数据加载、特征仓库、校验器 | `loaders.py`、`feature_store.py`、`validators.py` |
-| `exchange/` | Binance 合约适配器（NautilusTrader 胶水层） | `binance_adapter.py` |
-| `cache/` | Redis 客户端封装 | `redis_client.py` |
+| File | Description |
+|------|-------------|
+| `__init__.py` | Package marker; no public exports |
 
----
+## Subdirectories
 
-## 依赖方向（严格单向，禁止循环）
+| Module | Role |
+|--------|------|
+| `app/` | Dependency container, object factory, bootstrap entry points |
+| `core/` | Foundational primitives: EventBus, AppConfig, enums, constants, logging |
+| `strategy/` | BaseStrategy + five concrete strategies; signal generation only |
+| `execution/` | OrderRouter, SignalProcessor, FillHandler, RateLimiter, PositionSizer |
+| `risk/` | PreTradeRisk, RealTimeRisk, CircuitBreaker, DrawdownControl, PostTradeRisk |
+| `portfolio/` | PortfolioAllocator for multi-strategy capital allocation |
+| `state/` | TradePersistence (PostgreSQL), SnapshotManager, ReconciliationEngine, RecoveryManager |
+| `live/` | LiveSupervisor, Watchdog, readiness checks, warmup helpers |
+| `monitoring/` | Prometheus metrics, AlertManager, HealthServer, Grafana watchers |
+| `backtest/` | BacktestRunner and BacktestConfig wrapping NautilusTrader engine |
+| `data/` | Historical data download, catalog management |
+| `exchange/` | BinanceAdapter wrapping NautilusTrader TradingNode |
+| `cache/` | RedisClient wrapper for optional distributed state |
 
-```
-core  ←  strategy  ←  execution  ←  app
-              ↓              ↓
-            risk          portfolio
-              ↓              ↓
-            state         monitoring
-              ↓
-            live
-              ↓
-           exchange
-              ↓
-            cache
-```
+## For AI Agents
 
-`core` **零内部依赖**。其他所有包均可导入 `core`。
-`exchange` 和 `cache` 是叶子节点 — `src/` 内部只有 `app/` 和 `live/` 可以导入它们。
+### Architectural Rules — Read Before Editing
 
-**⚠ 已知偏差**：`risk/real_time.py`、`risk/circuit_breaker.py`、`execution/rate_limiter.py` 直接导入 `cache.RedisClient`，绕过了 Container 注入。当前无循环风险（`RedisClient` 仅依赖 `core`），但违反了 "只有 `app/` 和 `live/` 可导入 `cache`" 的约束。待决定：更新规则以反映现实，或重构为通过 Container 注入。
+1. **Strategies only emit signals.** A strategy must never call exchange APIs or submit orders directly. The sole output is a `SignalEvent` published to `EventBus` (live) or a direct `submit_order` call in backtest-local mode (no EventBus). Do not add order submission logic to any file under `strategy/`.
 
----
+2. **Cross-module communication is EventBus-only.** Modules must not import each other's classes to call methods directly. Publish an `Event` subclass; the subscriber handles it. The event taxonomy lives in `src/core/events.py`.
 
-## 不变量
+3. **All imports use `from src.xxx`.** The project is installed as an editable hatchling package. Never use relative imports (`from .foo`) or path-hacked imports.
 
-- `from __future__ import annotations` 是每个模块的**第一行**。
-- 禁止相对导入，始终使用 `from src.<包>.<模块> import ...`。
-- 禁止同层包之间产生循环引用。
-- 财务数值始终使用 `decimal.Decimal`，禁止 `float`。
-- 结构化日志：模块级 `logger = structlog.get_logger()`。
+4. **Module dependency layering** (lower layers must not import from higher layers):
+   ```
+   core/          ← no internal deps
+   cache/         ← core
+   state/         ← core, cache
+   risk/          ← core
+   portfolio/     ← core, risk
+   execution/     ← core, risk, portfolio, state
+   strategy/      ← core
+   exchange/      ← core
+   monitoring/    ← core
+   live/          ← core, execution, risk, state, exchange
+   backtest/      ← core, strategy, exchange
+   app/           ← all modules (composition root)
+   data/          ← core (standalone scripts)
+   ```
+
+5. **Config is Pydantic-validated at startup.** All configuration flows through `AppConfig` (assembled by `load_app_config()`). Invalid fields raise at import time — do not add `dict`-based config bypasses.
+
+6. **Container owns all singleton lifecycles.** Service instances live in `Container`. Never construct service objects outside `Container.build()` except in tests.
+
+### Testing Requirements
+
+- Run the full suite: `uv run pytest tests/`
+- Unit tests only: `uv run pytest tests/unit/ -v`
+- Integration tests: `uv run pytest tests/integration/ -v`
+- Async tests require no decorator — `asyncio_mode = "auto"` is set in `pyproject.toml`
+- Generate coverage: `uv run pytest --cov=src --cov-report=html`
+
+### Common Patterns
+
+- Structured logging: `logger.info("event_name", key=val)` via `structlog`
+- Signal publishing: `event_bus.publish(SignalEvent(...))`
+- Subscribing: `event_bus.subscribe(EventType.SIGNAL, handler_fn)`
+- Config access: always via `container.config.<section>.<field>`
+
+## Dependencies
+
+### Internal
+All modules depend on `src/core/` for `EventBus`, `AppConfig`, `EventType`, and `SignalDirection`.
+
+### External
+- `nautilus_trader` — trading engine, data types, backtest engine
+- `pydantic` / `pydantic-settings` — config validation and env var loading
+- `structlog` — structured logging
+- `psycopg` — PostgreSQL persistence
+- `redis` — optional distributed cache
+- `prometheus_client` — metrics exposition
+
+<!-- MANUAL: -->

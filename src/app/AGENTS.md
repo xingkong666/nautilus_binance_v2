@@ -1,62 +1,99 @@
-# AGENTS.md — src/app/
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-04-01 | Updated: 2026-04-01 -->
 
-应用组装层：依赖注入、对象工厂、启动引导入口。
+# app
 
----
+## Purpose
 
-## 文件说明
+Composition root for the entire trading system. Owns three responsibilities: (1) **Container** — singleton DI container that builds and tears down every service in dependency order; (2) **AppFactory** — stateless object factory that creates strategies, backtest runners, and BinanceAdapters from config; (3) **bootstrap** — entry-point helpers that wire container + factory together and expose clean lifecycle APIs for scripts, tests, and the live process.
 
-| 文件 | 职责 |
-|---|---|
-| `bootstrap.py` | 统一启动入口。`bootstrap()` → 裸 `Container`；`bootstrap_app()` → `AppContext`；`bootstrap_context()` → 上下文管理器形式；`run_live()` 组装完整实盘管道。 |
-| `container.py` | `Container` — 所有服务单例的唯一持有者。`build()` 按依赖顺序初始化；`teardown()` 逆序清理。 |
-| `factory.py` | `AppFactory` — 创建策略、`BacktestRunner`、`BinanceAdapter`。无状态，依赖 `Container` 获取配置和单例。 |
+## Key Files
 
----
+| File | Description |
+|------|-------------|
+| `container.py` | `Container` class — builds all service singletons in 8 ordered phases; exposes typed property accessors; `teardown()` releases resources in reverse order |
+| `factory.py` | `AppFactory` class — creates strategy `(cls, config)` tuples, `BacktestRunner`, and `BinanceAdapter`; stateless, always delegates to `Container` for already-built adapters |
+| `bootstrap.py` | `bootstrap()`, `bootstrap_app()`, `bootstrap_context()`, `run_live()`, `main()` — entry-point functions, SIGINT/SIGTERM handler, strategy registry, live-state recovery wiring |
 
-## Container 构建顺序
+## For AI Agents
 
-1. `EventBus`（若 monitoring 启用则挂载 Prometheus 钩子）
-2. `TradePersistence`、`SnapshotManager`
-3. `RedisClient`（失败时降级运行，不致命）
-4. `RateLimiter`、`IgnoredInstrumentRegistry`、`PositionSizer`
-5. `PreTradeRiskManager`、`CircuitBreaker`、`DrawdownController`、`RealTimeRiskMonitor`
-6. `PortfolioAllocator`（仅当配置中存在 `strategies.portfolio` 块时）
-7. `BinanceAdapter`（仅 `prod`/`staging` 或配置中存在 `exchange:` 块时）
-8. `FillHandler`、`OrderRouter`、`SignalProcessor`
-9. `AlertManager`、各 Watcher
-10. `PrometheusServer`、`HealthServer`（仅当 `monitoring.enabled=True`）
+### Working In This Directory
 
----
+**Container build order** (do not reorder; later phases depend on earlier ones):
+1. Infrastructure — `EventBus`, `TradePersistence`, `SnapshotManager`, `RedisClient`
+2. Execution layer — `RateLimiter`, `IgnoredInstrumentRegistry`, `PositionSizer`
+3. Risk layer — `PreTradeRiskManager`, `CircuitBreaker`, `DrawdownController`, `RealTimeRiskMonitor`
+4. Portfolio — `PortfolioAllocator` (only when `strategies.portfolio` block present in YAML)
+5. Exchange — `BinanceAdapter` (only for `prod`/`staging` or when `exchange:` block present)
+6. Fill & routing — `FillHandler`, `OrderRouter`, `SignalProcessor`
+7. Alerting — `AlertManager`, `BaseWatcher` list
+8. Monitoring — `PrometheusServer` (`:9090`), `HealthServer` (`:8080`) — only when `monitoring.enabled=true`
 
-## 策略注册表（`bootstrap.py` 中的 `_STRATEGY_REGISTRY`）
+**Critical lifecycle rules:**
+- Always call `container.build()` before accessing any property — accessing an unbuilt property raises `RuntimeError`.
+- `BinanceAdapter.stop()` is `async`. Call `await adapter.stop()` **before** `container.teardown()` in any async context; `teardown()` only warns if the adapter is still running.
+- For context-managed usage, prefer `bootstrap_context()` — it guarantees `teardown()` on exit.
+- `Redis` failure is non-fatal: `Container` degrades gracefully and logs `redis_unavailable_degraded_mode`.
 
-将 YAML 中的策略 `name` 映射到 `(策略类, 配置类)`：
+**Strategy registry** (`_STRATEGY_REGISTRY` in `bootstrap.py`):
+Currently registered: `ema_cross`, `ema_pullback_atr`, `turtle`, `micro_scalp`, `vegas_tunnel`.
+To add a new strategy, import the `(StrategyClass, ConfigClass)` pair and add it to `_STRATEGY_REGISTRY`.
 
-| 键名 | 策略类 | 配置类 |
-|---|---|---|
-| `ema_cross` | `EMACrossStrategy` | `EMACrossConfig` |
-| `ema_pullback_atr` | `EMAPullbackATRStrategy` | `EMAPullbackATRConfig` |
-| `turtle` | `TurtleStrategy` | `TurtleConfig` |
-| `micro_scalp` | `MicroScalpStrategy` | `MicroScalpConfig` |
-| `vegas_tunnel` | `VegasTunnelStrategy` | `VegasTunnelConfig` |
+**`AppFactory` methods:**
+- `create_ema_cross_strategy(symbol, interval, ...)` → `(EMACrossStrategy, EMACrossConfig)`
+- `create_ema_pullback_atr_strategy(...)` → `(EMAPullbackATRStrategy, EMAPullbackATRConfig)`
+- `create_turtle_strategy(...)` → `(TurtleStrategy, TurtleConfig)`
+- `create_micro_scalp_strategy(...)` → `(MicroScalpStrategy, MicroScalpConfig)`
+- `create_vegas_tunnel_strategy(...)` → `(VegasTunnelStrategy, VegasTunnelConfig)`
+- `create_strategy_from_config(strategy_cfg, symbol, interval)` — dynamic dispatch via strategy name string
+- `create_backtest_runner(start, end, symbols, interval, ...)` → `BacktestRunner`
+- `create_binance_adapter(symbols, leverages, environment, proxy_url)` → `BinanceAdapter` (reuses container instance if present)
 
-新增策略时：在 `_STRATEGY_REGISTRY` 中注册，**并**在 `AppFactory` 中添加对应的 `create_<name>_strategy()` 方法。
+### Testing Requirements
 
----
+- Use `bootstrap_context(env="dev")` in integration tests for automatic teardown.
+- `bootstrap(env=None)` without a `.env` file defaults to `env="dev"` via `EnvSettings`.
+- Tests that need a container without live infrastructure: mock `TradePersistence` and `RedisClient` or use `env="dev"` with `submit_orders=false`.
+- Async adapter tests: wrap in `asyncio.run()` or use `pytest-asyncio` (configured auto mode).
 
-## 关键模式
+### Common Patterns
 
-- **禁止在 `Container.build()` 之外实例化服务** — 所有单例均由容器持有。
-- `AppFactory` 是**无状态**的，读取 `container.config` 并委托构建。
-- `bootstrap_context()` 是脚本和测试推荐的形式，可保证 `teardown()` 被调用。
-- `run_live()` 是实盘模式的入口：依次调用 `ensure_live_readiness()`、构建策略、连接适配器、引导状态，最后调用阻塞式 `adapter.run()`。
-- `_bootstrap_live_state()` 在节点启动前从交易所拉取真实持仓/挂单，并将已有持仓加入 `IgnoredInstrumentRegistry`。
+```python
+# Minimal script usage
+container = bootstrap(env="dev")
+factory = AppFactory(container)
+runner = factory.create_backtest_runner(start, end)
+result = runner.run(EMACrossStrategy, config)
+container.teardown()
 
----
+# Preferred context-manager usage
+with bootstrap_context(env="dev") as ctx:
+    runner = ctx.factory.create_backtest_runner(start, end)
+    result = runner.run(EMACrossStrategy, config)
 
-## 常见陷阱
+# Live run (called by bootstrap.py main())
+run_live(env="prod", strategy_config="configs/strategies/ema_cross.yaml", symbol="BTCUSDT")
+```
 
-- 在异步上下文中，应先 `await adapter.stop()` 再调用 `container.teardown()`；顺序颠倒会记录警告。
-- `bootstrap()` 是惰性的 — **不会**启动 Prometheus 或 HealthServer；只有 `Container.build()` 在 `monitoring.enabled=True` 时才会启动。
-- 容器中的 `BinanceAdapter` 构建时**未启动**；需先调用 `adapter.prepare_runtime_config()` 和 `adapter.build_node()`，再调用 `adapter.run()`。
+## Dependencies
+
+### Internal
+- `src.core.config` — `AppConfig`, `EnvSettings`, `load_app_config`, `load_yaml`
+- `src.core.events` — `EventBus`
+- `src.core.logging` — `setup_logging`
+- `src.execution.*` — `OrderRouter`, `SignalProcessor`, `FillHandler`, `RateLimiter`, `PositionSizer`, `IgnoredInstrumentRegistry`
+- `src.risk.*` — `PreTradeRiskManager`, `CircuitBreaker`, `DrawdownController`, `RealTimeRiskMonitor`
+- `src.portfolio.allocator` — `PortfolioAllocator`
+- `src.state.*` — `TradePersistence`, `SnapshotManager`, `ReconciliationEngine`, `RecoveryManager`
+- `src.exchange.binance_adapter` — `BinanceAdapter`
+- `src.monitoring.*` — `AlertManager`, `PrometheusServer`, `HealthServer`, watchers
+- `src.live.*` — `LiveSupervisor`, `ensure_live_readiness`, `preload_strategies_warmup`
+- `src.backtest.runner` — `BacktestRunner`, `BacktestConfig`
+- `src.strategy.*` — all five concrete strategy classes and their configs
+
+### External
+- `nautilus_trader` — `BinanceEnvironment`, `BarType`, `InstrumentId`
+- `structlog` — structured logging
+- `pydantic` / `pydantic-settings` — config models
+
+<!-- MANUAL: -->
