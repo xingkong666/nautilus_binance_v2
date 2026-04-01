@@ -12,7 +12,7 @@ import structlog
 
 from src.monitoring.metrics import POST_TRADE_PNL, POST_TRADE_SLIPPAGE_BPS
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 @dataclass

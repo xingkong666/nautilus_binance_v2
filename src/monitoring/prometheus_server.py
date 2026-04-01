@@ -8,7 +8,7 @@ from typing import Any
 import structlog
 from prometheus_client import start_http_server
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class PrometheusServer:

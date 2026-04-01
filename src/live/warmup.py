@@ -13,7 +13,7 @@ from nautilus_trader.model.objects import Price, Quantity
 
 from src.strategy.base import BaseStrategy
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 _BAR_SPEC_RE = re.compile(r"(?P<count>\d+)-(?P<unit>SECOND|MINUTE|HOUR|DAY|WEEK|MONTH)")
 _BINANCE_FUTURES_HTTP_BASE_URLS: dict[BinanceEnvironment, str] = {

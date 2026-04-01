@@ -14,7 +14,7 @@ import structlog
 from src.core.events import EventBus, OrderIntentEvent, RiskAlertEvent
 from src.monitoring.metrics import LEVERAGE_UTILISATION, RISK_CHECKS_TOTAL
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 @dataclass

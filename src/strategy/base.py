@@ -27,7 +27,7 @@ from nautilus_trader.trading.strategy import Strategy
 
 from src.core.events import EventBus, SignalDirection, SignalEvent
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class BaseStrategyConfig(StrategyConfig, frozen=True):

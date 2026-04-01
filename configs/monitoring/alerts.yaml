@@ -22,7 +22,7 @@ alerting:
 
     - name: drawdown_warning
       level: ERROR
-      condition: "drawdown_pct > 3.0"
+      condition: "drawdown_pct > 10.0"   # Phase 1 threshold (was 3.0)
       message: "⚠️ 回撤预警: {drawdown_pct:.1f}%"
 
     - name: position_limit_warning
@@ -32,9 +32,25 @@ alerting:
 
     - name: order_fill_latency
       level: WARNING
-      condition: "fill_latency_ms > 1000"
+      condition: "fill_latency_ms > 500"   # was 1000
       message: "⏱️ 成交延迟: {fill_latency_ms}ms"
 
     - name: reconciliation_mismatch
       level: CRITICAL
       message: "🔴 对账不一致: {details}"
+
+# -----------------------------------------------------------------------
+# 监控缺口说明（Monitoring Gaps） — 以下告警规则已在 YAML 定义但无对应 Watcher 代码
+#
+# position_limit_warning:
+#   当前：仅 YAML 规则，无 Watcher 代码实现
+#   需要：新建 PositionLimitWatcher 订阅 PositionEvent，当 position_usd > max_position_size_usd * 0.8 时告警
+#
+# daily_pnl_milestone:
+#   需要：新建 DailyPnLWatcher 订阅 AccountEvent，按配置阈值触发每日盈亏里程碑告警
+#
+# strategy_health:
+#   需要：新建 StrategyHealthWatcher 订阅心跳事件，监控策略长时间无信号异常
+#
+# Phase 2 调整：将 drawdown_warning condition 改为 "drawdown_pct > 13.0"
+# -----------------------------------------------------------------------

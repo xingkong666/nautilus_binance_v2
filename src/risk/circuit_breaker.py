@@ -21,7 +21,7 @@ from src.monitoring.metrics import CIRCUIT_BREAKER_LEVEL, CIRCUIT_BREAKER_TRIGGE
 if TYPE_CHECKING:
     from src.cache.redis_client import RedisClient
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 # Redis key for circuit breaker state
 _CB_STATE_KEY = "nautilus:cb:state"

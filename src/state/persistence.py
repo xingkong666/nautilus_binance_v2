@@ -12,7 +12,7 @@ from typing import Any
 import psycopg
 import structlog
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class TradePersistence:

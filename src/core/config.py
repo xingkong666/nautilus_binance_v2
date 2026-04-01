@@ -70,6 +70,20 @@ class EnvSettings(BaseSettings):
     exchange_environment: str = ""
 
 
+class LoggingConfig(BaseModel):
+    """日志配置."""
+
+    level: str = "INFO"
+    level_file: str | None = None
+    format: str = "json"
+    console: bool = True
+    log_directory: str | None = None
+    log_file_name: str | None = None
+    log_colors: bool = True
+    log_component_levels: dict[str, str] = {}
+    bypass_nt_logging: bool = False
+
+
 class RiskConfig(BaseModel):
     """风控配置."""
 
@@ -191,6 +205,7 @@ class AppConfig(BaseModel):
     """应用总配置, 聚合所有子配置."""
 
     env: str = "dev"
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
     data: DataConfig = DataConfig()
     redis: RedisConfig = RedisConfig()
     cache: NautilusCacheConfig = Field(default_factory=NautilusCacheConfig)
@@ -245,9 +260,11 @@ def load_app_config(env: str | None = None) -> AppConfig:
     merged_live = deep_merge(env_cfg.get("live", {}), _env_live_overrides(env_settings))
     merged_exchange = deep_merge(env_cfg.get("exchange", {}), _env_exchange_overrides(env_settings))
     merged_cache = env_cfg.get("cache", {})
+    merged_logging = env_cfg.get("logging", {})
 
     return AppConfig(
         env=current_env,
+        logging=LoggingConfig(**merged_logging) if merged_logging else LoggingConfig(),
         data=DataConfig(**merged_data) if merged_data else DataConfig(),
         redis=RedisConfig(**merged_redis) if merged_redis else RedisConfig(),
         cache=NautilusCacheConfig(**merged_cache) if merged_cache else NautilusCacheConfig(),

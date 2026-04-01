@@ -83,3 +83,89 @@ small_capital:
         max_losses: 3
         action: reduce_only
         cooldown_minutes: 30
+
+# -----------------------------------------------------------------------
+# Phase 1 风控参数（2500U 本金）
+# 由 configs/env/phase1_small_cap.yaml 通过 risk 段直接覆盖
+#
+# 计算依据：
+#   单日止损上限   = 权益 × 6%   = 150 U（2500U 本金）
+#   单笔最大订单   = 权益 × 25%  = 625 U（名义敞口上限）
+#   最大总仓位     = 权益 × 100% = 2500 U
+#   回撤熔断       = 15%（更保守的 Phase 1 配置）
+#   连续亏损熔断   = 3 笔 / 10 分钟
+# -----------------------------------------------------------------------
+phase1:
+  pre_trade:
+    max_order_size_usd: 625
+    max_position_size_usd: 2500
+    max_leverage: 10
+    min_order_interval_ms: 500
+    max_open_orders: 12
+
+  real_time:
+    max_drawdown_pct: 15.0
+    daily_loss_limit_usd: 150
+    trailing_drawdown_pct: 10.0
+
+  circuit_breaker:
+    enabled: true
+    triggers:
+      - type: daily_loss
+        threshold_usd: 150
+        action: halt_all
+        cooldown_minutes: 60
+
+      - type: drawdown
+        threshold_pct: 15.0
+        action: halt_all
+        cooldown_minutes: 120
+
+      - type: rapid_loss
+        window_minutes: 10
+        max_losses: 3
+        action: reduce_only
+        cooldown_minutes: 30
+
+# -----------------------------------------------------------------------
+# Phase 2 风控参数（5000U 本金）
+# 由 configs/env/phase2_growth.yaml 通过 risk 段直接覆盖
+#
+# 计算依据：
+#   单日止损上限   = 权益 × 6%   = 300 U（5000U 本金）
+#   单笔最大订单   = 权益 × 25%  = 1250 U（名义敞口上限）
+#   最大总仓位     = 权益 × 100% = 5000 U
+#   回撤熔断       = 20%（成长阶段允许更大波动）
+#   连续亏损熔断   = 3 笔 / 10 分钟
+# -----------------------------------------------------------------------
+phase2:
+  pre_trade:
+    max_order_size_usd: 1250
+    max_position_size_usd: 5000
+    max_leverage: 10
+    min_order_interval_ms: 500
+    max_open_orders: 15
+
+  real_time:
+    max_drawdown_pct: 20.0
+    daily_loss_limit_usd: 300
+    trailing_drawdown_pct: 13.0
+
+  circuit_breaker:
+    enabled: true
+    triggers:
+      - type: daily_loss
+        threshold_usd: 300
+        action: halt_all
+        cooldown_minutes: 60
+
+      - type: drawdown
+        threshold_pct: 20.0
+        action: halt_all
+        cooldown_minutes: 120
+
+      - type: rapid_loss
+        window_minutes: 10
+        max_losses: 3
+        action: reduce_only
+        cooldown_minutes: 30

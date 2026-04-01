@@ -10,7 +10,7 @@ import time
 import httpx
 import structlog
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 # 最大可接受偏差 (毫秒)
 MAX_OFFSET_MS = 500

@@ -14,7 +14,7 @@ import structlog
 if TYPE_CHECKING:
     from src.cache.redis_client import RedisClient
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 # Redis keys
 _RL_SECOND_KEY = "nautilus:rl:orders:second"

@@ -19,7 +19,7 @@ import structlog
 
 from src.backtest.runner import BacktestRunResult
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # 报告生成器

@@ -11,7 +11,7 @@ import structlog
 
 from src.monitoring.metrics import DRAWDOWN_THRESHOLD_UTILISATION
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class DrawdownController:

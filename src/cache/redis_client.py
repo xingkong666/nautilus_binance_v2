@@ -25,7 +25,7 @@ from redis.exceptions import RedisError
 if TYPE_CHECKING:
     from src.core.config import RedisConfig
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class RedisClient:

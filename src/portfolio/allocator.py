@@ -20,7 +20,7 @@ import structlog
 from src.execution.order_intent import OrderIntent
 from src.risk.drawdown_control import DrawdownController
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------

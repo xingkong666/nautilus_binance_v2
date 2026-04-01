@@ -12,7 +12,7 @@ import structlog
 
 from src.execution.order_intent import OrderIntent
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class ExecAlgorithm(ABC):

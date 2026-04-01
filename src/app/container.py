@@ -50,7 +50,7 @@ from src.state.snapshot import SnapshotManager
 if TYPE_CHECKING:
     from src.core.config import AppConfig
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class Container:
@@ -224,6 +224,7 @@ class Container:
                     retry_delay_max_ms=exchange_cfg.get("retry_delay_max_ms"),
                     cache=cache_settings.cache,
                     instance_id=cache_settings.instance_id,
+                    log_level=cfg.logging.level,
                 )
             )
             logger.info(

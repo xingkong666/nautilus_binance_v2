@@ -18,7 +18,7 @@ from src.execution.rate_limiter import RateLimiter
 from src.risk.position_sizer import PositionSizer
 from src.risk.pre_trade import PreTradeRiskManager
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class SignalProcessor:

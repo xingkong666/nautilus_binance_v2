@@ -37,7 +37,7 @@ from src.core.exceptions import ExecutionError
 from src.core.nautilus_cache import build_nautilus_cache_settings
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------

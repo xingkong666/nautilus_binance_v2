@@ -12,7 +12,7 @@ import structlog
 
 from src.monitoring.metrics import POSITION_SIZER_OUTPUT
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class PositionSizer:

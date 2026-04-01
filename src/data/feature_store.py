@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 import structlog
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class FeatureStore:

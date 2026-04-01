@@ -13,7 +13,7 @@ import structlog
 
 from src.core.events import EventBus, RiskAlertEvent
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 @dataclass

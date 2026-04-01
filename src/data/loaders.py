@@ -27,7 +27,7 @@ from src.core.enums import INTERVAL_TO_NAUTILUS, Interval, TraderType
 from src.core.exceptions import DataError
 from src.data.validators import validate_data_completeness, validate_kline_dataframe
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # 下载器

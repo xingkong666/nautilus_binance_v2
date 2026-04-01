@@ -33,7 +33,7 @@ from src.strategy.micro_scalp import MicroScalpConfig, MicroScalpStrategy
 from src.strategy.turtle import TurtleConfig, TurtleStrategy
 from src.strategy.vegas_tunnel import VegasTunnelConfig, VegasTunnelStrategy
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class AppFactory:

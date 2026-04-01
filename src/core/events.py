@@ -15,7 +15,7 @@ from typing import Any
 
 import structlog
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 @unique
@@ -56,9 +56,9 @@ class EventType(Enum):
 class SignalDirection(Enum):
     """信号方向."""
 
-    LONG = "long"
-    SHORT = "short"
-    FLAT = "flat"
+    LONG = "long"  # 做多
+    SHORT = "short"  # 做空
+    FLAT = "flat"  # 平仓
 
 
 @dataclass(frozen=True)
@@ -165,14 +165,14 @@ class EventBus:
         for handler in self._global_handlers:
             try:
                 handler(event)
-            except Exception:
+            except (TypeError, AttributeError, RuntimeError):
                 logger.exception("global_event_handler_error", event_type=event.event_type.value)
 
         # 特定类型处理器
         for handler in self._handlers.get(event.event_type, []):
             try:
                 handler(event)
-            except Exception:
+            except (TypeError, AttributeError, RuntimeError):
                 logger.exception("event_handler_error", event_type=event.event_type.value)
 
     def clear(self) -> None:

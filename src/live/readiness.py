@@ -11,7 +11,7 @@ import structlog
 from src.core.config import AppConfig, EnvSettings, load_yaml
 from src.core.constants import CONFIGS_DIR
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 _STABLECOIN_ASSETS = frozenset(
     {

@@ -49,7 +49,7 @@ from src.strategy.micro_scalp import MicroScalpConfig, MicroScalpStrategy
 from src.strategy.turtle import TurtleConfig, TurtleStrategy
 from src.strategy.vegas_tunnel import VegasTunnelConfig, VegasTunnelStrategy
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 _STRATEGY_REGISTRY: dict[str, tuple[type[BaseStrategy], type[BaseStrategyConfig]]] = {
@@ -87,21 +87,30 @@ class AppContext:
 # ---------------------------------------------------------------------------
 
 
-def bootstrap(env: str | None = None, log_level: str = "INFO") -> Container:
+def bootstrap(env: str | None = None, log_level: str | None = None) -> Container:
     """加载配置、初始化日志、构建并返回 Container.
 
     这是最轻量的启动方式，返回裸 Container，适合脚本场景。
+    日志配置优先从 AppConfig.logging 读取（YAML 驱动），
+    log_level 参数作为覆盖（用于命令行 --log-level）。
 
     Args:
         env: 运行环境标识（dev/stage/prod），None 时从 .env 文件读取。
-        log_level: 日志级别，默认 INFO。
+        log_level: 日志级别覆盖（优先于 config.logging.level）。
+            None 表示完全使用配置文件中的值。
 
     Returns:
         已 build 的 Container 实例。
 
     """
     config = load_app_config(env=env)
-    setup_logging(level=log_level)
+    # 若命令行指定了 log_level，覆盖 config 中的值
+    effective_logging_cfg = config.logging
+    if log_level is not None:
+        from src.core.config import LoggingConfig
+
+        effective_logging_cfg = LoggingConfig(**{**config.logging.model_dump(), "level": log_level})
+    setup_logging(nautilus_cfg=effective_logging_cfg)
 
     logger.info("app_bootstrap", env=config.env)
 
@@ -111,14 +120,14 @@ def bootstrap(env: str | None = None, log_level: str = "INFO") -> Container:
     return container
 
 
-def bootstrap_app(env: str | None = None, log_level: str = "INFO") -> AppContext:
+def bootstrap_app(env: str | None = None, log_level: str | None = None) -> AppContext:
     """完整启动应用，返回包含 container + factory 的 AppContext.
 
     适合需要同时使用容器和工厂的场景（大多数情况推荐此函数）。
 
     Args:
         env: 运行环境标识。
-        log_level: 日志级别。
+        log_level: 日志级别覆盖（优先于配置文件），None 表示使用配置文件。
 
     Returns:
         AppContext，含 config / container / factory。
@@ -137,7 +146,7 @@ def bootstrap_app(env: str | None = None, log_level: str = "INFO") -> AppContext
 @contextmanager
 def bootstrap_context(
     env: str | None = None,
-    log_level: str = "INFO",
+    log_level: str | None = None,
 ) -> Generator[AppContext]:
     """上下文管理器形式的启动，退出时自动 teardown.
 
@@ -145,7 +154,7 @@ def bootstrap_context(
 
     Args:
         env: 运行环境标识。
-        log_level: 日志级别。
+        log_level: 日志级别覆盖，None 表示使用配置文件。
 
     Yields:
         AppContext，含 config / container / factory。
@@ -346,7 +355,7 @@ def _parse_args() -> argparse.Namespace:
 
 def run_live(
     env: str | None = None,
-    log_level: str = "INFO",
+    log_level: str | None = None,
     strategy_config: str = "",
     symbol: str = "",
     symbols: list[str] | None = None,
@@ -358,7 +367,7 @@ def run_live(
 
     Args:
         env: Environment config path or environment name.
-        log_level: Logging level for the run.
+        log_level: Logging level override (None = use config file).
         strategy_config: Strategy config path or object.
         symbol: Trading symbol to process.
         symbols: Trading symbols to process.

@@ -10,7 +10,7 @@ import structlog
 from src.state.reconciliation import ReconciliationEngine, ReconciliationResult
 from src.state.snapshot import PositionSnapshot, SnapshotManager, SystemSnapshot
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class RecoveryManager:

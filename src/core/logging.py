@@ -1,64 +1,128 @@
-"""结构化日志.
+"""结构化日志 — 深度集成 NautilusTrader 日志系统.
 
-使用 structlog 提供 JSON 格式日志, 方便后续接入 ELK / Loki.
+使用 structlog 提供 JSON 格式日志。NautilusTrader 内部 Rust 日志的
+``use_pyo3=True`` 桥接由 ``TradingNodeConfig.logging`` 负责（在
+``BinanceAdapterConfig._build_node_config()`` 中设置），无需在此处
+重复初始化 NT 日志系统。
+
+架构:
+    NT Rust Logger ──(use_pyo3=True, 由 TradingNodeConfig 激活)──►
+    structlog loggers ─────────────────────────────────────────────►
+                                    Python logging.Handler
+                                            │
+                                            ▼
+                                    structlog processor chain
+                                            │
+                                            ▼
+                                    stdout (JSON or Console)
+
+注意: ``use_pyo3=True`` 的激活在 ``BinanceAdapter._build_node_config()``
+中通过 ``LoggingConfig(use_pyo3=True)`` 完成。``setup_logging()`` 只负责
+配置 Python structlog / stdlib logging 层，不调用 NT ``init_logging()``，
+避免 API 不兼容问题。
 """
 
 from __future__ import annotations
 
 import logging
 import sys
-from typing import Any, cast
+import threading
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
+if TYPE_CHECKING:
+    from src.core.config import LoggingConfig
 
-def setup_logging(level: str = "INFO", json_format: bool = True, console: bool = True) -> None:
-    """初始化结构化日志.
+# 防止重复配置 structlog（structlog.configure 是幂等的，但 stdlib handler 重置需保护）
+_INITIALIZED: bool = False
+_INIT_LOCK: threading.Lock = threading.Lock()
+
+
+def setup_logging(
+    level: str = "INFO",
+    json_format: bool = True,
+    console: bool = True,
+    nautilus_cfg: LoggingConfig | None = None,
+) -> None:
+    """初始化结构化日志（structlog + Python stdlib logging）.
+
+    配置 structlog 处理链和 Python 标准库 logging handler，使所有日志
+    以统一格式输出到 stdout。NautilusTrader 内部 Rust 日志的 pyo3 桥接
+    由 ``BinanceAdapter._build_node_config()`` 中的
+    ``LoggingConfig(use_pyo3=True)`` 负责，无需在此调用 NT ``init_logging()``。
 
     Args:
-        level: 日志级别 (DEBUG/INFO/WARNING/ERROR/CRITICAL)
-        json_format: 是否输出 JSON 格式
-        console: 是否输出到控制台
+        level: 日志级别 (DEBUG/INFO/WARNING/ERROR/CRITICAL)。
+            若提供了 nautilus_cfg，则由 cfg.level 覆盖此参数。
+        json_format: 是否输出 JSON 格式（False 则彩色控制台）。
+            若提供了 nautilus_cfg，则由 cfg.format 决定。
+        console: 是否输出到控制台。
+            若提供了 nautilus_cfg，则由 cfg.console 决定。
+        nautilus_cfg: 来自 AppConfig 的 LoggingConfig，若提供则
+            优先使用其中的 level / format / console 字段。
 
     """
+    global _INITIALIZED  # noqa: PLW0603
+
+    # 从 nautilus_cfg 中提取参数（优先级高于位置参数）
+    if nautilus_cfg is not None:
+        level = nautilus_cfg.level
+        json_format = nautilus_cfg.format.lower() != "console"
+        console = nautilus_cfg.console
+
     log_level = getattr(logging, level.upper(), logging.INFO)
 
-    # structlog 处理链
-    processors: list[Any] = [
-        structlog.contextvars.merge_contextvars,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.UnicodeDecoder(),
-    ]
+    with _INIT_LOCK:
+        if _INITIALIZED:
+            # structlog 已配置，仅更新 stdlib logging 级别（允许动态调整）
+            logging.getLogger().setLevel(log_level)
+            return
 
-    if json_format:
-        processors.append(structlog.processors.JSONRenderer())
-    else:
-        processors.append(structlog.dev.ConsoleRenderer())
+        # -------------------------------------------------------------------
+        # 1. 配置 structlog 处理链
+        # -------------------------------------------------------------------
+        processors: list[Any] = [
+            structlog.contextvars.merge_contextvars,
+            structlog.stdlib.add_logger_name,
+            structlog.stdlib.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.UnicodeDecoder(),
+        ]
 
-    structlog.configure(
-        processors=processors,
-        wrapper_class=structlog.stdlib.BoundLogger,
-        context_class=dict,
-        logger_factory=structlog.stdlib.LoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
+        if json_format:
+            processors.append(structlog.processors.JSONRenderer())
+        else:
+            processors.append(structlog.dev.ConsoleRenderer())
 
-    # 标准库 logging 配置
-    handler = logging.StreamHandler(sys.stdout) if console else logging.NullHandler()
-    handler.setLevel(log_level)
+        structlog.configure(
+            processors=processors,
+            wrapper_class=structlog.stdlib.BoundLogger,
+            context_class=dict,
+            logger_factory=structlog.stdlib.LoggerFactory(),
+            cache_logger_on_first_use=True,
+        )
 
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
-    root_logger.handlers = [handler]
+        # -------------------------------------------------------------------
+        # 2. 标准库 logging 配置
+        # -------------------------------------------------------------------
+        handler: logging.Handler = logging.StreamHandler(sys.stdout) if console else logging.NullHandler()
+        handler.setLevel(log_level)
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_level)
+        root_logger.handlers = [handler]
+
+        _INITIALIZED = True
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """获取 logger 实例.
 
     Args:
-        name: Redis key or resource name.
+        name: Logger 名称，通常传入 ``__name__`` 以标识模块来源。
     """
+    from typing import cast
+
     return cast("structlog.stdlib.BoundLogger", structlog.get_logger(name))

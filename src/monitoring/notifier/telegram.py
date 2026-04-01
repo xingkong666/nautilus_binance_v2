@@ -20,7 +20,7 @@ import structlog
 
 from src.monitoring.notifier.base import AlertLevel, AlertMessage, BaseNotifier
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 

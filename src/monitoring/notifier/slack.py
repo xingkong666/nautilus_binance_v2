@@ -19,7 +19,7 @@ import structlog
 
 from src.monitoring.notifier.base import AlertLevel, AlertMessage, BaseNotifier
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 # 告警级别对应的 Slack attachment color
 _LEVEL_COLORS = {

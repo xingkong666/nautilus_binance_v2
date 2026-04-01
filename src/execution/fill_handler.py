@@ -11,7 +11,7 @@ from src.core.events import Event, EventBus, EventType
 from src.risk.post_trade import PostTradeAnalyzer, TradeAnalysis
 from src.state.persistence import TradePersistence
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 class FillHandler:

@@ -28,7 +28,7 @@ from src.core.events import Event, EventBus, EventType, RiskAlertEvent
 from src.monitoring.alerting import AlertManager
 from src.monitoring.notifier.base import AlertLevel
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------

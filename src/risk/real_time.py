@@ -17,7 +17,7 @@ from src.monitoring.metrics import DAILY_LOSS_UTILISATION
 if TYPE_CHECKING:
     from src.cache.redis_client import RedisClient
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 # Redis key for real-time risk metrics
 _RISK_METRICS_KEY = "nautilus:risk:metrics"

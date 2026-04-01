@@ -131,6 +131,7 @@ class BinanceAdapterConfig:
     exec_engine: dict[str, Any] = field(default_factory=dict)
     risk_engine: dict[str, Any] = field(default_factory=dict)
     logging: dict[str, Any] = field(default_factory=dict)
+    log_level: str = "INFO"
     cache: CacheConfig | None = None
     instance_id: UUID4 | None = None
 
@@ -561,9 +562,11 @@ class BinanceAdapter:
         }
         risk_engine_defaults.update(self.config.risk_engine)
 
-        # Logging 默认配置
+        # Logging 默认配置：从 config.log_level 读取，并启用 pyo3 桥接
+        # use_pyo3=True 将 NT Rust 日志桥接到 Python logging / structlog 管道
         logging_defaults: dict[str, Any] = {
-            "log_level": "INFO",
+            "log_level": self.config.log_level,
+            "use_pyo3": True,
         }
         logging_defaults.update(self.config.logging)
 
