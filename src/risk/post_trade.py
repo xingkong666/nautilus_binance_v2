@@ -10,6 +10,8 @@ from decimal import Decimal
 
 import structlog
 
+from src.monitoring.metrics import POST_TRADE_PNL, POST_TRADE_SLIPPAGE_BPS
+
 logger = structlog.get_logger()
 
 
@@ -78,6 +80,14 @@ class PostTradeAnalyzer:
             trade: Trade payload to record or analyze.
         """
         self._trades.append(trade)
+
+        # 更新 Prometheus 指标
+        POST_TRADE_SLIPPAGE_BPS.observe(trade.slippage_bps)
+        POST_TRADE_PNL.labels(
+            strategy_id="unknown",  # TODO: extract from trade context
+            instrument=trade.instrument_id,
+        ).set(float(trade.pnl))
+
         logger.info(
             "trade_recorded",
             instrument=trade.instrument_id,

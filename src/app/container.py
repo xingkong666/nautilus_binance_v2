@@ -12,7 +12,10 @@
 
 from __future__ import annotations
 
+import datetime as _dt
+import threading
 from contextlib import suppress
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -21,6 +24,7 @@ from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
 from src.cache.redis_client import RedisClient
 from src.core.config import EnvSettings
 from src.core.events import EventBus
+from src.core.exceptions import ConfigError, RiskError
 from src.core.nautilus_cache import build_nautilus_cache_settings
 from src.exchange.binance_adapter import BinanceAdapter, BinanceAdapterConfig
 from src.execution.fill_handler import FillHandler
@@ -37,6 +41,7 @@ from src.portfolio.allocator import PortfolioAllocator
 from src.risk.circuit_breaker import CircuitBreaker
 from src.risk.drawdown_control import DrawdownController
 from src.risk.position_sizer import PositionSizer
+from src.risk.post_trade import PostTradeAnalyzer
 from src.risk.pre_trade import PreTradeRiskManager
 from src.risk.real_time import RealTimeRiskMonitor
 from src.state.persistence import TradePersistence
@@ -77,6 +82,7 @@ class Container:
         self._circuit_breaker: CircuitBreaker | None = None
         self._drawdown_controller: DrawdownController | None = None
         self._real_time_risk_monitor: RealTimeRiskMonitor | None = None
+        self._post_trade_analyzer: PostTradeAnalyzer | None = None
         self._fill_handler: FillHandler | None = None
         self._order_router: OrderRouter | None = None
         self._signal_processor: SignalProcessor | None = None
@@ -86,6 +92,7 @@ class Container:
         self._prometheus_server: PrometheusServer | None = None
         self._portfolio_allocator: PortfolioAllocator | None = None
         self._binance_adapter: BinanceAdapter | None = None
+        self._daily_reset_timer: threading.Timer | None = None
 
     # ------ 生命周期 ------
 
@@ -115,7 +122,7 @@ class Container:
             self._redis_client = RedisClient(cfg.redis)
             if not self._redis_client.is_available:
                 logger.warning("redis_unavailable_degraded_mode")
-        except Exception as exc:
+        except (ConnectionError, OSError, ValueError) as exc:
             logger.warning("redis_init_failed", error=str(exc))
             self._redis_client = None
 
@@ -146,6 +153,9 @@ class Container:
             redis_client=self._redis_client,
         )
 
+        # Initialize PostTradeAnalyzer
+        self._post_trade_analyzer = PostTradeAnalyzer()
+
         # 4. 资金分配
         portfolio_cfg = cfg.strategies.get("portfolio", {})
         if portfolio_cfg:
@@ -175,7 +185,8 @@ class Container:
                         "reserve_pct": float(portfolio_cfg.get("reserve_pct", 5.0)),
                         "min_allocation": str(portfolio_cfg.get("min_allocation", "100")),
                         "strategies": alloc_strategies,
-                    }
+                    },
+                    drawdown_controller=self._drawdown_controller,
                 )
                 logger.info(
                     "portfolio_allocator_registered",
@@ -225,6 +236,7 @@ class Container:
         self._fill_handler = FillHandler(
             event_bus=self._event_bus,
             persistence=self._persistence,
+            post_trade_analyzer=self._post_trade_analyzer,
         )
         self._order_router = OrderRouter(
             event_bus=self._event_bus,
@@ -236,6 +248,7 @@ class Container:
             pre_trade_risk=self._pre_trade_risk,
             rate_limiter=self._rate_limiter,
             ignored_instruments=self._ignored_instruments,
+            position_sizer=self._position_sizer,
         )
 
         # 7. 告警
@@ -259,6 +272,9 @@ class Container:
             self._health_server.start()
             logger.info("health_server_started", port=8080)
 
+        # 9. 日风控重置定时器
+        self._schedule_daily_reset()
+
         self._built = True
         logger.info("container_built", env=cfg.env)
         return self
@@ -270,22 +286,27 @@ class Container:
         """
         logger.info("container_teardown")
 
+        # Cancel daily reset timer
+        _reset_timer = getattr(self, "_daily_reset_timer", None)
+        if _reset_timer is not None:
+            _reset_timer.cancel()
+
         if self._alert_manager is not None:
             try:
                 self._alert_manager.stop()
-            except Exception:
+            except (AttributeError, OSError, RuntimeError):
                 logger.exception("alert_manager_stop_failed")
 
         if self._health_server is not None:
             try:
                 self._health_server.stop()
-            except Exception:
+            except (AttributeError, OSError, RuntimeError):
                 logger.exception("health_server_stop_failed")
 
         if self._prometheus_server is not None:
             try:
                 self._prometheus_server.stop()
-            except Exception:
+            except (AttributeError, OSError, RuntimeError):
                 logger.exception("prometheus_server_stop_failed")
 
         if self._binance_adapter and self._binance_adapter.is_started:
@@ -299,13 +320,13 @@ class Container:
         if self._persistence:
             try:
                 self._persistence.close()
-            except Exception:
+            except (AttributeError, OSError, ConnectionError):
                 logger.exception("persistence_close_failed")
 
         if self._redis_client is not None:
             try:
                 self._redis_client.close()
-            except Exception:
+            except (AttributeError, OSError, ConnectionError):
                 logger.exception("redis_close_failed")
 
         if self._event_bus is not None:
@@ -313,6 +334,36 @@ class Container:
 
         self._built = False
         logger.info("container_teardown_done")
+
+    def _schedule_daily_reset(self) -> None:
+        """Schedule daily reset to fire at next UTC midnight."""
+        now_utc = _dt.datetime.now(_dt.UTC)
+        next_midnight = (now_utc + _dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        delay_s = (next_midnight - now_utc).total_seconds()
+        t = threading.Timer(delay_s, self._midnight_reset)
+        t.daemon = True
+        t.name = "risk-daily-reset"
+        t.start()
+        self._daily_reset_timer = t
+
+    def _midnight_reset(self) -> None:
+        """Reset daily risk metrics at UTC midnight."""
+        try:
+            equity = Decimal("0")
+            if hasattr(self, "_redis_client") and self._redis_client is not None:
+                try:
+                    data = self._redis_client.hgetall("nautilus:risk:metrics") or {}
+                    equity_str = data.get("current_equity", "0")
+                    equity = Decimal(equity_str) if equity_str else Decimal("0")
+                except (ConnectionError, KeyError, ValueError, TypeError):
+                    pass
+            if self._real_time_risk_monitor is not None:
+                self._real_time_risk_monitor.reset_daily(equity)
+            logger.info("risk_daily_reset_scheduled_fired")
+        except (RiskError, AttributeError, RuntimeError) as exc:
+            logger.error("risk_daily_reset_failed", error=str(exc))
+        finally:
+            self._schedule_daily_reset()
 
     def _ensure_built(self) -> None:
         """确保容器已调用 build()，否则抛出异常.
@@ -345,7 +396,7 @@ class Container:
                 "telegram_bot_token": s.telegram_bot_token,
                 "telegram_chat_id": s.telegram_chat_id,
             }
-        except Exception:
+        except (ConfigError, ValueError, AttributeError):
             return {}
 
     @staticmethod
@@ -520,6 +571,18 @@ class Container:
         self._ensure_built()
         assert self._real_time_risk_monitor is not None
         return self._real_time_risk_monitor
+
+    @property
+    def post_trade_analyzer(self) -> PostTradeAnalyzer:
+        """返回事后交易分析器.
+
+        Raises:
+            RuntimeError: 容器未 build。
+
+        """
+        self._ensure_built()
+        assert self._post_trade_analyzer is not None
+        return self._post_trade_analyzer
 
     @property
     def fill_handler(self) -> FillHandler:

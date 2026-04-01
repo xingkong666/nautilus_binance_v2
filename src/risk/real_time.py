@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from src.core.events import EventBus, RiskAlertEvent
+from src.monitoring.metrics import DAILY_LOSS_UTILISATION
 
 if TYPE_CHECKING:
     from src.cache.redis_client import RedisClient
@@ -92,6 +93,11 @@ class RealTimeRiskMonitor:
         # 计算日PnL
         self._daily_pnl = current_equity - self._initial_equity
 
+        # 更新日损失使用率指标
+        if self._daily_loss_limit_usd > 0:
+            loss_utilization = max(0.0, min(float(-self._daily_pnl / self._daily_loss_limit_usd), 1.0))
+            DAILY_LOSS_UTILISATION.set(loss_utilization)
+
         # 1. 最大回撤检查
         if drawdown_pct >= self._max_drawdown_pct:
             alert_key = "max_drawdown"
@@ -144,7 +150,7 @@ class RealTimeRiskMonitor:
                     "updated_at_ns": str(time.time_ns()),
                 },
             )
-        except Exception as exc:
+        except (ConnectionError, OSError, AttributeError) as exc:
             logger.warning("risk_metrics_redis_push_failed", error=str(exc))
 
     def reset_daily(self, equity: Decimal) -> None:

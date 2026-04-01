@@ -24,6 +24,7 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.persistence.wranglers_v2 import BarDataWranglerV2
 
 from src.core.enums import INTERVAL_TO_NAUTILUS, Interval, TraderType
+from src.core.exceptions import DataError
 from src.data.validators import validate_data_completeness, validate_kline_dataframe
 
 logger = structlog.get_logger()
@@ -90,9 +91,9 @@ class BaseBinanceDownloader:
             if not text:
                 return None
             return text.split()[0]
-        except Exception:
-            logger.warning("checksum_download_failed", url=url)
-            return None
+        except (httpx.HTTPError, ConnectionError, TimeoutError) as e:
+            logger.warning("checksum_download_failed", url=url, error=str(e))
+            raise DataError(f"Failed to download checksum from {url}", context={"url": url, "error": str(e)}) from e
 
     def _validate_existing_csv(self, csv_path: Path) -> bool:
         """断点续传时校验本地 CSV 是否有效.
@@ -487,8 +488,12 @@ class KlineCatalogLoader:
                 end=end_ns,
             )
             return len(data) > 0
-        except Exception:
-            return False
+        except (OSError, ValueError, AttributeError) as e:
+            logger.error("catalog_bars_query_failed", bar_type=str(bar_type), error=str(e))
+            raise DataError(
+                f"Failed to query bars from catalog for {bar_type}",
+                context={"bar_type": str(bar_type), "error": str(e)},
+            ) from e
 
     # ------ 单文件加载 ------
 
@@ -578,8 +583,11 @@ class KlineCatalogLoader:
                 total += count
                 if cleanup_raw and csv_path.exists():
                     csv_path.unlink(missing_ok=True)
-            except Exception:
+            except (OSError, ValueError, pd.errors.ParserError) as e:
                 logger.exception("catalog_load_error", csv=str(csv_path))
+                raise DataError(
+                    f"Failed to load CSV {csv_path}", context={"csv_path": str(csv_path), "error": str(e)}
+                ) from e
         logger.info("batch_catalog_load_done", total_bars=total, files=len(csv_paths))
         return total
 
@@ -687,8 +695,11 @@ class DataPipeline:
             gaps = validate_data_completeness(df_all)
             if gaps:
                 logger.warning("data_gaps_report", symbol=symbol, gap_count=len(gaps), gaps=gaps)
-        except Exception:
+        except (ValueError, TypeError, KeyError) as e:
             logger.exception("data_gap_check_failed", symbol=symbol)
+            raise DataError(
+                f"Failed to check data gaps for {symbol}", symbol=symbol, context={"symbol": symbol, "error": str(e)}
+            ) from e
 
         logger.info(
             "pipeline_done",

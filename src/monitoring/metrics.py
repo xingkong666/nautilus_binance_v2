@@ -66,6 +66,44 @@ CIRCUIT_BREAKER_TRIGGERED = Counter(
     ["trigger_type"],
 )
 
+CIRCUIT_BREAKER_LEVEL = Gauge(
+    "risk_circuit_breaker_level",
+    "熔断器当前状态级别 (0=正常, 1=警告, 2=严重, 3=致命)",
+)
+
+DRAWDOWN_THRESHOLD_UTILISATION = Gauge(
+    "risk_drawdown_threshold_utilisation",
+    "回撤阈值使用率 (0.0-1.0, 1.0表示达到临界阈值)",
+)
+
+DAILY_LOSS_UTILISATION = Gauge(
+    "risk_daily_loss_utilisation",
+    "日损失阈值使用率 (0.0-1.0, 1.0表示达到最大日损失限制)",
+)
+
+LEVERAGE_UTILISATION = Gauge(
+    "risk_leverage_utilisation",
+    "杠杆使用率 (0.0-1.0, 1.0表示达到最大杠杆)",
+)
+
+POSITION_SIZER_OUTPUT = Histogram(
+    "risk_position_sizer_output",
+    "仓位计算器输出分布 (单位: 基础货币数量)",
+    buckets=[0.001, 0.01, 0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0],
+)
+
+POST_TRADE_SLIPPAGE_BPS = Histogram(
+    "risk_post_trade_slippage_bps",
+    "成交后滑点分析 (单位: 基点 bps)",
+    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0],
+)
+
+POST_TRADE_PNL = Gauge(
+    "risk_post_trade_pnl",
+    "成交后 PnL 分析 (USDT)",
+    ["strategy_id", "instrument"],
+)
+
 # ---------------------------------------------------------------------------
 # 系统指标
 # ---------------------------------------------------------------------------

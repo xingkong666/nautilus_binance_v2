@@ -18,6 +18,7 @@ from typing import Any
 import structlog
 
 from src.execution.order_intent import OrderIntent
+from src.risk.drawdown_control import DrawdownController
 
 logger = structlog.get_logger()
 
@@ -109,7 +110,11 @@ class PortfolioAllocator:
 
     """
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        drawdown_controller: DrawdownController | None = None,
+    ) -> None:
         """初始化分配器.
 
         Args:
@@ -118,6 +123,7 @@ class PortfolioAllocator:
                 - reserve_pct (float): 预留资金比例（%），默认 5.0。
                 - min_allocation (str): 单策略最低分配金额（USDT），默认 "100"。
                 - strategies (list[dict]): 策略分配配置列表。
+            drawdown_controller: 回撤控制器，用于动态调整仓位大小。
 
         Raises:
             ValueError: 若策略列表为空或模式不合法。
@@ -147,6 +153,9 @@ class PortfolioAllocator:
 
         # 策略维度的风险波动率（risk_parity 模式使用），外部通过 update_volatility 注入
         self._volatilities: dict[str, float] = {}
+
+        # 回撤控制器
+        self._drawdown_controller = drawdown_controller
 
         logger.info(
             "portfolio_allocator_initialized",
@@ -178,6 +187,15 @@ class PortfolioAllocator:
 
         # 预留储备金
         deployable = total_capital * Decimal(str((100.0 - self._reserve_pct) / 100.0))
+
+        # 应用回撤控制的仓位乘数
+        dd_multiplier = Decimal("1.0")
+        if self._drawdown_controller is not None:
+            raw_mult = self._drawdown_controller.get_size_multiplier(total_capital)
+            dd_multiplier = Decimal(str(raw_mult))
+            if raw_mult < 1.0:
+                logger.warning("drawdown_multiplier_applied", multiplier=raw_mult)
+        deployable = deployable * dd_multiplier
 
         if self._mode == "equal":
             raw_weights = {s.strategy_id: 1.0 for s in enabled}

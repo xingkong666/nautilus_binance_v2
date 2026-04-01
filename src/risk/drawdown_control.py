@@ -9,6 +9,8 @@ from decimal import Decimal
 
 import structlog
 
+from src.monitoring.metrics import DRAWDOWN_THRESHOLD_UTILISATION
+
 logger = structlog.get_logger()
 
 
@@ -68,6 +70,10 @@ class DrawdownController:
             return 1.0
 
         dd_pct = float((self._peak_equity - current_equity) / self._peak_equity * 100)
+
+        # 更新回撤阈值使用率指标
+        threshold_utilization = min(dd_pct / self._critical_pct, 1.0)
+        DRAWDOWN_THRESHOLD_UTILISATION.set(threshold_utilization)
 
         if dd_pct >= self._critical_pct:
             logger.warning("drawdown_critical", drawdown_pct=dd_pct)

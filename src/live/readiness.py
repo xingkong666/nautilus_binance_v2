@@ -6,8 +6,12 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+import structlog
+
 from src.core.config import AppConfig, EnvSettings, load_yaml
 from src.core.constants import CONFIGS_DIR
+
+logger = structlog.get_logger()
 
 _STABLECOIN_ASSETS = frozenset(
     {
@@ -205,7 +209,8 @@ def credential_checks(config: AppConfig) -> list[ReadinessCheck]:
     key_name, secret_name = required_credential_env_names(config)
     try:
         settings = EnvSettings()
-    except Exception:
+    except Exception as exc:
+        logger.error("env_settings_load_failed_readiness", error=str(exc), exc_info=True)
         settings = None
 
     def _present(env_name: str) -> bool:

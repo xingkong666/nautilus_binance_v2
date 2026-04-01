@@ -161,7 +161,7 @@ def validate_cross_day_continuity(
                     names=KlineCatalogLoader.KLINE_COLUMNS,
                 )
             frames.append(df_raw)
-        except Exception:
+        except (OSError, pd.errors.ParserError, ValueError):
             logger.exception("cross_day_read_error", csv=str(csv_path))
 
     if not frames:

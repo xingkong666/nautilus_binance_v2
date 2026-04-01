@@ -275,8 +275,8 @@ class Watchdog:
                         unhealthy=result.unhealthy_names,
                         system_ok=result.system_ok,
                     )
-            except Exception:
-                logger.exception("watchdog_check_error")
+            except Exception as exc:
+                logger.error("watchdog_check_error", error=str(exc), exc_info=True)
 
             self._stop_event.wait(timeout=self._interval)
 
@@ -341,8 +341,8 @@ class Watchdog:
 
             return True
 
-        except Exception:
-            logger.exception("watchdog_entry_check_error", name=entry.name)
+        except Exception as exc:
+            logger.error("watchdog_entry_check_error", name=entry.name, error=str(exc), exc_info=True)
             return False
 
     def _check_system(self) -> bool:
@@ -373,8 +373,8 @@ class Watchdog:
         except ImportError:
             # psutil 未安装，跳过系统检查
             return True
-        except Exception:
-            logger.exception("system_check_error")
+        except Exception as exc:
+            logger.error("system_check_error", error=str(exc), exc_info=True)
             return True  # 检查失败不认为系统异常
 
     def _handle_failure(self, entry: WatchEntry) -> None:
@@ -398,15 +398,15 @@ class Watchdog:
                 rule_name="watchdog_service_failure",
                 message=msg,
             )
-        except Exception:
-            logger.exception("watchdog_alert_failed", name=entry.name)
+        except Exception as exc:
+            logger.error("watchdog_alert_failed", name=entry.name, error=str(exc), exc_info=True)
 
         # 执行自定义失败回调
         if entry.on_failure:
             try:
                 entry.on_failure()
-            except Exception:
-                logger.exception("watchdog_on_failure_callback_error", name=entry.name)
+            except Exception as exc:
+                logger.error("watchdog_on_failure_callback_error", name=entry.name, error=str(exc), exc_info=True)
 
     def _publish_health_event(self, result: WatchCheckResult) -> None:
         """发布健康检查事件到 EventBus.
@@ -428,5 +428,5 @@ class Watchdog:
         )
         try:
             self._container.event_bus.publish(event)
-        except Exception:
-            logger.exception("watchdog_health_event_publish_failed")
+        except Exception as exc:
+            logger.error("watchdog_health_event_publish_failed", error=str(exc), exc_info=True)

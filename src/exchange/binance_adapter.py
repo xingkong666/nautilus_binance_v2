@@ -417,7 +417,8 @@ class BinanceAdapter:
             return env_value
         try:
             settings = EnvSettings()
-        except Exception:
+        except Exception as exc:
+            logger.error("env_settings_load_failed_api_key", error=str(exc), exc_info=True)
             return None
         if self.config.environment == BinanceEnvironment.TESTNET:
             return settings.binance_testnet_api_key or None
@@ -444,7 +445,8 @@ class BinanceAdapter:
             return env_value
         try:
             settings = EnvSettings()
-        except Exception:
+        except Exception as exc:
+            logger.error("env_settings_load_failed_api_secret", error=str(exc), exc_info=True)
             return None
         if self.config.environment == BinanceEnvironment.TESTNET:
             return settings.binance_testnet_api_secret or None

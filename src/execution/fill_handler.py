@@ -8,6 +8,7 @@ from __future__ import annotations
 import structlog
 
 from src.core.events import Event, EventBus, EventType
+from src.risk.post_trade import PostTradeAnalyzer, TradeAnalysis
 from src.state.persistence import TradePersistence
 
 logger = structlog.get_logger()
@@ -23,15 +24,22 @@ class FillHandler:
     4. 发布成交事件
     """
 
-    def __init__(self, event_bus: EventBus, persistence: TradePersistence) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus,
+        persistence: TradePersistence,
+        post_trade_analyzer: PostTradeAnalyzer | None = None,
+    ) -> None:
         """Initialize the fill handler.
 
         Args:
             event_bus: Event bus used for cross-module communication.
             persistence: Persistence.
+            post_trade_analyzer: Post-trade analyzer for PnL/slippage attribution.
         """
         self._event_bus = event_bus
         self._persistence = persistence
+        self._post_trade_analyzer = post_trade_analyzer
 
     def on_fill(
         self,
@@ -66,7 +74,30 @@ class FillHandler:
             fees=fees,
         )
 
-        # 2. 发布成交事件
+        # 2. 事后风控分析
+        if self._post_trade_analyzer is not None:
+            try:
+                from decimal import Decimal
+
+                # Create TradeAnalysis from fill data
+                # Note: For single fills, we use the same price for entry and exit
+                # Real PnL calculation would require position tracking across multiple fills
+                analysis = TradeAnalysis(
+                    instrument_id=instrument_id,
+                    side=side,
+                    quantity=Decimal(quantity),
+                    entry_price=Decimal(price),
+                    exit_price=Decimal(price),  # Same as entry for single fill
+                    pnl=Decimal("0"),  # Zero PnL for single fill without position tracking
+                    fees=Decimal(fees),
+                    slippage_bps=0.0,  # Would need expected price to calculate slippage
+                    duration_seconds=0.0,  # Would need order submission time to calculate
+                )
+                self._post_trade_analyzer.record_trade(analysis)
+            except (AttributeError, ValueError, TypeError) as exc:
+                logger.warning("post_trade_record_failed", error=str(exc))
+
+        # 3. 发布成交事件
         self._event_bus.publish(
             Event(
                 event_type=EventType.ORDER_FILLED,

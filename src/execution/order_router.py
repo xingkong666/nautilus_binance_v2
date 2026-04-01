@@ -17,6 +17,7 @@ from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.trading.strategy import Strategy
 
 from src.core.events import EventBus, OrderIntentEvent, RiskAlertEvent
+from src.core.exceptions import ExecutionError
 from src.execution.order_intent import OrderIntent
 
 logger = structlog.get_logger()
@@ -110,7 +111,7 @@ class OrderRouter:
 
             return True
 
-        except Exception:
+        except ExecutionError:
             logger.exception("order_submit_failed", instrument=intent.instrument_id)
             return False
 

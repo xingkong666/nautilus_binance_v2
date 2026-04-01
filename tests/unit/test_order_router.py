@@ -277,7 +277,7 @@ class TestOrderSideMapping:
         assert call_kwargs.kwargs["post_only"] is True
 
     def test_limit_without_price_returns_false(self, router):
-        """Verify that limit without price returns false.
+        """LIMIT order without price should raise ValueError.
 
         Args:
             router: Router.
@@ -285,9 +285,9 @@ class TestOrderSideMapping:
         strategy = make_mock_strategy()
         router.bind_strategy(strategy)
 
-        result = router.route(make_intent(order_type="LIMIT"))
+        with pytest.raises(ValueError, match="LIMIT order requires price"):
+            router.route(make_intent(order_type="LIMIT"))
 
-        assert result is False
         strategy.submit_order.assert_not_called()
 
     def test_limit_chase_ticks_adjusts_price(self, router):
@@ -380,7 +380,7 @@ class TestOrderSideMapping:
         assert str(call_kwargs.kwargs["quantity"]) == "0.001"
 
     def test_quantity_below_size_increment_rejected(self, router):
-        """Verify that quantity below size increment rejected.
+        """Quantity below size increment should raise ValueError.
 
         Args:
             router: Router.
@@ -389,9 +389,9 @@ class TestOrderSideMapping:
         strategy.cache.instrument.return_value.size_increment = "0.001"
         router.bind_strategy(strategy)
 
-        result = router.route(make_intent(quantity="0.0004"))
+        with pytest.raises(ValueError, match="Invalid quantity after step normalization"):
+            router.route(make_intent(quantity="0.0004"))
 
-        assert result is False
         strategy.submit_order.assert_not_called()
 
 
@@ -459,7 +459,7 @@ class TestOrderRouterEvents:
         assert len(received) == 0
 
     def test_submit_order_exception_returns_false(self, router, event_bus):
-        """submit_order 抛出异常时，route() 返回 False，不崩溃。.
+        """submit_order exception should propagate up from route().
 
         Args:
             router: Order router fixture under test.
@@ -469,12 +469,11 @@ class TestOrderRouterEvents:
         strategy.submit_order.side_effect = RuntimeError("exchange down")
         router.bind_strategy(strategy)
 
-        result = router.route(make_intent())
-
-        assert result is False
+        with pytest.raises(RuntimeError, match="exchange down"):
+            router.route(make_intent())
 
     def test_submit_order_exception_no_event_published(self, router, event_bus):
-        """submit_order 异常时，不发布 ORDER_INTENT 事件。.
+        """submit_order exception should propagate and no ORDER_INTENT event should be published.
 
         Args:
             router: Order router fixture under test.
@@ -486,7 +485,9 @@ class TestOrderRouterEvents:
         strategy = make_mock_strategy()
         strategy.submit_order.side_effect = RuntimeError("exchange down")
         router.bind_strategy(strategy)
-        router.route(make_intent())
+
+        with pytest.raises(RuntimeError, match="exchange down"):
+            router.route(make_intent())
 
         assert len(received) == 0
 
@@ -517,7 +518,7 @@ class TestOrderRouterEvents:
         assert alert.details["normalized_quantity"] == "0.001"
 
     def test_quantity_below_step_publishes_error_alert(self, router, event_bus):
-        """Verify that quantity below step publishes error alert.
+        """Quantity below step should raise ValueError and publish error alert before exception.
 
         Args:
             router: Router.
@@ -532,9 +533,10 @@ class TestOrderRouterEvents:
         strategy.cache.instrument.return_value.size_increment = "0.001"
         router.bind_strategy(strategy)
 
-        result = router.route(make_intent(quantity="0.0004"))
+        with pytest.raises(ValueError, match="Invalid quantity after step normalization"):
+            router.route(make_intent(quantity="0.0004"))
 
-        assert result is False
+        # Error alert should still be published before the exception
         assert len(alerts) == 1
         alert = alerts[0]
         assert alert.level == "ERROR"

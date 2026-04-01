@@ -342,7 +342,20 @@ def build_watchers(
 
     # 回撤监视器
     if "drawdown_warning" in rules:
-        watchers.append(DrawdownWatcher(event_bus, alert_manager))
+        drawdown_threshold = 10.0
+        for rule in alerting_config.get("rules", []):
+            if rule.get("name") == "drawdown_warning":
+                cond = rule.get("condition", "")
+                with suppress(ValueError, IndexError):
+                    drawdown_threshold = float(cond.split(">")[-1].strip())
+        watchers.append(
+            DrawdownWatcher(
+                event_bus,
+                alert_manager,
+                warning_pct=drawdown_threshold,
+                critical_pct=drawdown_threshold + 3.0,
+            )
+        )
 
     # 成交延迟监视器
     if "order_fill_latency" in rules:

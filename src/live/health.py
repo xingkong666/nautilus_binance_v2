@@ -223,7 +223,7 @@ class LiveHealthProbe:
                         latency_ms=round(status.latency_ms, 1),
                     )
 
-            except Exception:
+            except (AttributeError, OSError, RuntimeError):
                 logger.exception("health_probe_error")
 
             self._stop_event.wait(timeout=self._interval)
@@ -295,7 +295,7 @@ class LiveHealthProbe:
             bus = self._container.event_bus
             _ = bus  # 触发 _ensure_built 检查
             return True, "ok"
-        except Exception as exc:
+        except (RuntimeError, AttributeError, ConnectionError) as exc:
             return False, str(exc)
 
     def _check_persistence(self) -> tuple[bool, str]:
@@ -309,7 +309,7 @@ class LiveHealthProbe:
             persistence = self._container.persistence
             _ = persistence
             return True, "ok"
-        except Exception as exc:
+        except (RuntimeError, AttributeError, ConnectionError) as exc:
             return False, str(exc)
 
     def _check_risk(self) -> tuple[bool, str]:
@@ -325,7 +325,7 @@ class LiveHealthProbe:
             if hasattr(cb, "is_triggered") and cb.is_triggered:
                 return False, "circuit_breaker_triggered"
             return True, "ok"
-        except Exception as exc:
+        except (RuntimeError, AttributeError) as exc:
             return False, str(exc)
 
     def _check_clock_drift(self) -> tuple[bool, str]:
@@ -348,7 +348,7 @@ class LiveHealthProbe:
         except ImportError:
             # time_sync 模块未实现，跳过
             return True, "skipped(no time_sync)"
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             return False, str(exc)
 
     # ------------------------------------------------------------------
@@ -366,8 +366,8 @@ class LiveHealthProbe:
             health_server = self._container.health_server
             if health_server is not None and hasattr(health_server, "update_status"):
                 health_server.update_status(status.to_dict())
-        except Exception:
-            logger.exception("health_server_update_failed")
+        except Exception as exc:
+            logger.error("health_server_update_failed", error=str(exc), exc_info=True)
 
     def _publish_health_event(self, status: HealthStatus) -> None:
         """发布健康检查事件到 EventBus.
@@ -383,5 +383,5 @@ class LiveHealthProbe:
         )
         try:
             self._container.event_bus.publish(event)
-        except Exception:
-            logger.exception("health_probe_event_publish_failed")
+        except Exception as exc:
+            logger.error("health_probe_event_publish_failed", error=str(exc), exc_info=True)

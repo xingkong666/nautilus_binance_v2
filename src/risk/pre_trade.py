@@ -12,6 +12,7 @@ from typing import Any
 import structlog
 
 from src.core.events import EventBus, OrderIntentEvent, RiskAlertEvent
+from src.monitoring.metrics import LEVERAGE_UTILISATION, RISK_CHECKS_TOTAL
 
 logger = structlog.get_logger()
 
@@ -61,6 +62,7 @@ class PreTradeRiskManager:
         current_position_usd: Decimal = Decimal(0),
         current_open_orders: int = 0,
         current_price: Decimal = Decimal(0),
+        current_leverage: float = 0.0,
     ) -> PreTradeCheckResult:
         """执行事前风控检查.
 
@@ -69,6 +71,7 @@ class PreTradeRiskManager:
             current_position_usd: 当前仓位价值 (USDT)
             current_open_orders: 当前挂单数量
             current_price: 当前价格
+            current_leverage: 当前杠杆倍数
 
         Returns:
             检查结果
@@ -98,6 +101,19 @@ class PreTradeRiskManager:
                 f"挂单数超限: {current_open_orders} >= {self._max_open_orders}",
                 intent,
             )
+
+        # 3b. 杠杆限制
+        if current_leverage > 0:
+            # 更新杠杆使用率指标
+            leverage_utilization = min(current_leverage / self._max_leverage, 1.0)
+            LEVERAGE_UTILISATION.set(leverage_utilization)
+
+            if current_leverage > self._max_leverage:
+                RISK_CHECKS_TOTAL.labels(check_type="leverage", result="fail").inc()
+                return self._fail(
+                    f"杠杆超限: {current_leverage:.1f}x > {self._max_leverage}x",
+                    intent,
+                )
 
         # 4. 下单间隔
         now_ns = time.time_ns()

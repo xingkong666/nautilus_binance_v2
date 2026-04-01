@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_FLOOR, Decimal
 
+import structlog
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.indicators import AverageTrueRange
@@ -25,6 +26,8 @@ from nautilus_trader.model.position import Position
 from nautilus_trader.trading.strategy import Strategy
 
 from src.core.events import EventBus, SignalDirection, SignalEvent
+
+logger = structlog.get_logger()
 
 
 class BaseStrategyConfig(StrategyConfig, frozen=True):
@@ -413,7 +416,8 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
 
         try:
             account = self.portfolio.account(venue=venue)
-        except Exception:  # noqa: BLE001
+        except (AttributeError, KeyError, ValueError) as exc:
+            logger.error("account_access_failed", venue=str(venue), error=str(exc), exc_info=True)
             return None
         if account is None:
             return None

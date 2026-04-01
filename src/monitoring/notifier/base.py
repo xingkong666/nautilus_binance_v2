@@ -160,10 +160,12 @@ class BaseNotifier(ABC):
                 rule=alert.rule_name,
             )
             return True
-        except Exception:
-            logger.exception(
+        except Exception as exc:
+            logger.error(
                 "alert_send_failed",
                 channel=self.__class__.__name__,
+                error=str(exc),
+                exc_info=True,
                 level=alert.level.name,
                 rule=alert.rule_name,
             )

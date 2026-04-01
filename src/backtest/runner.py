@@ -33,6 +33,7 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from src.backtest.costs import BacktestCostAnalyzer
 from src.core.config import AppConfig
 from src.core.enums import INTERVAL_TO_NAUTILUS, Interval
+from src.core.exceptions import ExecutionError
 from src.core.nautilus_cache import build_nautilus_cache_settings
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 
@@ -331,23 +332,35 @@ class BacktestRunner:
 
         try:
             reports["orders"] = trader.generate_orders_report()
-        except Exception:
-            logger.warning("report_orders_failed")
+        except (AttributeError, ValueError, TypeError) as e:
+            logger.warning("report_orders_failed", error=str(e))
+            raise ExecutionError(
+                "Failed to generate orders report", context={"report_type": "orders", "error": str(e)}
+            ) from e
 
         try:
             reports["order_fills"] = trader.generate_order_fills_report()
-        except Exception:
-            logger.warning("report_order_fills_failed")
+        except (AttributeError, ValueError, TypeError) as e:
+            logger.warning("report_order_fills_failed", error=str(e))
+            raise ExecutionError(
+                "Failed to generate order fills report", context={"report_type": "order_fills", "error": str(e)}
+            ) from e
 
         try:
             reports["positions"] = trader.generate_positions_report()
-        except Exception:
-            logger.warning("report_positions_failed")
+        except (AttributeError, ValueError, TypeError) as e:
+            logger.warning("report_positions_failed", error=str(e))
+            raise ExecutionError(
+                "Failed to generate positions report", context={"report_type": "positions", "error": str(e)}
+            ) from e
 
         try:
             reports["account"] = trader.generate_account_report(Venue(self.VENUE))
-        except Exception:
-            logger.warning("report_account_failed")
+        except (AttributeError, ValueError, TypeError) as e:
+            logger.warning("report_account_failed", error=str(e))
+            raise ExecutionError(
+                "Failed to generate account report", context={"report_type": "account", "error": str(e)}
+            ) from e
 
         return reports
 

@@ -15,6 +15,7 @@ from src.execution.ignored_instruments import IgnoredInstrumentRegistry
 from src.execution.order_intent import OrderIntent
 from src.execution.order_router import OrderRouter
 from src.execution.rate_limiter import RateLimiter
+from src.risk.position_sizer import PositionSizer
 from src.risk.pre_trade import PreTradeRiskManager
 
 logger = structlog.get_logger()
@@ -30,6 +31,7 @@ class SignalProcessor:
         pre_trade_risk: PreTradeRiskManager | None = None,
         rate_limiter: RateLimiter | None = None,
         ignored_instruments: IgnoredInstrumentRegistry | None = None,
+        position_sizer: PositionSizer | None = None,
     ) -> None:
         """Initialize the signal processor.
 
@@ -39,12 +41,14 @@ class SignalProcessor:
             pre_trade_risk: Pre trade risk.
             rate_limiter: Rate limiter.
             ignored_instruments: Ignored instruments.
+            position_sizer: Position sizer for calculating trade quantities.
         """
         self._event_bus = event_bus
         self._order_router = order_router
         self._pre_trade_risk = pre_trade_risk
         self._rate_limiter = rate_limiter
         self._ignored_instruments = ignored_instruments
+        self._position_sizer = position_sizer
         self._event_bus.subscribe(EventType.SIGNAL, self._on_signal)
 
     def _on_signal(self, event: Any) -> None:
@@ -123,7 +127,7 @@ class SignalProcessor:
             return OrderIntent(
                 instrument_id=signal.instrument_id,
                 side=side,
-                quantity=qty,
+                quantity=self._apply_position_sizing(qty, signal, metadata, raw_price or price),
                 order_type=raw_order_type,
                 price=price,
                 time_in_force=raw_tif,
@@ -151,7 +155,7 @@ class SignalProcessor:
         return OrderIntent.from_signal(
             instrument_id=signal.instrument_id,
             direction=signal.direction,
-            quantity=default_qty,
+            quantity=self._apply_position_sizing(default_qty, signal, metadata, price),
             strategy_id=signal.source,
             order_type=raw_order_type,
             price=price,
@@ -165,6 +169,83 @@ class SignalProcessor:
             return Decimal(str(raw))
         except (InvalidOperation, ValueError, TypeError):
             return None
+
+    def _apply_position_sizing(
+        self,
+        base_quantity: Decimal,
+        signal: SignalEvent,
+        metadata: dict[str, Any],
+        current_price: Decimal | None,
+    ) -> Decimal:
+        """Apply position sizing if PositionSizer is available.
+
+        Args:
+            base_quantity: The base quantity before sizing
+            signal: The signal event containing strength
+            metadata: Signal metadata for account info
+            current_price: Current market price
+
+        Returns:
+            Sized quantity
+        """
+        if self._position_sizer is None:
+            return base_quantity
+
+        # Extract signal strength
+        signal_strength = getattr(signal, "strength", 1.0) or 1.0
+
+        # Get current price from various sources
+        if current_price is None:
+            current_price = (
+                self._parse_qty(metadata.get("bar_close")) or self._parse_qty(metadata.get("price")) or Decimal("0")
+            )
+
+        # Get account equity - for now use a default, this should be injected properly
+        # TODO: Account equity should come from portfolio/account state
+        account_equity = self._parse_qty(metadata.get("account_equity")) or Decimal("10000")
+
+        if current_price <= 0 or account_equity <= 0:
+            logger.warning(
+                "position_sizing_skipped_invalid_params",
+                current_price=str(current_price),
+                account_equity=str(account_equity),
+                base_quantity=str(base_quantity),
+            )
+            return base_quantity
+
+        try:
+            sized_qty = self._position_sizer.calculate(
+                account_equity=account_equity,
+                current_price=current_price,
+                signal_strength=float(signal_strength),
+            )
+
+            if sized_qty > Decimal("0"):
+                logger.info(
+                    "position_size_calculated",
+                    signal_strength=signal_strength,
+                    base_quantity=str(base_quantity),
+                    sized_quantity=str(sized_qty),
+                    current_price=str(current_price),
+                    account_equity=str(account_equity),
+                )
+                return sized_qty
+            else:
+                logger.warning(
+                    "position_sizing_returned_zero",
+                    signal_strength=signal_strength,
+                    current_price=str(current_price),
+                    account_equity=str(account_equity),
+                )
+                return base_quantity
+
+        except (ValueError, TypeError, ZeroDivisionError) as exc:
+            logger.warning(
+                "position_sizing_error",
+                error=str(exc),
+                base_quantity=str(base_quantity),
+            )
+            return base_quantity
 
     def _check_rate_limit(self, intent: OrderIntent) -> bool:
         if self._rate_limiter is None:

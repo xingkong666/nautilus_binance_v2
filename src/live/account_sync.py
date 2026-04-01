@@ -267,7 +267,7 @@ class AccountSync:
                     self._error_count += 1
                     logger.warning("account_sync_failed", error=result.error)
 
-            except Exception:
+            except (ConnectionError, OSError, TimeoutError):
                 self._error_count += 1
                 logger.exception("account_sync_unexpected_error")
 
@@ -331,8 +331,11 @@ class AccountSync:
 
         try:
             exchange_open_orders = cast(Callable[[], list[dict[str, Any]]], fetch_open_orders)()
-        except Exception:
-            logger.exception("account_sync_open_orders_fetch_failed")
+        except (ConnectionError, TimeoutError, OSError) as exc:
+            logger.warning("account_sync_open_orders_fetch_connection_error", error=str(exc))
+            return
+        except Exception as exc:
+            logger.error("account_sync_open_orders_fetch_failed", error=str(exc), exc_info=True)
             return
 
         known_client_order_ids = self._known_open_client_order_ids()
@@ -358,7 +361,8 @@ class AccountSync:
 
         try:
             node = adapter.node
-        except Exception:
+        except Exception as exc:
+            logger.error("adapter_node_access_failed", error=str(exc), exc_info=True)
             return set()
         if node is None:
             return set()
@@ -373,8 +377,8 @@ class AccountSync:
 
         try:
             return {str(client_order_id) for client_order_id in cast(Callable[[], list[Any]], client_order_ids_open)()}
-        except Exception:
-            logger.exception("account_sync_known_open_orders_load_failed")
+        except Exception as exc:
+            logger.error("account_sync_known_open_orders_load_failed", error=str(exc), exc_info=True)
             return set()
 
     def _fetch_from_exchange(
@@ -480,8 +484,8 @@ class AccountSync:
 
         try:
             self._container.event_bus.publish(event)
-        except Exception:
-            logger.exception("reconciliation_event_publish_failed")
+        except Exception as exc:
+            logger.error("reconciliation_event_publish_failed", error=str(exc), exc_info=True)
 
         # 写入 Redis 缓存（TTL = interval + 5s 安全余量）
         self._cache_to_redis(result)
@@ -631,8 +635,8 @@ class AccountSync:
     def _load_latest_snapshot(self) -> SystemSnapshot | None:
         try:
             return self._container.snapshot_manager.load_latest()
-        except Exception:
-            logger.exception("account_sync_snapshot_load_failed")
+        except Exception as exc:
+            logger.error("account_sync_snapshot_load_failed", error=str(exc), exc_info=True)
             return None
 
     @staticmethod

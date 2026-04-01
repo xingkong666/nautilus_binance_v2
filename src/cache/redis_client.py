@@ -67,7 +67,7 @@ class RedisClient:
                 port=self._config.port,
                 db=self._config.db,
             )
-        except Exception as exc:
+        except (ConnectionError, OSError, RedisError) as exc:
             self._available = False
             logger.warning(
                 "redis_connect_failed",
@@ -266,7 +266,7 @@ class RedisClient:
             try:
                 self._pool.disconnect()
                 logger.info("redis_connection_pool_closed")
-            except Exception as exc:
+            except (ConnectionError, OSError, RedisError) as exc:
                 logger.warning("redis_close_failed", error=str(exc))
         self._available = False
         self._redis = None

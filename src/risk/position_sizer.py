@@ -10,6 +10,8 @@ from typing import Any
 
 import structlog
 
+from src.monitoring.metrics import POSITION_SIZER_OUTPUT
+
 logger = structlog.get_logger()
 
 
@@ -76,5 +78,8 @@ class PositionSizer:
             size=str(size),
             signal_strength=signal_strength,
         )
+
+        # 记录仓位计算器输出分布
+        POSITION_SIZER_OUTPUT.observe(float(size))
 
         return size
