@@ -1,0 +1,90 @@
+# 小资金生产环境配置（Phase 2，5000U 本金）
+# 使用方式：覆盖 prod.yaml
+#   ENV=phase2_growth uv run python -m src.app.bootstrap
+#
+# 关键调整：
+#   1. 风控参数按 Phase 2 权益比例配置（daily_loss=300U、max_position=5000U）
+#   2. 使用 phase2_5000u.yaml 策略配置
+#   3. submit_orders 默认仍为 false — 确认无误后手动改为 true
+
+env: phase2_growth
+
+logging:
+  level: INFO
+  format: json
+  console: false
+
+data:
+  catalog_dir: data/processed/catalog
+  raw_dir: data/raw
+  features_dir: data/features
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  db: 0
+
+cache:
+  enabled: true
+  database: redis
+  live:
+    flush_on_start: false
+  backtest:
+    use_instance_id: true
+    flush_on_start: false
+
+monitoring:
+  enabled: true
+  prometheus_port: 9100
+
+# Phase 2 风控：直接在 env 中内联覆盖 global_risk.yaml
+risk:
+  enabled: true
+  mode: hard
+  pre_trade:
+    max_order_size_usd: 1250
+    max_position_size_usd: 5000
+    max_leverage: 10
+    min_order_interval_ms: 500
+    max_open_orders: 15
+  real_time:
+    max_drawdown_pct: 20.0
+    daily_loss_limit_usd: 300
+    trailing_drawdown_pct: 13.0
+  circuit_breaker:
+    enabled: true
+    triggers:
+      - type: daily_loss
+        threshold_usd: 300
+        action: halt_all
+        cooldown_minutes: 60
+
+      - type: drawdown
+        threshold_pct: 20.0
+        action: halt_all
+        cooldown_minutes: 120
+
+      - type: rapid_loss
+        window_minutes: 10
+        max_losses: 3
+        action: reduce_only
+        cooldown_minutes: 30
+
+exchange:
+  environment: LIVE
+
+execution:
+  submit_orders: false     # 上线前先 dry-run 确认，确认后改为 true
+
+live:
+  strategy_config: configs/strategies/phase2_5000u.yaml
+  universe_top_n: 6        # 只跑 BTC/ETH/SOL/BNB/XRP/ADA 六个标的
+  exclude_stablecoin_bases: true
+
+# -----------------------------------------------------------------------
+# 成长阶段检查点（手动调整 margin_pct_per_trade）
+#
+# Phase 1  2500  →  5000 U  | margin_pct=6.0, daily_loss=150U
+# Phase 2  5000  → 10000 U  | margin_pct=5.0, daily_loss=300U  ← 权益翻倍后在策略 yaml 中修改
+# Phase 3 10000  → 20000 U  | margin_pct=4.0, daily_loss=600U  ← 稳健模式
+# -----------------------------------------------------------------------
