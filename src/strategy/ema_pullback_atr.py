@@ -10,98 +10,14 @@
 
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass, field
-
 from nautilus_trader.config import PositiveFloat, PositiveInt
 from nautilus_trader.indicators import AverageTrueRange, ExponentialMovingAverage
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
 from src.core.events import EventBus, SignalDirection
+from src.core.indicators import WilderAdx
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
-
-
-@dataclass
-class _AdxState:
-    """Wilder ADX 状态机."""
-
-    period: int
-    prev_high: float | None = None
-    prev_low: float | None = None
-    prev_close: float | None = None
-    _tr_sum: float = 0.0
-    _plus_dm_sum: float = 0.0
-    _minus_dm_sum: float = 0.0
-    _smoothed_tr: float | None = None
-    _smoothed_plus_dm: float | None = None
-    _smoothed_minus_dm: float | None = None
-    _dx_values: deque[float] = field(default_factory=deque)
-    adx: float | None = None
-    initialized: bool = False
-
-    def update(self, high: float, low: float, close: float) -> None:
-        if self.prev_high is None or self.prev_low is None or self.prev_close is None:
-            self.prev_high = high
-            self.prev_low = low
-            self.prev_close = close
-            return
-
-        up_move = high - self.prev_high
-        down_move = self.prev_low - low
-
-        plus_dm = up_move if up_move > down_move and up_move > 0 else 0.0
-        minus_dm = down_move if down_move > up_move and down_move > 0 else 0.0
-
-        tr = max(
-            high - low,
-            abs(high - self.prev_close),
-            abs(low - self.prev_close),
-        )
-
-        if self._smoothed_tr is None:
-            self._tr_sum += tr
-            self._plus_dm_sum += plus_dm
-            self._minus_dm_sum += minus_dm
-
-            if len(self._dx_values) < self.period - 1:
-                self._dx_values.append(0.0)
-
-            if len(self._dx_values) == self.period - 1:
-                self._smoothed_tr = self._tr_sum
-                self._smoothed_plus_dm = self._plus_dm_sum
-                self._smoothed_minus_dm = self._minus_dm_sum
-                self._dx_values.clear()
-        else:
-            n = float(self.period)
-            assert self._smoothed_tr is not None
-            assert self._smoothed_plus_dm is not None
-            assert self._smoothed_minus_dm is not None
-            self._smoothed_tr = self._smoothed_tr - (self._smoothed_tr / n) + tr
-            self._smoothed_plus_dm = self._smoothed_plus_dm - (self._smoothed_plus_dm / n) + plus_dm
-            self._smoothed_minus_dm = self._smoothed_minus_dm - (self._smoothed_minus_dm / n) + minus_dm
-
-            if self._smoothed_tr > 0:
-                plus_di = 100.0 * (self._smoothed_plus_dm / self._smoothed_tr)
-                minus_di = 100.0 * (self._smoothed_minus_dm / self._smoothed_tr)
-                di_sum = plus_di + minus_di
-                dx = 100.0 * abs(plus_di - minus_di) / di_sum if di_sum > 0 else 0.0
-            else:
-                dx = 0.0
-
-            if self.adx is None:
-                self._dx_values.append(dx)
-                if len(self._dx_values) >= self.period:
-                    self.adx = sum(self._dx_values) / float(self.period)
-                    self.initialized = True
-                    self._dx_values.clear()
-            else:
-                self.adx = ((self.adx * (self.period - 1)) + dx) / float(self.period)
-                self.initialized = True
-
-        self.prev_high = high
-        self.prev_low = low
-        self.prev_close = close
 
 
 class EMAPullbackATRConfig(BaseStrategyConfig, frozen=True):
@@ -141,7 +57,7 @@ class EMAPullbackATRStrategy(BaseStrategy):
         self._last_signal_bar_index: int | None = None
         self._long_pullback_armed = False
         self._short_pullback_armed = False
-        self._adx = _AdxState(period=int(config.adx_period))
+        self._adx = WilderAdx(period=int(config.adx_period))
 
     def _register_indicators(self) -> None:
         """注册 EMA 指标."""
@@ -185,10 +101,10 @@ class EMAPullbackATRStrategy(BaseStrategy):
         self._adx.update(float(bar.high), float(bar.low), close)
         adx_threshold = float(self.config.adx_threshold)
         if adx_threshold > 0:
-            if not self._adx.initialized or self._adx.adx is None:
+            if not self._adx.initialized or self._adx.value is None:
                 self._prev_close = close
                 return None
-            if self._adx.adx < adx_threshold:
+            if self._adx.value < adx_threshold:
                 self._prev_close = close
                 return None
 
@@ -242,7 +158,7 @@ class EMAPullbackATRStrategy(BaseStrategy):
 
         if signal is not None:
             self._last_signal_bar_index = self._bar_index
-            adx_text = f"{self._adx.adx:.2f}" if self._adx.adx is not None else "n/a"
+            adx_text = f"{self._adx.value:.2f}" if self._adx.value is not None else "n/a"
             self.log.info(
                 "EMA pullback accepted: "
                 f"fast={fast:.2f} slow={slow:.2f} atr={atr:.2f} "
@@ -274,4 +190,4 @@ class EMAPullbackATRStrategy(BaseStrategy):
         self._last_signal_bar_index = None
         self._long_pullback_armed = False
         self._short_pullback_armed = False
-        self._adx = _AdxState(period=int(self.config.adx_period))
+        self._adx = WilderAdx(period=int(self.config.adx_period))

@@ -76,9 +76,14 @@ def make_bar(open_: float, high: float, low: float, close: float) -> SimpleNames
 
 def _prefill_history(strategy: TurtleStrategy) -> None:
     strategy._atr_indicator = _FakeAtr(value=10.0)
-    strategy.generate_signal(make_bar(100.0, 101.0, 99.0, 100.0))
-    strategy.generate_signal(make_bar(100.0, 102.0, 98.0, 101.0))
-    strategy.generate_signal(make_bar(101.0, 103.0, 97.0, 102.0))
+    bars = [
+        make_bar(100.0, 101.0, 99.0, 100.0),
+        make_bar(100.0, 102.0, 98.0, 101.0),
+        make_bar(101.0, 103.0, 97.0, 102.0),
+    ]
+    for b in bars:
+        strategy._entry_channel.update_raw(b.high, b.low)
+        strategy._exit_channel.update_raw(b.high, b.low)
 
 
 def test_atr_not_initialized_blocks_signal() -> None:
@@ -198,12 +203,15 @@ def test_unit_quantity_uses_base_step_splitting() -> None:
 
 
 def test_historical_bar_prefills_donchian_windows() -> None:
-    """Verify that historical bar prefills Donchian windows."""
+    """Verify that historical bar prefills Donchian channels via register_indicator_for_bars."""
     strategy = make_strategy()
 
-    strategy._on_historical_bar(make_bar(100.0, 101.0, 99.0, 100.0))  # type: ignore[arg-type]
-    strategy._on_historical_bar(make_bar(100.0, 102.0, 98.0, 101.0))  # type: ignore[arg-type]
-    strategy._on_historical_bar(make_bar(101.0, 103.0, 97.0, 102.0))  # type: ignore[arg-type]
+    # _on_historical_bar is a no-op; channels update via register_indicator_for_bars.
+    # Feed bars directly to channels to verify DonchianChannel integration.
+    strategy._entry_channel.update_raw(101.0, 99.0)
+    strategy._entry_channel.update_raw(102.0, 98.0)
+    strategy._entry_channel.update_raw(103.0, 97.0)
 
-    assert list(strategy._highs) == [101.0, 102.0, 103.0]
-    assert list(strategy._lows) == [99.0, 98.0, 97.0]
+    assert strategy._entry_channel.initialized
+    assert float(strategy._entry_channel.upper) == 103.0
+    assert float(strategy._entry_channel.lower) == 97.0

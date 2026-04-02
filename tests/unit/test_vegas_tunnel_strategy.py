@@ -24,6 +24,31 @@ class _FakeQty:
         return self.value
 
 
+class _MockPortfolio:
+    """Minimal portfolio mock that tracks position side for Vegas unit tests."""
+
+    def __init__(self) -> None:
+        self._side: str = "flat"  # "flat" / "long" / "short"
+
+    def open_long(self) -> None:
+        self._side = "long"
+
+    def open_short(self) -> None:
+        self._side = "short"
+
+    def close(self) -> None:
+        self._side = "flat"
+
+    def is_net_long(self, _instrument_id: object) -> bool:
+        return self._side == "long"
+
+    def is_net_short(self, _instrument_id: object) -> bool:
+        return self._side == "short"
+
+    def is_flat(self, _instrument_id: object) -> bool:
+        return self._side == "flat"
+
+
 def make_strategy(cooldown: int = 0) -> VegasTunnelStrategy:
     """Build strategy.
 
@@ -41,6 +66,10 @@ def make_strategy(cooldown: int = 0) -> VegasTunnelStrategy:
     strategy = VegasTunnelStrategy(config=cfg)
     strategy._resolve_order_quantity = lambda _bar: _FakeQty(Decimal("1.0"))  # type: ignore[method-assign]
     return strategy
+
+
+def _set_portfolio_side(strategy: VegasTunnelStrategy, side: str) -> None:
+    """No-op — Vegas now uses internal _is_long state, not portfolio."""
 
 
 def make_bar(close: float, high: float | None = None, low: float | None = None) -> SimpleNamespace:
@@ -75,7 +104,10 @@ def test_long_entry_on_cross_above_tunnel() -> None:
     assert strategy._pending_order is not None
     assert strategy._pending_order.action == "entry"
     assert strategy._pending_order.side == "BUY"
-    assert strategy._position_side == "long"
+    # Position is open: entry_price set, remaining_qty > 0
+    assert strategy._entry_price == 125.0
+    assert strategy._remaining_qty > 0
+    assert strategy._is_long is True
     assert strategy._stop_price == 120.0
 
 
@@ -91,6 +123,7 @@ def test_tp1_triggers_partial_exit_and_move_stop_to_breakeven() -> None:
 
     first = strategy.generate_signal(make_bar(close=125.0))
     assert first == SignalDirection.LONG
+    _set_portfolio_side(strategy, "long")  # sync mock after open
 
     # tunnel_width=2, tp1=127
     second = strategy.generate_signal(make_bar(close=127.2))
@@ -116,8 +149,10 @@ def test_cooldown_blocks_immediate_reentry() -> None:
     strategy._prev_fast_above_slow = False
     first = strategy.generate_signal(make_bar(close=125.0))
     assert first == SignalDirection.LONG
+    _set_portfolio_side(strategy, "long")  # sync mock after open
 
     strategy._close_full(reason="manual_test_close")
+    _set_portfolio_side(strategy, "flat")  # sync mock after close
 
     strategy._prev_fast_above_slow = False
     second = strategy.generate_signal(make_bar(close=126.0))
@@ -127,7 +162,6 @@ def test_cooldown_blocks_immediate_reentry() -> None:
 def test_on_reset_clears_runtime_state() -> None:
     """Verify that on reset clears runtime state."""
     strategy = make_strategy(cooldown=0)
-    strategy._position_side = "long"
     strategy._entry_price = 100.0
     strategy._remaining_qty = Decimal("0.5")
     strategy._stop_price = 99.0
@@ -139,7 +173,6 @@ def test_on_reset_clears_runtime_state() -> None:
 
     strategy.on_reset()
 
-    assert strategy._position_side == "flat"
     assert strategy._entry_price is None
     assert strategy._remaining_qty == Decimal("0")
     assert strategy._stop_price is None
@@ -162,6 +195,7 @@ def test_tp3_closes_remaining_position() -> None:
 
     first = strategy.generate_signal(make_bar(close=125.0))
     assert first == SignalDirection.LONG
+    _set_portfolio_side(strategy, "long")  # sync mock after open
 
     # 连续触发三档止盈：tp1=127, tp2≈128.236, tp3≈130.236
     strategy.generate_signal(make_bar(close=127.2))
@@ -172,8 +206,8 @@ def test_tp3_closes_remaining_position() -> None:
     assert strategy._pending_order is not None
     assert strategy._pending_order.action == "tp3"
     assert strategy._pending_order.reduce_only is True
-    assert strategy._position_side == "flat"
     assert strategy._remaining_qty == Decimal("0")
+    assert strategy._entry_price is None
 
 
 def test_split_quantities_normalizes_invalid_ratios() -> None:

@@ -63,7 +63,7 @@ def test_trend_pullback_rebound_triggers_long() -> None:
     strategy.slow_ema = SimpleNamespace(value=95.0)  # type: ignore[assignment]
     strategy.rsi = SimpleNamespace(value=50.0)  # type: ignore[assignment]
     strategy._atr_indicator = SimpleNamespace(initialized=True, value=10.0)
-    strategy._adx = SimpleNamespace(update=lambda *_: None, initialized=True, adx=25.0)  # type: ignore[assignment]
+    strategy._adx = SimpleNamespace(update=lambda *_: None, initialized=True, value=25.0)  # type: ignore[assignment]
 
     first = strategy.generate_signal(make_bar(100.0, 101.0, 95.0, 98.0))
     assert first is None
@@ -80,7 +80,7 @@ def test_range_rsi_cross_triggers_long() -> None:
     strategy.rsi = SimpleNamespace(value=30.0)  # type: ignore[assignment]
     strategy._prev_rsi = 20.0
     strategy._atr_indicator = SimpleNamespace(initialized=True, value=10.0)
-    strategy._adx = SimpleNamespace(update=lambda *_: None, initialized=True, adx=10.0)  # type: ignore[assignment]
+    strategy._adx = SimpleNamespace(update=lambda *_: None, initialized=True, value=10.0)  # type: ignore[assignment]
 
     signal = strategy.generate_signal(make_bar(100.0, 101.0, 99.0, 100.5))
     assert signal == SignalDirection.LONG
@@ -94,7 +94,7 @@ def test_cooldown_blocks_signal() -> None:
     strategy.rsi = SimpleNamespace(value=30.0)  # type: ignore[assignment]
     strategy._prev_rsi = 20.0
     strategy._atr_indicator = SimpleNamespace(initialized=True, value=10.0)
-    strategy._adx = SimpleNamespace(update=lambda *_: None, initialized=True, adx=10.0)  # type: ignore[assignment]
+    strategy._adx = SimpleNamespace(update=lambda *_: None, initialized=True, value=10.0)  # type: ignore[assignment]
     strategy._bar_index = 5
     strategy._last_signal_bar_index = 5
 
@@ -109,7 +109,7 @@ def test_publish_signal_emits_limit_metadata() -> None:
     bus.subscribe(EventType.SIGNAL, received.append)
 
     strategy = make_strategy(event_bus=bus, cooldown=0)
-    strategy.instrument = SimpleNamespace(price_increment="0.5")  # type: ignore[assignment]
+    strategy.instrument = SimpleNamespace(price_increment="0.5", make_price=lambda p: round(p * 2) / 2)  # type: ignore[assignment]
     strategy._resolve_order_quantity = lambda _bar: _DummyQty(Decimal("0.03"))  # type: ignore[method-assign]
     strategy._last_mode = "trend"
 
@@ -134,4 +134,4 @@ def test_historical_bar_updates_prev_close_and_adx_state() -> None:
     assert strategy._bar_index == 2
     assert strategy._prev_close == 101.0
     assert strategy._prev_rsi == 52.0
-    assert strategy._adx.prev_close == 101.0
+    assert strategy._adx._prev_close == 101.0

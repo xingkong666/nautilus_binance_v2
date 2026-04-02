@@ -82,7 +82,7 @@ class VegasTunnelStrategy(BaseStrategy):
         self._bar_index = 0
         self._last_signal_bar_index: int | None = None
 
-        self._position_side = "flat"  # flat / long / short
+        self._is_long: bool | None = None  # None = flat, True = long, False = short
         self._entry_price: float | None = None
         self._remaining_qty = Decimal("0")
         self._stop_price: float | None = None
@@ -145,7 +145,10 @@ class VegasTunnelStrategy(BaseStrategy):
             return None
 
         # 先处理已有仓位的止损/分批止盈
-        if self._position_side != "flat":
+        is_long = self._is_long is True
+        is_short = self._is_long is False
+        has_position = self._is_long is not None
+        if has_position:
             exit_signal = self._maybe_exit(close)
             if exit_signal is not None:
                 return exit_signal
@@ -163,12 +166,12 @@ class VegasTunnelStrategy(BaseStrategy):
         short_ready = short_cross and fast < tunnel_lower and slow < tunnel_lower
 
         # 与持仓反向信号，先平再说，避免同 bar 反手冲突
-        if self._position_side == "long" and short_ready:
+        if is_long and short_ready:
             return self._close_full(reason="reverse_signal_short")
-        if self._position_side == "short" and long_ready:
+        if is_short and long_ready:
             return self._close_full(reason="reverse_signal_long")
 
-        if self._position_side != "flat":
+        if has_position:
             return None
 
         atr_ratio_min = float(self.config.atr_filter_min_ratio)
@@ -224,7 +227,7 @@ class VegasTunnelStrategy(BaseStrategy):
             order_side = "SELL"
             signal = SignalDirection.SHORT
 
-        self._position_side = side
+        self._is_long = side == "long"
         self._entry_price = close
         self._remaining_qty = total_qty
         self._stop_price = stop_price
@@ -250,9 +253,9 @@ class VegasTunnelStrategy(BaseStrategy):
             return None
 
         # 硬止损
-        if self._position_side == "long" and close <= stop:
+        if self._is_long is True and close <= stop:
             return self._close_full(reason="stop_loss")
-        if self._position_side == "short" and close >= stop:
+        if self._is_long is False and close >= stop:
             return self._close_full(reason="stop_loss")
 
         # 分批止盈（每根 bar 最多触发一档）
@@ -260,7 +263,7 @@ class VegasTunnelStrategy(BaseStrategy):
             if self._tp_filled[idx]:
                 continue
             tp_price = self._tp_prices[idx]
-            hit = close >= tp_price if self._position_side == "long" else close <= tp_price
+            hit = close >= tp_price if self._is_long is True else close <= tp_price
             if not hit:
                 continue
 
@@ -282,7 +285,7 @@ class VegasTunnelStrategy(BaseStrategy):
                 qty += max(self._remaining_qty, Decimal("0"))
                 self._remaining_qty = Decimal("0")
 
-            close_side = "SELL" if self._position_side == "long" else "BUY"
+            close_side = "SELL" if self._is_long is True else "BUY"
             self._pending_order = _PendingOrder(
                 action=f"tp{idx + 1}",
                 side=close_side,
@@ -305,7 +308,7 @@ class VegasTunnelStrategy(BaseStrategy):
             return SignalDirection.FLAT
 
         qty = self._remaining_qty
-        close_side = "SELL" if self._position_side == "long" else "BUY"
+        close_side = "SELL" if self._is_long is True else "BUY"
         self._pending_order = _PendingOrder(
             action="exit",
             side=close_side,
@@ -351,7 +354,7 @@ class VegasTunnelStrategy(BaseStrategy):
             "time_in_force": "GTC",
             "reduce_only": pending.reduce_only,
             "reason": pending.reason,
-            "vegas_side": self._position_side,
+            "vegas_side": ("long" if self._is_long is True else "short" if self._is_long is False else "flat"),
             "vegas_entry_price": str(self._entry_price) if self._entry_price is not None else "",
             "vegas_stop_price": str(self._stop_price) if self._stop_price is not None else "",
         }
@@ -392,7 +395,7 @@ class VegasTunnelStrategy(BaseStrategy):
         self.submit_order(order)
 
     def _reset_position_state(self) -> None:
-        self._position_side = "flat"
+        self._is_long = None
         self._entry_price = None
         self._remaining_qty = Decimal("0")
         self._stop_price = None

@@ -134,8 +134,8 @@ def test_adx_threshold_blocks_when_trend_strength_low() -> None:
     strategy.fast_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=95.0)  # type: ignore[assignment]
     strategy._atr_indicator = SimpleNamespace(initialized=True, value=5.0)
-    strategy._adx.initialized = True
-    strategy._adx.adx = 10.0
+    # WilderAdx inherits Cython Indicator — replace with a plain mock
+    strategy._adx = SimpleNamespace(update=lambda *_: None, initialized=True, value=10.0)  # type: ignore[assignment]
 
     strategy.generate_signal(make_bar(101.0, 102.0, 94.0, 98.0))
     signal = strategy.generate_signal(make_bar(98.0, 103.0, 97.0, 101.0))
@@ -152,4 +152,4 @@ def test_historical_bar_updates_prev_close_and_adx_state() -> None:
 
     assert strategy._bar_index == 2
     assert strategy._prev_close == 101.0
-    assert strategy._adx.prev_close == 101.0
+    assert strategy._adx._prev_close == 101.0

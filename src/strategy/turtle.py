@@ -9,13 +9,12 @@
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
 from nautilus_trader.config import PositiveFloat, PositiveInt
-from nautilus_trader.indicators import AverageTrueRange
+from nautilus_trader.indicators import AverageTrueRange, DonchianChannel
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
@@ -61,8 +60,9 @@ class TurtleStrategy(BaseStrategy):
         if self._atr_indicator is None:
             self._atr_indicator = AverageTrueRange(config.atr_period)
 
-        self._highs: deque[float] = deque(maxlen=int(config.entry_period))
-        self._lows: deque[float] = deque(maxlen=int(config.entry_period))
+        # NT built-in Donchian channels (replace manual deque[float] tracking)
+        self._entry_channel = DonchianChannel(int(config.entry_period))
+        self._exit_channel = DonchianChannel(int(config.exit_period))
 
         self._position_side: str = "flat"  # flat / long / short
         self._units_held: int = 0
@@ -73,7 +73,9 @@ class TurtleStrategy(BaseStrategy):
         self._pending_order: _PendingOrder | None = None
 
     def _register_indicators(self) -> None:
-        """仅依赖 ATR 指标."""
+        """注册 Donchian 通道指标（ATR 由 BaseStrategy 注册）."""
+        self.register_indicator_for_bars(self.config.bar_type, self._entry_channel)
+        self.register_indicator_for_bars(self.config.bar_type, self._exit_channel)
 
     def _history_warmup_bars(self) -> int:
         return (
@@ -86,7 +88,7 @@ class TurtleStrategy(BaseStrategy):
         )
 
     def _on_historical_bar(self, bar: Bar) -> None:
-        self._append_bar(bar)
+        pass  # DonchianChannel and ATR are updated via register_indicator_for_bars
 
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
         """Generate signal.
@@ -100,31 +102,22 @@ class TurtleStrategy(BaseStrategy):
         self._pending_order = None
 
         if self._atr_indicator is None or not self._atr_indicator.initialized:
-            self._append_bar(bar)
             return None
 
         close = float(bar.close)
         if close <= 0:
-            self._append_bar(bar)
             return None
 
-        entry_period = int(self.config.entry_period)
-        exit_period = int(self.config.exit_period)
-
-        entry_ready = len(self._highs) >= entry_period and len(self._lows) >= entry_period
-        exit_ready = len(self._highs) >= exit_period and len(self._lows) >= exit_period
-
-        if not entry_ready:
-            self._append_bar(bar)
+        if not self._entry_channel.initialized or not self._exit_channel.initialized:
             return None
 
-        entry_high = max(list(self._highs)[-entry_period:])
-        entry_low = min(list(self._lows)[-entry_period:])
-        exit_high = max(list(self._highs)[-exit_period:]) if exit_ready else entry_high
-        exit_low = min(list(self._lows)[-exit_period:]) if exit_ready else entry_low
+        entry_high = float(self._entry_channel.upper)
+        entry_low = float(self._entry_channel.lower)
+        exit_high = float(self._exit_channel.upper)
+        exit_low = float(self._exit_channel.lower)
 
         atr = float(self._atr_indicator.value)
-        signal = self._decide_signal(
+        return self._decide_signal(
             bar=bar,
             close=close,
             atr=atr,
@@ -133,9 +126,6 @@ class TurtleStrategy(BaseStrategy):
             exit_high=exit_high,
             exit_low=exit_low,
         )
-
-        self._append_bar(bar)
-        return signal
 
     def _decide_signal(
         self,
@@ -290,10 +280,6 @@ class TurtleStrategy(BaseStrategy):
         )
         return direction
 
-    def _append_bar(self, bar: Bar) -> None:
-        self._highs.append(float(bar.high))
-        self._lows.append(float(bar.low))
-
     def _reset_position_state(self) -> None:
         self._position_side = "flat"
         self._units_held = 0
@@ -358,7 +344,7 @@ class TurtleStrategy(BaseStrategy):
         if self._atr_indicator is not None:
             self._atr_indicator.reset()
 
-        self._highs.clear()
-        self._lows.clear()
+        self._entry_channel.reset()
+        self._exit_channel.reset()
         self._pending_order = None
         self._reset_position_state()

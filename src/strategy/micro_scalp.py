@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
@@ -20,81 +18,8 @@ from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
 from src.core.events import EventBus, SignalDirection, SignalEvent
+from src.core.indicators import WilderAdx
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
-
-
-@dataclass
-class _AdxState:
-    """Wilder ADX state."""
-
-    period: int
-    prev_high: float | None = None
-    prev_low: float | None = None
-    prev_close: float | None = None
-    tr_sum: float = 0.0
-    plus_dm_sum: float = 0.0
-    minus_dm_sum: float = 0.0
-    smoothed_tr: float | None = None
-    smoothed_plus_dm: float | None = None
-    smoothed_minus_dm: float | None = None
-    dx_values: deque[float] = field(default_factory=deque)
-    adx: float | None = None
-    initialized: bool = False
-
-    def update(self, high: float, low: float, close: float) -> None:
-        if self.prev_high is None or self.prev_low is None or self.prev_close is None:
-            self.prev_high = high
-            self.prev_low = low
-            self.prev_close = close
-            return
-
-        up_move = high - self.prev_high
-        down_move = self.prev_low - low
-        plus_dm = up_move if up_move > down_move and up_move > 0 else 0.0
-        minus_dm = down_move if down_move > up_move and down_move > 0 else 0.0
-        tr = max(high - low, abs(high - self.prev_close), abs(low - self.prev_close))
-
-        if self.smoothed_tr is None:
-            self.tr_sum += tr
-            self.plus_dm_sum += plus_dm
-            self.minus_dm_sum += minus_dm
-            if len(self.dx_values) < self.period - 1:
-                self.dx_values.append(0.0)
-            if len(self.dx_values) == self.period - 1:
-                self.smoothed_tr = self.tr_sum
-                self.smoothed_plus_dm = self.plus_dm_sum
-                self.smoothed_minus_dm = self.minus_dm_sum
-                self.dx_values.clear()
-        else:
-            n = float(self.period)
-            assert self.smoothed_tr is not None
-            assert self.smoothed_plus_dm is not None
-            assert self.smoothed_minus_dm is not None
-            self.smoothed_tr = self.smoothed_tr - (self.smoothed_tr / n) + tr
-            self.smoothed_plus_dm = self.smoothed_plus_dm - (self.smoothed_plus_dm / n) + plus_dm
-            self.smoothed_minus_dm = self.smoothed_minus_dm - (self.smoothed_minus_dm / n) + minus_dm
-
-            if self.smoothed_tr > 0:
-                plus_di = 100.0 * (self.smoothed_plus_dm / self.smoothed_tr)
-                minus_di = 100.0 * (self.smoothed_minus_dm / self.smoothed_tr)
-                di_sum = plus_di + minus_di
-                dx = 100.0 * abs(plus_di - minus_di) / di_sum if di_sum > 0 else 0.0
-            else:
-                dx = 0.0
-
-            if self.adx is None:
-                self.dx_values.append(dx)
-                if len(self.dx_values) >= self.period:
-                    self.adx = sum(self.dx_values) / float(self.period)
-                    self.initialized = True
-                    self.dx_values.clear()
-            else:
-                self.adx = ((self.adx * (self.period - 1)) + dx) / float(self.period)
-                self.initialized = True
-
-        self.prev_high = high
-        self.prev_low = low
-        self.prev_close = close
 
 
 class MicroScalpConfig(BaseStrategyConfig, frozen=True):
@@ -140,7 +65,7 @@ class MicroScalpStrategy(BaseStrategy):
         if self._atr_indicator is None:
             self._atr_indicator = AverageTrueRange(config.atr_period)
 
-        self._adx = _AdxState(period=int(config.adx_period))
+        self._adx = WilderAdx(period=int(config.adx_period))
         self._prev_close: float | None = None
         self._prev_rsi: float | None = None
         self._bar_index = 0
@@ -193,7 +118,7 @@ class MicroScalpStrategy(BaseStrategy):
             return None
 
         self._adx.update(float(bar.high), float(bar.low), close)
-        adx_value = self._adx.adx
+        adx_value = self._adx.value
         trend_mode = bool(
             self._adx.initialized and adx_value is not None and adx_value >= self.config.trend_adx_threshold
         )
@@ -274,8 +199,16 @@ class MicroScalpStrategy(BaseStrategy):
             tick_size = Decimal(str(self.instrument.price_increment))
 
         offset = tick_size * Decimal(str(int(self.config.maker_offset_ticks)))
-        price = close - offset if side == "BUY" else close + offset
-        return max(price, Decimal("0.00000001"))
+        raw_price = close - offset if side == "BUY" else close + offset
+        raw_price = max(raw_price, Decimal("0.00000001"))
+
+        # Align to instrument tick size using make_price() when available
+        if self.instrument is not None:
+            try:
+                return Decimal(str(self.instrument.make_price(float(raw_price))))
+            except (ValueError, OverflowError):
+                pass
+        return raw_price
 
     def _publish_signal(self, direction: SignalDirection, bar: Bar) -> None:
         side = "BUY" if direction == SignalDirection.LONG else "SELL"
@@ -324,7 +257,7 @@ class MicroScalpStrategy(BaseStrategy):
         if self._atr_indicator is not None:
             self._atr_indicator.reset()
 
-        self._adx = _AdxState(period=int(self.config.adx_period))
+        self._adx = WilderAdx(period=int(self.config.adx_period))
         self._prev_close = None
         self._prev_rsi = None
         self._bar_index = 0
