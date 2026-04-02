@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from nautilus_trader.config import PositiveFloat, PositiveInt
-from nautilus_trader.indicators import AverageTrueRange, ExponentialMovingAverage
+from nautilus_trader.indicators import ExponentialMovingAverage
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
@@ -49,12 +49,9 @@ class EMAPullbackATRStrategy(BaseStrategy):
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
 
         # BaseStrategy 只在 ATR 止盈止损开启时初始化 ATR；该策略信号本身也依赖 ATR。
-        if self._atr_indicator is None:
-            self._atr_indicator = AverageTrueRange(config.atr_period)
+        self._ensure_atr_indicator()
 
         self._prev_close: float | None = None
-        self._bar_index = 0
-        self._last_signal_bar_index: int | None = None
         self._long_pullback_armed = False
         self._short_pullback_armed = False
         self._adx = WilderAdx(period=int(config.adx_period))
@@ -168,26 +165,15 @@ class EMAPullbackATRStrategy(BaseStrategy):
         self._prev_close = close
         return signal
 
-    def _cooldown_passed(self) -> bool:
-        cooldown_bars = max(0, int(self.config.signal_cooldown_bars))
-        if cooldown_bars <= 0:
-            return True
-        if self._last_signal_bar_index is None:
-            return True
-
-        bars_since_last_signal = self._bar_index - self._last_signal_bar_index
-        return bars_since_last_signal >= cooldown_bars
-
     def on_reset(self) -> None:
         """重置指标与内部状态."""
+        super().on_reset()
         self.fast_ema.reset()
         self.slow_ema.reset()
         if self._atr_indicator is not None:
             self._atr_indicator.reset()
 
         self._prev_close = None
-        self._bar_index = 0
-        self._last_signal_bar_index = None
         self._long_pullback_armed = False
         self._short_pullback_armed = False
         self._adx = WilderAdx(period=int(self.config.adx_period))

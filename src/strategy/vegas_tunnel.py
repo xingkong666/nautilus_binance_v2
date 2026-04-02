@@ -11,27 +11,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
 from nautilus_trader.config import PositiveFloat, PositiveInt
-from nautilus_trader.indicators import AverageTrueRange, ExponentialMovingAverage
+from nautilus_trader.indicators import ExponentialMovingAverage
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 
 from src.core.events import EventBus, SignalDirection, SignalEvent
-from src.strategy.base import BaseStrategy, BaseStrategyConfig
-
-
-@dataclass
-class _PendingOrder:
-    action: str
-    side: str
-    qty: Decimal
-    reduce_only: bool
-    reason: str
+from src.strategy.base import BaseStrategy, BaseStrategyConfig, _PendingOrder
 
 
 class VegasTunnelConfig(BaseStrategyConfig, frozen=True):
@@ -75,12 +65,9 @@ class VegasTunnelStrategy(BaseStrategy):
         self.tunnel_ema_1 = ExponentialMovingAverage(config.tunnel_ema_period_1)
         self.tunnel_ema_2 = ExponentialMovingAverage(config.tunnel_ema_period_2)
 
-        if self._atr_indicator is None:
-            self._atr_indicator = AverageTrueRange(config.atr_period)
+        self._ensure_atr_indicator()
 
         self._prev_fast_above_slow: bool | None = None
-        self._bar_index = 0
-        self._last_signal_bar_index: int | None = None
 
         self._is_long: bool | None = None  # None = flat, True = long, False = short
         self._entry_price: float | None = None
@@ -330,15 +317,6 @@ class VegasTunnelStrategy(BaseStrategy):
             ],
         )
 
-    def _cooldown_passed(self) -> bool:
-        cooldown_bars = max(0, int(self.config.signal_cooldown_bars))
-        if cooldown_bars <= 0:
-            return True
-        if self._last_signal_bar_index is None:
-            return True
-        bars_since_last = self._bar_index - self._last_signal_bar_index
-        return bars_since_last >= cooldown_bars
-
     def _publish_signal(self, direction: SignalDirection, bar: Bar) -> None:
         pending = self._pending_order
         if pending is None:
@@ -405,6 +383,7 @@ class VegasTunnelStrategy(BaseStrategy):
 
     def on_reset(self) -> None:
         """Run on reset."""
+        super().on_reset()
         self.fast_ema.reset()
         self.slow_ema.reset()
         self.tunnel_ema_1.reset()
@@ -413,7 +392,5 @@ class VegasTunnelStrategy(BaseStrategy):
             self._atr_indicator.reset()
 
         self._prev_fast_above_slow = None
-        self._bar_index = 0
-        self._last_signal_bar_index = None
         self._pending_order = None
         self._reset_position_state()

@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from abc import abstractmethod
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_FLOOR, Decimal
 
@@ -28,6 +29,26 @@ from nautilus_trader.trading.strategy import Strategy
 from src.core.events import EventBus, SignalDirection, SignalEvent
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class _PendingOrder:
+    """待提交订单描述符，供有分批/加仓逻辑的策略使用.
+
+    Attributes:
+        action: 操作类型（entry / add / exit / tp1 / tp2 / tp3 等）。
+        side: 订单方向（"BUY" / "SELL"）。
+        qty: 订单数量。
+        reduce_only: 是否为平仓单。
+        reason: 触发原因（用于日志和 metadata）。
+
+    """
+
+    action: str
+    side: str
+    qty: Decimal
+    reduce_only: bool
+    reason: str
 
 
 class BaseStrategyConfig(StrategyConfig, frozen=True):
@@ -95,6 +116,10 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         self._indicators_registered = False
         self._warmup_history_requested = False
         self._warmup_history_preloaded = False
+
+        # 通用 bar 计数与信号冷却（供子类使用）
+        self._bar_index: int = 0
+        self._last_signal_bar_index: int | None = None
 
         self._atr_indicator: AverageTrueRange | None = None
         if config.atr_sl_multiplier is not None or config.atr_tp_multiplier is not None:
@@ -235,6 +260,27 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         if unit == "DAY":
             return timedelta(days=count)
         return None
+
+    def _cooldown_passed(self) -> bool:
+        """检查信号冷却期是否已过.
+
+        读取 config 的 ``signal_cooldown_bars`` 字段（若不存在默认为 0）。
+        若无上次信号记录或冷却条数为 0，始终返回 True。
+        """
+        cooldown_bars = max(0, int(getattr(self.config, "signal_cooldown_bars", 0)))
+        if cooldown_bars <= 0 or self._last_signal_bar_index is None:
+            return True
+        return (self._bar_index - self._last_signal_bar_index) >= cooldown_bars
+
+    def _ensure_atr_indicator(self) -> None:
+        """确保 ATR 指标已初始化.
+
+        若 ``_atr_indicator`` 尚未创建，则基于 ``config.atr_period`` 创建一个
+        ``AverageTrueRange`` 实例。子类在需要 ATR 做信号过滤时调用此方法，
+        无需重复 guard 逻辑。
+        """
+        if self._atr_indicator is None:
+            self._atr_indicator = AverageTrueRange(self.config.atr_period)
 
     def on_bar(self, bar: Bar) -> None:
         """接收 Bar，生成信号.
@@ -816,6 +862,8 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         """策略重置（子类覆盖以重置指标）."""
         self._sl_orders.clear()
         self._tp_orders.clear()
+        self._bar_index = 0
+        self._last_signal_bar_index = None
 
     def on_save(self) -> dict[str, bytes]:
         """Run on save.

@@ -9,27 +9,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
 from nautilus_trader.config import PositiveFloat, PositiveInt
-from nautilus_trader.indicators import AverageTrueRange, DonchianChannel
+from nautilus_trader.indicators import DonchianChannel
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 
 from src.core.events import EventBus, SignalDirection, SignalEvent
-from src.strategy.base import BaseStrategy, BaseStrategyConfig
-
-
-@dataclass
-class _PendingOrder:
-    action: str
-    side: str
-    qty: Decimal
-    reduce_only: bool
-    reason: str
+from src.strategy.base import BaseStrategy, BaseStrategyConfig, _PendingOrder
 
 
 class TurtleConfig(BaseStrategyConfig, frozen=True):
@@ -57,8 +47,7 @@ class TurtleStrategy(BaseStrategy):
             event_bus: Event bus used for cross-module communication.
         """
         super().__init__(config, event_bus)
-        if self._atr_indicator is None:
-            self._atr_indicator = AverageTrueRange(config.atr_period)
+        self._ensure_atr_indicator()
 
         # NT built-in Donchian channels (replace manual deque[float] tracking)
         self._entry_channel = DonchianChannel(int(config.entry_period))
@@ -71,6 +60,12 @@ class TurtleStrategy(BaseStrategy):
         self._stop_price: float | None = None
 
         self._pending_order: _PendingOrder | None = None
+
+        # Previous-bar Donchian values for exclude-current semantics
+        self._prev_entry_high: float | None = None
+        self._prev_entry_low: float | None = None
+        self._prev_exit_high: float | None = None
+        self._prev_exit_low: float | None = None
 
     def _register_indicators(self) -> None:
         """注册 Donchian 通道指标（ATR 由 BaseStrategy 注册）."""
@@ -111,13 +106,26 @@ class TurtleStrategy(BaseStrategy):
         if not self._entry_channel.initialized or not self._exit_channel.initialized:
             return None
 
-        entry_high = float(self._entry_channel.upper)
-        entry_low = float(self._entry_channel.lower)
-        exit_high = float(self._exit_channel.upper)
-        exit_low = float(self._exit_channel.lower)
+        cur_entry_high = float(self._entry_channel.upper)
+        cur_entry_low = float(self._entry_channel.lower)
+        cur_exit_high = float(self._exit_channel.upper)
+        cur_exit_low = float(self._exit_channel.lower)
+
+        # When exclude_current is True, compare close against previous bar's
+        # channel values so the current bar's price does not inflate the channel.
+        if self.config.breakout_lookback_exclude_current and self._prev_entry_high is not None:
+            entry_high = self._prev_entry_high
+            entry_low = self._prev_entry_low  # type: ignore[assignment]
+            exit_high = self._prev_exit_high  # type: ignore[assignment]
+            exit_low = self._prev_exit_low  # type: ignore[assignment]
+        else:
+            entry_high = cur_entry_high
+            entry_low = cur_entry_low
+            exit_high = cur_exit_high
+            exit_low = cur_exit_low
 
         atr = float(self._atr_indicator.value)
-        return self._decide_signal(
+        result = self._decide_signal(
             bar=bar,
             close=close,
             atr=atr,
@@ -126,6 +134,14 @@ class TurtleStrategy(BaseStrategy):
             exit_high=exit_high,
             exit_low=exit_low,
         )
+
+        # Snapshot current values for next bar's comparison
+        self._prev_entry_high = cur_entry_high
+        self._prev_entry_low = cur_entry_low
+        self._prev_exit_high = cur_exit_high
+        self._prev_exit_low = cur_exit_low
+
+        return result
 
     def _decide_signal(
         self,
@@ -341,10 +357,15 @@ class TurtleStrategy(BaseStrategy):
 
     def on_reset(self) -> None:
         """Run on reset."""
+        super().on_reset()
         if self._atr_indicator is not None:
             self._atr_indicator.reset()
 
         self._entry_channel.reset()
         self._exit_channel.reset()
         self._pending_order = None
+        self._prev_entry_high = None
+        self._prev_entry_low = None
+        self._prev_exit_high = None
+        self._prev_exit_low = None
         self._reset_position_state()

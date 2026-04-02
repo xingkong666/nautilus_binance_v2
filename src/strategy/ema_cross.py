@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from nautilus_trader.config import PositiveInt
-from nautilus_trader.indicators import AverageTrueRange, ExponentialMovingAverage
+from nautilus_trader.indicators import ExponentialMovingAverage
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
@@ -57,13 +57,11 @@ class EMACrossStrategy(BaseStrategy):
         self.fast_ema = ExponentialMovingAverage(config.fast_ema_period)
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
         self._prev_fast_above: bool | None = None
-        self._bar_index = 0
-        self._last_signal_bar_index: int | None = None
 
         # BaseStrategy 仅在启用 ATR 止盈止损时构建 ATR 指标；
         # EMA 的波动过滤也需要 ATR，因此在此补充初始化。
-        if self._atr_indicator is None and config.entry_min_atr_ratio > 0:
-            self._atr_indicator = AverageTrueRange(config.atr_period)
+        if config.entry_min_atr_ratio > 0:
+            self._ensure_atr_indicator()
 
     def _register_indicators(self) -> None:
         """注册 EMA 指标."""
@@ -131,18 +129,13 @@ class EMACrossStrategy(BaseStrategy):
                 )
                 return None
 
-        cooldown_bars = max(0, int(self.config.signal_cooldown_bars))
-        if cooldown_bars > 0 and self._last_signal_bar_index is not None:
-            bars_since_last_signal = self._bar_index - self._last_signal_bar_index
-            if bars_since_last_signal < cooldown_bars:
-                cooldown_left = cooldown_bars - bars_since_last_signal
-                self.log.info(
-                    f"EMA cross filtered: cooldown active cooldown_left={cooldown_left} bars",
-                )
-                return None
+        if not self._cooldown_passed():
+            self.log.info("EMA cross filtered: cooldown active")
+            return None
 
         self._last_signal_bar_index = self._bar_index
         atr_ratio_text = f"{atr_ratio:.6f}" if atr_ratio is not None else "n/a"
+        cooldown_bars = max(0, int(self.config.signal_cooldown_bars))
         self.log.info(
             "EMA Cross accepted: "
             f"fast={self.fast_ema.value:.2f} slow={self.slow_ema.value:.2f} "
@@ -153,8 +146,7 @@ class EMACrossStrategy(BaseStrategy):
 
     def on_reset(self) -> None:
         """重置指标."""
+        super().on_reset()
         self.fast_ema.reset()
         self.slow_ema.reset()
         self._prev_fast_above = None
-        self._bar_index = 0
-        self._last_signal_bar_index = None

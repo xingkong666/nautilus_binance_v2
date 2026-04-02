@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Any
 
 from nautilus_trader.config import PositiveFloat, PositiveInt
-from nautilus_trader.indicators import AverageTrueRange, ExponentialMovingAverage
+from nautilus_trader.indicators import ExponentialMovingAverage
 from nautilus_trader.indicators.momentum import RelativeStrengthIndex
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
@@ -62,14 +62,11 @@ class MicroScalpStrategy(BaseStrategy):
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
         self.rsi = RelativeStrengthIndex(config.rsi_period)
 
-        if self._atr_indicator is None:
-            self._atr_indicator = AverageTrueRange(config.atr_period)
+        self._ensure_atr_indicator()
 
         self._adx = WilderAdx(period=int(config.adx_period))
         self._prev_close: float | None = None
         self._prev_rsi: float | None = None
-        self._bar_index = 0
-        self._last_signal_bar_index: int | None = None
         self._long_pullback_armed = False
         self._short_pullback_armed = False
         self._last_mode = "range"
@@ -187,12 +184,6 @@ class MicroScalpStrategy(BaseStrategy):
             return SignalDirection.SHORT
         return None
 
-    def _cooldown_passed(self) -> bool:
-        cooldown_bars = max(0, int(self.config.signal_cooldown_bars))
-        if cooldown_bars <= 0 or self._last_signal_bar_index is None:
-            return True
-        return (self._bar_index - self._last_signal_bar_index) >= cooldown_bars
-
     def _calc_limit_price(self, close: Decimal, side: str) -> Decimal:
         tick_size = Decimal("0.1")
         if self.instrument is not None and hasattr(self.instrument, "price_increment"):
@@ -251,6 +242,7 @@ class MicroScalpStrategy(BaseStrategy):
 
     def on_reset(self) -> None:
         """Run on reset."""
+        super().on_reset()
         self.fast_ema.reset()
         self.slow_ema.reset()
         self.rsi.reset()
@@ -260,8 +252,6 @@ class MicroScalpStrategy(BaseStrategy):
         self._adx = WilderAdx(period=int(self.config.adx_period))
         self._prev_close = None
         self._prev_rsi = None
-        self._bar_index = 0
-        self._last_signal_bar_index = None
         self._long_pullback_armed = False
         self._short_pullback_armed = False
         self._last_mode = "range"

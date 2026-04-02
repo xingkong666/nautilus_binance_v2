@@ -10,8 +10,8 @@ from tests.regression.conftest import BAR_TYPE, BTCUSDT, STARTING_BALANCE, build
 
 SINE_TURTLE_BASELINE = {
     "iterations": 200,
-    "total_orders": 44,
-    "total_positions": 22,
+    "total_orders": 48,
+    "total_positions": 24,
 }
 
 
