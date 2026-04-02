@@ -56,13 +56,7 @@ configs/        # 分层 YAML 配置（env / accounts / strategies / risk / exec
 
 ```bash
 # 推荐：uv（项目已锁定 uv.lock）
-uv sync
-
-# 或 pip 可编辑安装
-pip install -e ".[dev]"
-
-# 可选告警依赖
-pip install -e ".[alerting]"
+uv sync --all-extras
 ```
 
 需要 **Python >= 3.13**。
