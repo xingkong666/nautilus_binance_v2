@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Any
 
 from nautilus_trader.config import PositiveFloat, PositiveInt
-from nautilus_trader.indicators import ExponentialMovingAverage
+from nautilus_trader.indicators import ExponentialMovingAverage, RelativeStrengthIndex
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
@@ -37,6 +37,7 @@ class VegasTunnelConfig(BaseStrategyConfig, frozen=True):
 
     signal_cooldown_bars: int = 3
     atr_filter_min_ratio: float = 0.0
+    min_tunnel_width_pct: float = 0.0
 
     stop_atr_multiplier: PositiveFloat = 1.0
     tp_fib_1: PositiveFloat = 1.0
@@ -46,6 +47,12 @@ class VegasTunnelConfig(BaseStrategyConfig, frozen=True):
     tp_split_1: PositiveFloat = 0.4
     tp_split_2: PositiveFloat = 0.3
     tp_split_3: PositiveFloat = 0.3
+
+    trail_stop_after_tp2: bool = False
+
+    rsi_filter_period: PositiveInt = 14
+    rsi_long_max: float = 100.0
+    rsi_short_min: float = 0.0
 
 
 class VegasTunnelStrategy(BaseStrategy):
@@ -64,10 +71,14 @@ class VegasTunnelStrategy(BaseStrategy):
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
         self.tunnel_ema_1 = ExponentialMovingAverage(config.tunnel_ema_period_1)
         self.tunnel_ema_2 = ExponentialMovingAverage(config.tunnel_ema_period_2)
+        self.rsi = RelativeStrengthIndex(config.rsi_filter_period)
 
         self._ensure_atr_indicator()
 
         self._prev_fast_above_slow: bool | None = None
+        # 当前 bar 的隧道边界，供 _maybe_exit 引用（trail_stop_after_tp2）
+        self._tunnel_upper: float = 0.0
+        self._tunnel_lower: float = 0.0
 
         self._is_long: bool | None = None  # None = flat, True = long, False = short
         self._entry_price: float | None = None
@@ -84,6 +95,7 @@ class VegasTunnelStrategy(BaseStrategy):
         self.register_indicator_for_bars(self.config.bar_type, self.slow_ema)
         self.register_indicator_for_bars(self.config.bar_type, self.tunnel_ema_1)
         self.register_indicator_for_bars(self.config.bar_type, self.tunnel_ema_2)
+        self.register_indicator_for_bars(self.config.bar_type, self.rsi)
 
     def _history_warmup_bars(self) -> int:
         return (
@@ -131,6 +143,15 @@ class VegasTunnelStrategy(BaseStrategy):
         if tunnel_width <= 0:
             return None
 
+        # 隧道宽度占价格比例过滤（防横盘假信号）
+        min_width_pct = float(self.config.min_tunnel_width_pct)
+        if min_width_pct > 0 and tunnel_width / close < min_width_pct:
+            return None
+
+        # 保存当前隧道边界（供 _maybe_exit 的追踪止损使用）
+        self._tunnel_upper = tunnel_upper
+        self._tunnel_lower = tunnel_lower
+
         # 先处理已有仓位的止损/分批止盈
         is_long = self._is_long is True
         is_short = self._is_long is False
@@ -170,7 +191,11 @@ class VegasTunnelStrategy(BaseStrategy):
         if not self._cooldown_passed():
             return None
 
+        rsi_val = float(self.rsi.value) if self.rsi.initialized else None
+
         if long_ready:
+            if rsi_val is not None and rsi_val >= float(self.config.rsi_long_max):
+                return None
             return self._open_position(
                 side="long",
                 close=close,
@@ -179,6 +204,8 @@ class VegasTunnelStrategy(BaseStrategy):
             )
 
         if short_ready:
+            if rsi_val is not None and rsi_val <= float(self.config.rsi_short_min):
+                return None
             return self._open_position(
                 side="short",
                 close=close,
@@ -266,6 +293,13 @@ class VegasTunnelStrategy(BaseStrategy):
             if idx == 0:
                 # TP1 后上移到保本
                 self._stop_price = entry
+
+            if idx == 1 and self.config.trail_stop_after_tp2:
+                # TP2 后将止损追踪至隧道边（锁定更多利润）
+                if self._is_long is True:
+                    self._stop_price = self._tunnel_lower
+                else:
+                    self._stop_price = self._tunnel_upper
 
             is_last = self._remaining_qty <= Decimal("0") or idx == 2
             if is_last:
@@ -388,9 +422,12 @@ class VegasTunnelStrategy(BaseStrategy):
         self.slow_ema.reset()
         self.tunnel_ema_1.reset()
         self.tunnel_ema_2.reset()
+        self.rsi.reset()
         if self._atr_indicator is not None:
             self._atr_indicator.reset()
 
         self._prev_fast_above_slow = None
+        self._tunnel_upper = 0.0
+        self._tunnel_lower = 0.0
         self._pending_order = None
         self._reset_position_state()

@@ -254,3 +254,114 @@ def test_historical_bar_prefills_cross_state() -> None:
 
     assert strategy._bar_index == 1
     assert strategy._prev_fast_above_slow is True
+
+
+def test_min_tunnel_width_pct_filters_flat_tunnel() -> None:
+    """Verify that min_tunnel_width_pct suppresses signals when tunnel is too flat."""
+    cfg = VegasTunnelConfig(
+        instrument_id=INSTRUMENT_ID,
+        bar_type=BAR_TYPE,
+        min_tunnel_width_pct=0.01,  # 隧道宽度需 >= 1% 价格
+    )
+    strategy = VegasTunnelStrategy(config=cfg)
+    strategy._resolve_order_quantity = lambda _bar: _FakeQty(Decimal("1.0"))  # type: ignore[method-assign]
+
+    # close=100, tunnel=100.5/100.0 → width=0.5 → 0.5/100=0.005 < 0.01 → 过滤
+    strategy.fast_ema = SimpleNamespace(value=105.0)  # type: ignore[assignment]
+    strategy.slow_ema = SimpleNamespace(value=103.0)  # type: ignore[assignment]
+    strategy.tunnel_ema_1 = SimpleNamespace(value=100.5)  # type: ignore[assignment]
+    strategy.tunnel_ema_2 = SimpleNamespace(value=100.0)  # type: ignore[assignment]
+    strategy._atr_indicator = SimpleNamespace(initialized=True, value=1.0)
+    strategy.rsi = SimpleNamespace(initialized=False, value=50.0)  # type: ignore[assignment]
+    strategy._prev_fast_above_slow = False
+
+    signal = strategy.generate_signal(make_bar(close=100.0))
+
+    assert signal is None
+
+
+def test_rsi_filter_blocks_overbought_long() -> None:
+    """Verify that RSI >= rsi_long_max prevents long entry."""
+    cfg = VegasTunnelConfig(
+        instrument_id=INSTRUMENT_ID,
+        bar_type=BAR_TYPE,
+        rsi_long_max=70.0,
+    )
+    strategy = VegasTunnelStrategy(config=cfg)
+    strategy._resolve_order_quantity = lambda _bar: _FakeQty(Decimal("1.0"))  # type: ignore[method-assign]
+
+    # 金叉 + 位于隧道上方，但 RSI=75 超买
+    strategy.fast_ema = SimpleNamespace(value=120.0)  # type: ignore[assignment]
+    strategy.slow_ema = SimpleNamespace(value=110.0)  # type: ignore[assignment]
+    strategy.tunnel_ema_1 = SimpleNamespace(value=100.0)  # type: ignore[assignment]
+    strategy.tunnel_ema_2 = SimpleNamespace(value=98.0)  # type: ignore[assignment]
+    strategy._atr_indicator = SimpleNamespace(initialized=True, value=5.0)
+    strategy.rsi = SimpleNamespace(initialized=True, value=75.0)  # type: ignore[assignment]
+    strategy._prev_fast_above_slow = False
+
+    signal = strategy.generate_signal(make_bar(close=125.0))
+
+    assert signal is None
+
+
+def test_rsi_filter_blocks_oversold_short() -> None:
+    """Verify that RSI <= rsi_short_min prevents short entry."""
+    cfg = VegasTunnelConfig(
+        instrument_id=INSTRUMENT_ID,
+        bar_type=BAR_TYPE,
+        rsi_short_min=30.0,
+    )
+    strategy = VegasTunnelStrategy(config=cfg)
+    strategy._resolve_order_quantity = lambda _bar: _FakeQty(Decimal("1.0"))  # type: ignore[method-assign]
+
+    # 死叉 + 位于隧道下方，但 RSI=25 超卖
+    strategy.fast_ema = SimpleNamespace(value=80.0)  # type: ignore[assignment]
+    strategy.slow_ema = SimpleNamespace(value=90.0)  # type: ignore[assignment]
+    strategy.tunnel_ema_1 = SimpleNamespace(value=100.0)  # type: ignore[assignment]
+    strategy.tunnel_ema_2 = SimpleNamespace(value=102.0)  # type: ignore[assignment]
+    strategy._atr_indicator = SimpleNamespace(initialized=True, value=5.0)
+    strategy.rsi = SimpleNamespace(initialized=True, value=25.0)  # type: ignore[assignment]
+    strategy._prev_fast_above_slow = True
+
+    signal = strategy.generate_signal(make_bar(close=85.0))
+
+    assert signal is None
+
+
+def test_trail_stop_after_tp2_moves_stop_to_tunnel_lower() -> None:
+    """Verify that TP2 hit with trail_stop_after_tp2=True moves stop to tunnel_lower."""
+    cfg = VegasTunnelConfig(
+        instrument_id=INSTRUMENT_ID,
+        bar_type=BAR_TYPE,
+        trail_stop_after_tp2=True,
+        tp_fib_1=1.0,
+        tp_fib_2=1.618,
+        tp_fib_3=2.618,
+    )
+    strategy = VegasTunnelStrategy(config=cfg)
+    strategy._resolve_order_quantity = lambda _bar: _FakeQty(Decimal("1.0"))  # type: ignore[method-assign]
+
+    # 设置多头入场状态，tunnel_width=2
+    # 入场 close=125, tunnel_upper=102, tunnel_lower=100
+    strategy.fast_ema = SimpleNamespace(value=120.0)  # type: ignore[assignment]
+    strategy.slow_ema = SimpleNamespace(value=110.0)  # type: ignore[assignment]
+    strategy.tunnel_ema_1 = SimpleNamespace(value=102.0)  # type: ignore[assignment]
+    strategy.tunnel_ema_2 = SimpleNamespace(value=100.0)  # type: ignore[assignment]
+    strategy._atr_indicator = SimpleNamespace(initialized=True, value=5.0)
+    strategy.rsi = SimpleNamespace(initialized=False, value=50.0)  # type: ignore[assignment]
+    strategy._prev_fast_above_slow = False
+
+    # 入场 bar
+    strategy.generate_signal(make_bar(close=125.0))
+    assert strategy._is_long is True
+    assert strategy._entry_price == 125.0
+
+    # tunnel_width=2; tp1=127, tp2≈128.236
+    # TP1 bar
+    strategy.generate_signal(make_bar(close=127.1))
+    assert strategy._stop_price == 125.0  # 保本上移
+
+    # TP2 bar — close=128.3 >= tp2(≈128.236)，触发 trail_stop_after_tp2
+    # 此时 _tunnel_lower=100.0（最后一个 bar 的隧道下边界）
+    strategy.generate_signal(make_bar(close=128.3))
+    assert strategy._stop_price == 100.0  # 追踪至 tunnel_lower

@@ -1,30 +1,47 @@
-# Vegas Tunnel 策略配置（经典版）
+# Vegas Tunnel 策略配置（sweep 优化版 v2）
+# IS 区间：2024-07-01 ~ 2025-03-31，ETHUSDT 1h
+# 最优参数来源：vegas_tunnel_sweep_is.csv，PnL%=1.58%，WinRate=74%，42 仓位
 strategy:
     name: vegas_tunnel
     class_path: strategy.vegas_tunnel:VegasTunnelStrategy
 
     params:
-        fast_ema_period: 12
-        slow_ema_period: 36
+        # --- EMA 参数（sweep 最优：10/30 优于原版 12/36）---
+        fast_ema_period: 10
+        slow_ema_period: 30
         tunnel_ema_period_1: 144
         tunnel_ema_period_2: 169
-        signal_cooldown_bars: 3
-        atr_filter_min_ratio: 0.0
-        stop_atr_multiplier: 1.0
 
-        tp_fib_1: 1.0
-        tp_fib_2: 1.618
+        # --- 信号过滤（atr_filter_min_ratio=0.008 是关键！去掉横盘假信号）---
+        signal_cooldown_bars: 2
+        atr_filter_min_ratio: 0.008 # 关键：0.008 vs 0.003 收益天壤之别
+        min_tunnel_width_pct: 0.002 # 隧道宽度 < 0.2% 价格时跳过信号
+
+        # --- 风控（stop_atr=0.8 比 1.0 胜率更高）---
+        stop_atr_multiplier: 0.8
+
+        # --- 止盈（tp1=1.2 倍隧道宽，tp2=2.0 倍，最优绝对收益）---
+        tp_fib_1: 1.2
+        tp_fib_2: 2.0
         tp_fib_3: 2.618
 
         tp_split_1: 0.4
         tp_split_2: 0.3
         tp_split_3: 0.3
 
-        trade_size: 0.01
-        # margin_pct_per_trade: 8.0
-        # gross_exposure_pct_per_trade: 80.0
-        # capital_pct_per_trade: 10.0  # 可选：按账户权益百分比下单
-        # sizing_leverage: 10.0
+        # --- 可选：TP2 后将止损追踪至隧道边（默认关闭，实盘稳健后再开启）---
+        trail_stop_after_tp2: false
+
+        # --- 可选：RSI 过滤（默认全通，设置后可防超买/超卖入场）---
+        rsi_filter_period: 14
+        rsi_long_max: 65.0 # 多头信号时 RSI 必须 < 此值
+        rsi_short_min: 35.0 # 空头信号时 RSI 必须 > 此值
+
+        # --- 动态 sizing：保证金% × 杠杆 = 目标名义敞口 ---
+        # 例：margin_pct_per_trade=5, sizing_leverage=10 → 每笔占权益 50% 名义敞口
+        margin_pct_per_trade: 5.0 # 每笔使用账户权益的 5% 作为保证金
+        sizing_leverage: 3.0 # sizing 杠杆（与实盘杠杆配置保持一致）
+        trade_size: 0.01 # fallback：动态 sizing 失败时使用固定数量
 
     instruments:
         - BTCUSDT-PERP.BINANCE
