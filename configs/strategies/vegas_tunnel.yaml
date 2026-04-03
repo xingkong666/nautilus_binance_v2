@@ -7,20 +7,19 @@ strategy:
 
     params:
         # --- EMA 参数（sweep 最优：10/30 优于原版 12/36）---
-        fast_ema_period: 10
-        slow_ema_period: 30
+        fast_ema_period: 12
+        slow_ema_period: 36
         tunnel_ema_period_1: 144
         tunnel_ema_period_2: 169
 
         # --- 信号过滤（atr_filter_min_ratio=0.008 是关键！去掉横盘假信号）---
         signal_cooldown_bars: 2
         atr_filter_min_ratio: 0.008 # 关键：0.008 vs 0.003 收益天壤之别
-        min_tunnel_width_pct: 0.002 # 隧道宽度 < 0.2% 价格时跳过信号
 
         # --- 风控（stop_atr=0.8 比 1.0 胜率更高）---
         stop_atr_multiplier: 0.8
 
-        # --- 止盈（tp1=1.2 倍隧道宽，tp2=2.0 倍，最优绝对收益）---
+        # --- 止盈（tp1=1.2×ATR，tp2=2.0×ATR，tp3=2.618×ATR；用 ATR 代替隧道宽度作为真实市场空间）---
         tp_fib_1: 1.2
         tp_fib_2: 2.0
         tp_fib_3: 2.618
@@ -30,7 +29,7 @@ strategy:
         tp_split_3: 0.3
 
         # --- 可选：TP2 后将止损追踪至隧道边（默认关闭，实盘稳健后再开启）---
-        trail_stop_after_tp2: false
+        trail_stop_after_tp2: true
 
         # --- 可选：RSI 过滤（默认全通，设置后可防超买/超卖入场）---
         rsi_filter_period: 14

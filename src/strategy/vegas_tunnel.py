@@ -4,7 +4,7 @@
 - 趋势框架：EMA144/EMA169 作为隧道；
 - 触发信号：EMA12/EMA36 穿越，且同向位于隧道外侧；
 - 风控：入场后按 ATR 初始止损；
-- 止盈：基于隧道宽度的 Fib 三档分批止盈（默认 40/30/30）。
+- 止盈：基于ATR Fib 三档分批止盈（默认 40/30/30）。
 
 策略层仅产出信号与订单意图元数据，不直接调用交易所 API。
 """
@@ -37,7 +37,6 @@ class VegasTunnelConfig(BaseStrategyConfig, frozen=True):
 
     signal_cooldown_bars: int = 3
     atr_filter_min_ratio: float = 0.0
-    min_tunnel_width_pct: float = 0.0
 
     stop_atr_multiplier: PositiveFloat = 1.0
     tp_fib_1: PositiveFloat = 1.0
@@ -138,15 +137,6 @@ class VegasTunnelStrategy(BaseStrategy):
         tunnel_b = float(self.tunnel_ema_2.value)
         tunnel_upper = max(tunnel_a, tunnel_b)
         tunnel_lower = min(tunnel_a, tunnel_b)
-        tunnel_width = tunnel_upper - tunnel_lower
-
-        if tunnel_width <= 0:
-            return None
-
-        # 隧道宽度占价格比例过滤（防横盘假信号）
-        min_width_pct = float(self.config.min_tunnel_width_pct)
-        if min_width_pct > 0 and tunnel_width / close < min_width_pct:
-            return None
 
         # 保存当前隧道边界（供 _maybe_exit 的追踪止损使用）
         self._tunnel_upper = tunnel_upper
@@ -199,7 +189,6 @@ class VegasTunnelStrategy(BaseStrategy):
             return self._open_position(
                 side="long",
                 close=close,
-                tunnel_width=tunnel_width,
                 bar=bar,
             )
 
@@ -209,34 +198,34 @@ class VegasTunnelStrategy(BaseStrategy):
             return self._open_position(
                 side="short",
                 close=close,
-                tunnel_width=tunnel_width,
                 bar=bar,
             )
 
         return None
 
-    def _open_position(self, side: str, close: float, tunnel_width: float, bar: Bar) -> SignalDirection | None:
+    def _open_position(self, side: str, close: float, bar: Bar) -> SignalDirection | None:
         total_qty = self._resolve_order_quantity_decimal(bar, fallback_trade_size=False)
         if total_qty is None or total_qty <= 0:
             return None
 
         split_qtys = self._split_quantities(total_qty)
+        atr = float(self._atr_indicator.value)
 
         if side == "long":
-            stop_price = close - float(self._atr_indicator.value) * float(self.config.stop_atr_multiplier)
+            stop_price = close - atr * float(self.config.stop_atr_multiplier)
             tp_prices = [
-                close + tunnel_width * float(self.config.tp_fib_1),
-                close + tunnel_width * float(self.config.tp_fib_2),
-                close + tunnel_width * float(self.config.tp_fib_3),
+                close + atr * float(self.config.tp_fib_1),
+                close + atr * float(self.config.tp_fib_2),
+                close + atr * float(self.config.tp_fib_3),
             ]
             order_side = "BUY"
             signal = SignalDirection.LONG
         else:
-            stop_price = close + float(self._atr_indicator.value) * float(self.config.stop_atr_multiplier)
+            stop_price = close + atr * float(self.config.stop_atr_multiplier)
             tp_prices = [
-                close - tunnel_width * float(self.config.tp_fib_1),
-                close - tunnel_width * float(self.config.tp_fib_2),
-                close - tunnel_width * float(self.config.tp_fib_3),
+                close - atr * float(self.config.tp_fib_1),
+                close - atr * float(self.config.tp_fib_2),
+                close - atr * float(self.config.tp_fib_3),
             ]
             order_side = "SELL"
             signal = SignalDirection.SHORT
