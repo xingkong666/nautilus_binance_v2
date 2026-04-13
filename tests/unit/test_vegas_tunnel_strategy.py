@@ -125,8 +125,8 @@ def test_tp1_triggers_partial_exit_and_move_stop_to_breakeven() -> None:
     assert first == SignalDirection.LONG
     _set_portfolio_side(strategy, "long")  # sync mock after open
 
-    # tunnel_width=2, tp1=127
-    second = strategy.generate_signal(make_bar(close=127.2))
+    # ATR=5.0, tp_fib_1=1.0 (default) → TP1 = 125 + 5*1.0 = 130.0
+    second = strategy.generate_signal(make_bar(close=130.1))
 
     assert second == SignalDirection.FLAT
     assert strategy._pending_order is not None
@@ -197,10 +197,10 @@ def test_tp3_closes_remaining_position() -> None:
     assert first == SignalDirection.LONG
     _set_portfolio_side(strategy, "long")  # sync mock after open
 
-    # 连续触发三档止盈：tp1=127, tp2≈128.236, tp3≈130.236
-    strategy.generate_signal(make_bar(close=127.2))
-    strategy.generate_signal(make_bar(close=128.3))
-    third = strategy.generate_signal(make_bar(close=130.3))
+    # ATR=5.0, fib 1.0/1.618/2.618, entry=125 → tp1=130, tp2=133.09, tp3=138.09
+    strategy.generate_signal(make_bar(close=130.1))
+    strategy.generate_signal(make_bar(close=133.2))
+    third = strategy.generate_signal(make_bar(close=138.2))
 
     assert third == SignalDirection.FLAT
     assert strategy._pending_order is not None
@@ -356,12 +356,12 @@ def test_trail_stop_after_tp2_moves_stop_to_tunnel_lower() -> None:
     assert strategy._is_long is True
     assert strategy._entry_price == 125.0
 
-    # tunnel_width=2; tp1=127, tp2≈128.236
+    # tunnel_width=2; ATR=5, fib 1.0/1.618 → tp1=130.0, tp2=133.09
     # TP1 bar
-    strategy.generate_signal(make_bar(close=127.1))
+    strategy.generate_signal(make_bar(close=130.1))
     assert strategy._stop_price == 125.0  # 保本上移
 
-    # TP2 bar — close=128.3 >= tp2(≈128.236)，触发 trail_stop_after_tp2
+    # TP2 bar — close=133.1 >= tp2(≈133.09)，触发 trail_stop_after_tp2
     # 此时 _tunnel_lower=100.0（最后一个 bar 的隧道下边界）
-    strategy.generate_signal(make_bar(close=128.3))
+    strategy.generate_signal(make_bar(close=133.1))
     assert strategy._stop_price == 100.0  # 追踪至 tunnel_lower

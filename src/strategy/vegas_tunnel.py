@@ -37,6 +37,7 @@ class VegasTunnelConfig(BaseStrategyConfig, frozen=True):
 
     signal_cooldown_bars: int = 3
     atr_filter_min_ratio: float = 0.0
+    min_tunnel_width_pct: float = 0.0
 
     stop_atr_multiplier: PositiveFloat = 1.0
     tp_fib_1: PositiveFloat = 1.0
@@ -176,6 +177,12 @@ class VegasTunnelStrategy(BaseStrategy):
         if atr_ratio_min > 0:
             atr_ratio = float(self._atr_indicator.value) / close
             if atr_ratio < atr_ratio_min:
+                return None
+
+        min_tunnel_width_pct = float(self.config.min_tunnel_width_pct)
+        if min_tunnel_width_pct > 0 and close > 0:
+            tunnel_width_pct = (tunnel_upper - tunnel_lower) / close
+            if tunnel_width_pct < min_tunnel_width_pct:
                 return None
 
         if not self._cooldown_passed():

@@ -8,7 +8,7 @@ license = { text = "MIT" }
 authors = [{ name = "Leo" }]
 
 dependencies = [
-    "nautilus_trader>=1.224.0",
+    "nautilus-trader>=1.225.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
     "pyyaml>=6.0.3",
