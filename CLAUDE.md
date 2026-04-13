@@ -141,6 +141,12 @@ PostTradeRisk   — 成交后滑点与 PnL 归因分析
 ### BinanceAdapter（`src/exchange/binance_adapter.py`）
 封装 NautilusTrader `TradingNode`，支持 `LIVE / TESTNET` 环境。API Key 优先读环境变量，YAML 中可配置 fallback。`start()` / `stop()` 均为 async——在调用 `container.teardown()` 前须先 `await adapter.stop()`。
 
+## Claude 生成文档
+
+- 所有由 Claude / oh-my-claudecode 生成的分析报告、架构文档、参考手册等，统一保存到 `docs/claude-generated/`
+- 查找已有分析文档时，优先读取 `docs/claude-generated/` 下的文件，避免重复生成
+- 文件命名使用全大写下划线风格（如 `CODEBASE_OVERVIEW.md`），保持与现有文件一致
+
 ## 约定
 - 所有导入使用 `from src.xxx`（hatchling editable install）
 - pytest 已配置 `asyncio_mode = "auto"`，async 测试无需 `@pytest.mark.asyncio`

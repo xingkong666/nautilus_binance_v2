@@ -105,7 +105,6 @@ class MicroScalpStrategy(BaseStrategy):
         Returns:
             SignalDirection: Result of generate signal.
         """
-        self._bar_index += 1
         close = float(bar.close)
         if close <= 0 or self._atr_indicator is None:
             return None

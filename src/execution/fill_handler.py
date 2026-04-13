@@ -92,6 +92,7 @@ class FillHandler:
                     fees=Decimal(fees),
                     slippage_bps=0.0,  # Would need expected price to calculate slippage
                     duration_seconds=0.0,  # Would need order submission time to calculate
+                    strategy_id=strategy_id or "unknown",
                 )
                 self._post_trade_analyzer.record_trade(analysis)
             except (AttributeError, ValueError, TypeError) as exc:

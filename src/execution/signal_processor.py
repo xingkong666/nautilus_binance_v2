@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -32,6 +33,7 @@ class SignalProcessor:
         rate_limiter: RateLimiter | None = None,
         ignored_instruments: IgnoredInstrumentRegistry | None = None,
         position_sizer: PositionSizer | None = None,
+        equity_provider: Callable[[], Decimal | None] | None = None,
     ) -> None:
         """Initialize the signal processor.
 
@@ -42,6 +44,9 @@ class SignalProcessor:
             rate_limiter: Rate limiter.
             ignored_instruments: Ignored instruments.
             position_sizer: Position sizer for calculating trade quantities.
+            equity_provider: Optional callable that returns current account equity.
+                When provided, takes precedence over metadata-embedded equity.
+                When equity cannot be obtained, sizing is skipped (base_quantity used).
         """
         self._event_bus = event_bus
         self._order_router = order_router
@@ -49,6 +54,7 @@ class SignalProcessor:
         self._rate_limiter = rate_limiter
         self._ignored_instruments = ignored_instruments
         self._position_sizer = position_sizer
+        self._equity_provider = equity_provider
         self._event_bus.subscribe(EventType.SIGNAL, self._on_signal)
 
     def _on_signal(self, event: Any) -> None:
@@ -200,15 +206,16 @@ class SignalProcessor:
                 self._parse_qty(metadata.get("bar_close")) or self._parse_qty(metadata.get("price")) or Decimal("0")
             )
 
-        # Get account equity - for now use a default, this should be injected properly
-        # TODO: Account equity should come from portfolio/account state
-        account_equity = self._parse_qty(metadata.get("account_equity")) or Decimal("10000")
-
-        if current_price <= 0 or account_equity <= 0:
+        # Get account equity: equity_provider takes precedence over metadata, no hardcoded fallback
+        account_equity: Decimal | None = None
+        if self._equity_provider is not None:
+            account_equity = self._equity_provider()
+        if account_equity is None or account_equity <= 0:
+            account_equity = self._parse_qty(metadata.get("account_equity"))
+        if account_equity is None or account_equity <= 0:
             logger.warning(
-                "position_sizing_skipped_invalid_params",
+                "account_equity_unavailable_sizing_skipped",
                 current_price=str(current_price),
-                account_equity=str(account_equity),
                 base_quantity=str(base_quantity),
             )
             return base_quantity

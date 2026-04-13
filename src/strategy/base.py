@@ -300,6 +300,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         if bar.is_single_price():
             return
 
+        self._bar_index += 1
         direction = self.generate_signal(bar)
         if direction is not None:
             self._publish_signal(direction, bar)

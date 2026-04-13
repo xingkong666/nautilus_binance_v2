@@ -84,8 +84,6 @@ class EMAPullbackATRStrategy(BaseStrategy):
         Args:
             bar: Incoming bar data for the strategy callback.
         """
-        self._bar_index += 1
-
         if self._atr_indicator is None or not self._atr_indicator.initialized:
             self._prev_close = float(bar.close)
             return None

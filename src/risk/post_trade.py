@@ -28,6 +28,7 @@ class TradeAnalysis:
     fees: Decimal
     slippage_bps: float  # 滑点 (basis points)
     duration_seconds: float
+    strategy_id: str = "unknown"
 
 
 @dataclass
@@ -84,7 +85,7 @@ class PostTradeAnalyzer:
         # 更新 Prometheus 指标
         POST_TRADE_SLIPPAGE_BPS.observe(trade.slippage_bps)
         POST_TRADE_PNL.labels(
-            strategy_id="unknown",  # TODO: extract from trade context
+            strategy_id=trade.strategy_id,
             instrument=trade.instrument_id,
         ).set(float(trade.pnl))
 

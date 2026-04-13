@@ -76,7 +76,7 @@ def test_atr_ratio_above_threshold_allows_signal() -> None:
     signal = strategy.generate_signal(SimpleNamespace(close=50_000.0))
 
     assert signal == SignalDirection.LONG
-    assert strategy._last_signal_bar_index == 11
+    assert strategy._last_signal_bar_index == 10
 
 
 def test_cooldown_blocks_rapid_reentry() -> None:
@@ -88,21 +88,25 @@ def test_cooldown_blocks_rapid_reentry() -> None:
 
     bar = SimpleNamespace(close=50_000.0)
 
+    strategy._bar_index += 1
     first = strategy.generate_signal(bar)
     assert first == SignalDirection.LONG
 
     strategy.fast_ema = SimpleNamespace(value=99.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
+    strategy._bar_index += 1
     second = strategy.generate_signal(bar)
     assert second is None
 
     strategy.fast_ema = SimpleNamespace(value=101.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
+    strategy._bar_index += 1
     third = strategy.generate_signal(bar)
     assert third is None
 
     strategy.fast_ema = SimpleNamespace(value=99.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
+    strategy._bar_index += 1
     fourth = strategy.generate_signal(bar)
     assert fourth == SignalDirection.SHORT
 

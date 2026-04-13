@@ -116,5 +116,6 @@ class RSIStrategy(BaseStrategy):
 
     def on_reset(self) -> None:
         """重置指标."""
+        super().on_reset()
         self.rsi.reset()
         self._prev_rsi = None

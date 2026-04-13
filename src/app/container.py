@@ -250,6 +250,7 @@ class Container:
             rate_limiter=self._rate_limiter,
             ignored_instruments=self._ignored_instruments,
             position_sizer=self._position_sizer,
+            equity_provider=self._build_equity_provider(),
         )
 
         # 7. 告警
@@ -399,6 +400,43 @@ class Container:
             }
         except (ConfigError, ValueError, AttributeError):
             return {}
+
+    def _build_equity_provider(self):
+        """构建账户权益提供者闭包.
+
+        返回一个可调用对象，在每次调用时从 BinanceAdapter.node.portfolio
+        读取 USDT 余额。适配器尚未启动时返回 None（信号处理器会降级）。
+
+        Returns:
+            Callable[[], Decimal | None]: 权益提供者。
+
+        """
+        from nautilus_trader.model.currencies import USDT
+
+        def _equity() -> Decimal | None:
+            adapter = self._binance_adapter
+            if adapter is None or not adapter.is_started:
+                return None
+            try:
+                node = adapter.node
+                portfolio = node.portfolio
+                from nautilus_trader.model.identifiers import Venue
+
+                venue = Venue("BINANCE")
+                account = portfolio.account(venue)
+                if account is None:
+                    return None
+                balance = account.balance_total(USDT)
+                if balance is None:
+                    balance = account.balance_total()
+                if balance is None:
+                    return None
+                equity = balance.as_decimal()
+                return equity if equity > 0 else None
+            except (AttributeError, KeyError, ValueError, RuntimeError):
+                return None
+
+        return _equity
 
     @staticmethod
     def _resolve_binance_credentials(

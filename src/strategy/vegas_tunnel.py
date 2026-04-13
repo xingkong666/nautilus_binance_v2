@@ -123,7 +123,6 @@ class VegasTunnelStrategy(BaseStrategy):
             SignalDirection: Result of generate signal.
         """
         self._pending_order = None
-        self._bar_index += 1
 
         if self._atr_indicator is None or not self._atr_indicator.initialized:
             return None

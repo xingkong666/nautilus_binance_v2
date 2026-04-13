@@ -86,8 +86,6 @@ class EMACrossStrategy(BaseStrategy):
         Args:
             bar: Incoming bar data for the strategy callback.
         """
-        self._bar_index += 1
-
         fast_above = self.fast_ema.value >= self.slow_ema.value
 
         # 第一根 bar, 记录状态但不产出信号
