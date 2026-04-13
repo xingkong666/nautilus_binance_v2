@@ -41,7 +41,7 @@ from src.core.logging import setup_logging
 from src.live.readiness import ensure_live_readiness
 from src.live.warmup import preload_strategies_warmup
 from src.state.reconciliation import ReconciliationEngine
-from src.state.recovery import RecoveryManager
+from src.state.recovery import RecoveryManager, RecoveryReport
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
 from src.strategy.ema_pullback_atr import EMAPullbackATRConfig, EMAPullbackATRStrategy
@@ -301,7 +301,7 @@ def _normalize_exchange_positions(raw_positions: list[dict[str, Any]]) -> list[d
     return normalized
 
 
-def _bootstrap_live_state(container: Container, adapter: Any) -> None:
+def _bootstrap_live_state(container: Container, adapter: Any) -> RecoveryReport:
     raw_balances, raw_positions = adapter.fetch_account_snapshot()
     raw_open_orders = adapter.fetch_open_orders()
     normalized_positions = _normalize_exchange_positions(raw_positions)
@@ -312,6 +312,7 @@ def _bootstrap_live_state(container: Container, adapter: Any) -> None:
             source="bootstrap",
             details={"side": position.get("side", "BOTH")},
         )
+    known_client_order_ids: set[str] = set()
     for order in raw_open_orders:
         symbol = str(order.get("symbol", "")).strip()
         if not symbol:
@@ -322,24 +323,37 @@ def _bootstrap_live_state(container: Container, adapter: Any) -> None:
             source="bootstrap",
             details={"client_order_id": str(order.get("clientOrderId", ""))},
         )
+        coid = str(order.get("clientOrderId", "")).strip()
+        if coid:
+            known_client_order_ids.add(coid)
     recovery = RecoveryManager(
         snapshot_mgr=container.snapshot_manager,
         reconciler=ReconciliationEngine(container.event_bus),
     )
-    snapshot = recovery.recover(
+    report = recovery.recover(
         exchange_positions=normalized_positions,
         account_balance=_extract_account_balance(raw_balances),
+        exchange_open_orders=raw_open_orders,
+        known_client_order_ids=known_client_order_ids,
     )
-    if snapshot is None:
-        return
-    snapshot.open_orders = raw_open_orders
-    container.snapshot_manager.save(snapshot)
     logger.info(
         "live_state_bootstrapped",
-        positions=len(snapshot.positions),
-        recovery_source=snapshot.metadata.get("recovery_source", ""),
-        recovery_action=snapshot.metadata.get("recovery_action", ""),
+        recovery_source=report.recovery_source,
+        reconciliation_matched=report.reconciliation_matched,
+        mismatch_count=report.mismatch_count,
+        orphan_orders=len(report.orphan_orders),
+        recommended_action=report.recommended_action,
+        snapshot_age_sec=round(report.snapshot_age_sec, 1),
     )
+    if report.recommended_action == "halt":
+        raise RuntimeError(
+            f"启动对账失败，建议人工介入: mismatches={report.mismatch_count}, orphan_orders={len(report.orphan_orders)}"
+        )
+    snapshot = report.snapshot
+    if snapshot is not None:
+        snapshot.open_orders = raw_open_orders
+        container.snapshot_manager.save(snapshot)
+    return report
 
 
 def _parse_args() -> argparse.Namespace:

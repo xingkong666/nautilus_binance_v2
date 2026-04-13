@@ -282,13 +282,14 @@ class TestRecoveryManager:
     """Test cases for recovery manager."""
 
     def test_recover_returns_none_when_no_snapshot(self, recovery_mgr):
-        """无快照时，recover() 返回 None（冷启动）。.
+        """无快照时，recover() 返回 RecoveryReport with none/cold_start source.
 
         Args:
             recovery_mgr: Recovery manager fixture under test.
         """
         result = recovery_mgr.recover()
-        assert result is None
+        assert result is not None
+        assert result.recovery_source in ("none", "cold_start")
 
     def test_recover_cold_starts_from_exchange_truth(self, recovery_mgr):
         """Verify that recover cold starts from exchange truth.
@@ -311,10 +312,10 @@ class TestRecoveryManager:
         )
 
         assert result is not None
-        assert len(result.positions) == 1
-        assert result.account_balance == "1234.56"
-        assert result.metadata["recovery_source"] == "exchange_truth"
-        assert result.metadata["recovery_action"] == "cold_start_from_exchange"
+        assert result.recovery_source == "exchange_truth"
+        assert result.snapshot is not None
+        assert len(result.snapshot.positions) == 1
+        assert result.snapshot.account_balance == "1234.56"
 
     def test_recover_loads_latest_snapshot(self, recovery_mgr, snapshot_mgr):
         """有快照时，recover() 返回最新快照内容。.
@@ -341,8 +342,9 @@ class TestRecoveryManager:
         result = recovery_mgr.recover()
 
         assert result is not None
-        assert len(result.positions) == 1
-        assert result.positions[0].instrument_id == "BTCUSDT-PERP.BINANCE"
+        assert result.snapshot is not None
+        assert len(result.snapshot.positions) == 1
+        assert result.snapshot.positions[0].instrument_id == "BTCUSDT-PERP.BINANCE"
 
     def test_recover_marks_needs_reconciliation(self, recovery_mgr, snapshot_mgr):
         """恢复后快照 metadata 中包含 needs_reconciliation=True。.
@@ -357,10 +359,11 @@ class TestRecoveryManager:
         result = recovery_mgr.recover()
 
         assert result is not None
-        assert result.metadata.get("needs_reconciliation") is True
+        assert result.snapshot is not None
+        assert result.snapshot.metadata.get("needs_reconciliation") is True
 
     def test_recover_marks_recovery_source(self, recovery_mgr, snapshot_mgr):
-        """恢复后 metadata 中包含 recovery_source 标记。.
+        """恢复后 recovery_source 标记为 local_snapshot。.
 
         Args:
             recovery_mgr: Recovery manager fixture under test.
@@ -371,7 +374,7 @@ class TestRecoveryManager:
 
         result = recovery_mgr.recover()
 
-        assert result.metadata.get("recovery_source") == "local_snapshot"
+        assert result.recovery_source == "local_snapshot"
 
     def test_snapshot_age_is_positive(self, recovery_mgr, snapshot_mgr):
         """_snapshot_age_seconds 对正常快照返回正数。.
@@ -386,7 +389,8 @@ class TestRecoveryManager:
         result = recovery_mgr.recover()
 
         assert result is not None
-        age = RecoveryManager._snapshot_age_seconds(result)
+        assert result.snapshot is not None
+        age = RecoveryManager._snapshot_age_seconds(result.snapshot)
         assert age >= 0
 
     def test_recover_multiple_saves_uses_latest(self, recovery_mgr, snapshot_mgr):
@@ -410,7 +414,8 @@ class TestRecoveryManager:
 
         # 应加载到 latest（snap2）
         assert result is not None
-        assert result.account_balance == "9999"
+        assert result.snapshot is not None
+        assert result.snapshot.account_balance == "9999"
 
     def test_recover_with_matching_exchange_positions_confirms_snapshot(
         self,
@@ -449,9 +454,10 @@ class TestRecoveryManager:
         )
 
         assert result is not None
-        assert result.metadata["reconciliation_matched"] is True
-        assert result.metadata["needs_reconciliation"] is False
-        assert result.metadata["recovery_action"] == "snapshot_confirmed"
+        assert result.reconciliation_matched is True
+        assert result.snapshot is not None
+        assert result.snapshot.metadata["needs_reconciliation"] is False
+        assert result.snapshot.metadata["recovery_action"] == "snapshot_confirmed"
 
     def test_recover_with_mismatch_replaces_positions_from_exchange(
         self,
@@ -492,9 +498,10 @@ class TestRecoveryManager:
         )
 
         assert result is not None
-        assert result.metadata["reconciliation_matched"] is False
-        assert result.metadata["recovery_source"] == "exchange_truth"
-        assert result.metadata["recovery_action"] == "positions_replaced_from_exchange"
+        assert result.reconciliation_matched is False
+        assert result.recovery_source == "exchange_truth"
+        assert result.snapshot is not None
+        assert result.snapshot.metadata["recovery_action"] == "positions_replaced_from_exchange"
 
     def test_recover_mismatch_does_not_publish_risk_alert(
         self,
@@ -537,8 +544,9 @@ class TestRecoveryManager:
 
         assert alerts == []
         assert result is not None
-        assert result.positions[0].instrument_id == "ETHUSDC-PERP.BINANCE"
-        assert result.positions[0].quantity == "0.165"
+        assert result.snapshot is not None
+        assert result.snapshot.positions[0].instrument_id == "ETHUSDC-PERP.BINANCE"
+        assert result.snapshot.positions[0].quantity == "0.165"
 
 
 # ---------------------------------------------------------------------------

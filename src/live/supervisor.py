@@ -61,11 +61,20 @@ class LiveSupervisor:
 
     """
 
-    def __init__(self, container: Container) -> None:
+    def __init__(
+        self,
+        container: Container,
+        *,
+        max_recovery_attempts: int = 3,
+        recovery_backoff_base_sec: float = 5.0,
+    ) -> None:
         """初始化 Supervisor.
 
         Args:
             container: 已 build 的应用依赖容器，提供 event_bus 等服务。
+            max_recovery_attempts: DEGRADED 状态下最大自动重连次数，默认 3。
+            recovery_backoff_base_sec: 指数退避基础等待秒数，默认 5.0。
+                实际等待 = base * 2^(attempt-1)，即 5s → 10s → 20s。
 
         """
         self._container = container
@@ -82,6 +91,10 @@ class LiveSupervisor:
         # 错误计数，用于决策是否重启
         self._error_count = 0
         self._max_errors = 5
+
+        # 自动重连配置
+        self._max_recovery_attempts = max_recovery_attempts
+        self._recovery_backoff_base_sec = recovery_backoff_base_sec
 
     # ------------------------------------------------------------------
     # 公开接口
@@ -252,7 +265,7 @@ class LiveSupervisor:
     # ------------------------------------------------------------------
 
     def _on_circuit_breaker(self, event: Event) -> None:
-        """处理熔断事件，进入 DEGRADED 状态.
+        """处理熔断事件，进入 DEGRADED 状态，并尝试自动重连.
 
         Args:
             event: CircuitBreaker 触发的 Event 对象。
@@ -271,3 +284,63 @@ class LiveSupervisor:
                 error_count=self._error_count,
             )
             self._stop_event.set()
+            return
+
+        # 启动后台重连任务（指数退避）
+        if self._loop is not None and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._attempt_recovery(), self._loop)
+            logger.info(
+                "supervisor_recovery_scheduled",
+                error_count=self._error_count,
+                max_recovery_attempts=self._max_recovery_attempts,
+            )
+
+    async def _attempt_recovery(self) -> None:
+        """指数退避重连：等待 backoff_base * 2^(attempt-1) 秒后重启 adapter.
+
+        最多尝试 max_recovery_attempts 次；全部失败则设置 stop_event。
+        """
+        for attempt in range(1, self._max_recovery_attempts + 1):
+            wait_sec = self._recovery_backoff_base_sec * (2 ** (attempt - 1))
+            logger.info(
+                "supervisor_recovery_attempt",
+                attempt=attempt,
+                max_attempts=self._max_recovery_attempts,
+                wait_sec=wait_sec,
+            )
+            await asyncio.sleep(wait_sec)
+            try:
+                await self._restart_adapter()
+                self._state = SupervisorState.RUNNING
+                self._error_count = 0
+                logger.info("supervisor_recovery_succeeded", attempt=attempt)
+                return
+            except Exception as exc:
+                logger.warning(
+                    "supervisor_recovery_failed",
+                    attempt=attempt,
+                    error=str(exc),
+                )
+
+        # 所有重连尝试均失败 → 停止进程
+        logger.critical(
+            "supervisor_recovery_exhausted",
+            max_recovery_attempts=self._max_recovery_attempts,
+        )
+        self._stop_event.set()
+
+    async def _restart_adapter(self) -> None:
+        """重启 BinanceAdapter（stop → start）.
+
+        Raises:
+            Exception: adapter.stop() 或 adapter.start() 抛出时向上传播。
+        """
+        adapter = getattr(self._container, "binance_adapter", None)
+        if adapter is None:
+            logger.debug("supervisor_restart_adapter_skipped_no_adapter")
+            return
+        if hasattr(adapter, "stop"):
+            await adapter.stop()
+        if hasattr(adapter, "start"):
+            await adapter.start()
+        logger.info("supervisor_adapter_restarted")

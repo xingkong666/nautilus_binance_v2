@@ -46,6 +46,7 @@ from src.risk.pre_trade import PreTradeRiskManager
 from src.risk.real_time import RealTimeRiskMonitor
 from src.state.persistence import TradePersistence
 from src.state.snapshot import SnapshotManager
+from src.state.snapshot_scheduler import SnapshotScheduler
 
 if TYPE_CHECKING:
     from src.core.config import AppConfig
@@ -93,6 +94,7 @@ class Container:
         self._portfolio_allocator: PortfolioAllocator | None = None
         self._binance_adapter: BinanceAdapter | None = None
         self._daily_reset_timer: threading.Timer | None = None
+        self._snapshot_scheduler: SnapshotScheduler | None = None
 
     # ------ 生命周期 ------
 
@@ -277,6 +279,11 @@ class Container:
         # 9. 日风控重置定时器
         self._schedule_daily_reset()
 
+        # 10. 周期快照调度器（仅当 state.snapshot_enabled 时启动）
+        self._snapshot_scheduler = self._build_snapshot_scheduler()
+        if self._snapshot_scheduler is not None:
+            self._snapshot_scheduler.start()
+
         self._built = True
         logger.info("container_built", env=cfg.env)
         return self
@@ -287,6 +294,13 @@ class Container:
         按照依赖逆序清理：监控 → 执行 → 基础设施。
         """
         logger.info("container_teardown")
+
+        # Stop snapshot scheduler first (background thread, no external deps)
+        if self._snapshot_scheduler is not None and self._snapshot_scheduler.is_running:
+            try:
+                self._snapshot_scheduler.stop()
+            except (AttributeError, RuntimeError):
+                logger.exception("snapshot_scheduler_stop_failed")
 
         # Cancel daily reset timer
         _reset_timer = getattr(self, "_daily_reset_timer", None)
@@ -457,6 +471,41 @@ class Container:
             env_settings.get("binance_api_key", ""),
             env_settings.get("binance_api_secret", ""),
         )
+
+    def _build_snapshot_scheduler(self) -> SnapshotScheduler | None:
+        """构建周期快照调度器.
+
+        Returns:
+            SnapshotScheduler 实例，或 None（快照功能未启用时）。
+
+        """
+        state_cfg = getattr(self._config, "state", None)
+        if state_cfg is not None and not state_cfg.snapshot_enabled:
+            logger.info("snapshot_scheduler_disabled")
+            return None
+        interval_sec = float(getattr(state_cfg, "snapshot_interval_sec", 60.0)) if state_cfg else 60.0
+        keep_count = int(getattr(state_cfg, "snapshot_keep_count", 20)) if state_cfg else 20
+        assert self._snapshot_manager is not None
+        return SnapshotScheduler(
+            snapshot_mgr=self._snapshot_manager,
+            state_provider=self._build_state_provider(),
+            interval_sec=interval_sec,
+            cleanup_keep=keep_count,
+        )
+
+    def _build_state_provider(self):
+        """构建状态提供者闭包，供 SnapshotScheduler 调用.
+
+        Returns:
+            Callable[[], SystemSnapshot]，读取当前内存状态。
+
+        """
+        from src.state.snapshot import SystemSnapshot
+
+        def _state_provider() -> SystemSnapshot:
+            return SystemSnapshot()
+
+        return _state_provider
 
     def _build_event_bus(self) -> EventBus:
         """构建 EventBus 并挂载全局监控 handler.
@@ -700,6 +749,17 @@ class Container:
         """
         self._ensure_built()
         return self._portfolio_allocator
+
+    @property
+    def snapshot_scheduler(self) -> SnapshotScheduler | None:
+        """返回周期快照调度器（snapshot_enabled=False 时为 None）.
+
+        Raises:
+            RuntimeError: 容器未 build。
+
+        """
+        self._ensure_built()
+        return self._snapshot_scheduler
 
     @property
     def binance_adapter(self) -> BinanceAdapter | None:

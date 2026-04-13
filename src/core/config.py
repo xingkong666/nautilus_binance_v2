@@ -201,6 +201,15 @@ class NautilusCacheConfig(BaseModel):
     )
 
 
+class StateConfig(BaseModel):
+    """状态持久化与快照配置."""
+
+    snapshot_enabled: bool = True
+    snapshot_interval_sec: float = 60.0
+    snapshot_dir: str = "state/snapshots"
+    snapshot_keep_count: int = 20
+
+
 class AppConfig(BaseModel):
     """应用总配置, 聚合所有子配置."""
 
@@ -214,6 +223,7 @@ class AppConfig(BaseModel):
     monitoring: MonitoringConfig = MonitoringConfig()
     live: LiveConfig = LiveConfig()
     account: AccountConfig = AccountConfig()
+    state: StateConfig = Field(default_factory=StateConfig)
     exchange: dict[str, Any] = {}
     strategies: dict[str, Any] = {}
 
@@ -261,6 +271,7 @@ def load_app_config(env: str | None = None) -> AppConfig:
     merged_exchange = deep_merge(env_cfg.get("exchange", {}), _env_exchange_overrides(env_settings))
     merged_cache = env_cfg.get("cache", {})
     merged_logging = env_cfg.get("logging", {})
+    merged_state = env_cfg.get("state", {})
 
     return AppConfig(
         env=current_env,
@@ -273,6 +284,7 @@ def load_app_config(env: str | None = None) -> AppConfig:
         monitoring=MonitoringConfig(**merged_monitoring) if merged_monitoring else MonitoringConfig(),
         live=LiveConfig(**merged_live) if merged_live else LiveConfig(),
         account=AccountConfig(**account_cfg) if account_cfg else AccountConfig(),
+        state=StateConfig(**merged_state) if merged_state else StateConfig(),
         exchange=dict(merged_exchange),
         strategies=dict(env_cfg.get("strategies", {})),
     )
