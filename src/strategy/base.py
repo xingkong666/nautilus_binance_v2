@@ -86,6 +86,8 @@ class BaseStrategyConfig(StrategyConfig, frozen=True):
     atr_tp_multiplier: float | None = None
     live_warmup_bars: int = 0
     live_warmup_margin_bars: int = 5
+    subscribe_order_book: bool = False
+    order_book_depth: int = 10
 
 
 class BaseStrategy(Strategy):  # type: ignore[misc]
@@ -136,6 +138,11 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         self._ensure_indicators_registered()
         self._request_warmup_history()
         self.subscribe_bars(self.config.bar_type)
+        if self.config.subscribe_order_book:
+            self.subscribe_order_book_deltas(
+                instrument_id=self.config.instrument_id,
+                depth=self.config.order_book_depth,
+            )
 
     @abstractmethod
     def _register_indicators(self) -> None:
