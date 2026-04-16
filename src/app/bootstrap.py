@@ -45,6 +45,7 @@ from src.state.recovery import RecoveryManager, RecoveryReport
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.ema_cross import EMACrossConfig, EMACrossStrategy
 from src.strategy.ema_pullback_atr import EMAPullbackATRConfig, EMAPullbackATRStrategy
+from src.strategy.market_maker import ActiveMarketMaker, MarketMakerConfig
 from src.strategy.micro_scalp import MicroScalpConfig, MicroScalpStrategy
 from src.strategy.turtle import TurtleConfig, TurtleStrategy
 from src.strategy.vegas_tunnel import VegasTunnelConfig, VegasTunnelStrategy
@@ -57,6 +58,7 @@ _STRATEGY_REGISTRY: dict[str, tuple[type[BaseStrategy], type[BaseStrategyConfig]
     "ema_pullback_atr": (EMAPullbackATRStrategy, EMAPullbackATRConfig),
     "turtle": (TurtleStrategy, TurtleConfig),
     "micro_scalp": (MicroScalpStrategy, MicroScalpConfig),
+    "market_maker": (ActiveMarketMaker, MarketMakerConfig),
     "vegas_tunnel": (VegasTunnelStrategy, VegasTunnelConfig),
 }
 

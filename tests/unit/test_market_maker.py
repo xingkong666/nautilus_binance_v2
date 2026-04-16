@@ -100,6 +100,17 @@ def test_weighted_imbalance_exp() -> None:
     assert weights_exp[0] == pytest.approx(1.0)
 
 
+def test_order_book_level_size_accepts_method_and_property() -> None:
+    """订单簿档位数量兼容 Nautilus size() 方法和测试桩 size 属性."""
+    strategy = make_strategy()
+
+    method_level = SimpleNamespace(size=lambda: Decimal("1.25"))
+    property_level = SimpleNamespace(size=Decimal("2.50"))
+
+    assert strategy._order_book_level_size(method_level) == pytest.approx(1.25)
+    assert strategy._order_book_level_size(property_level) == pytest.approx(2.50)
+
+
 # ── Test 3: EWM smoothing converges ───────────────────────────────────────────
 def test_ewm_smoothing() -> None:
     """EWM 平滑：多次相同输入后 _smooth_imbalance 收敛到目标值."""

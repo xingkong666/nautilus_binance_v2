@@ -1,8 +1,9 @@
+# 主动做市商策略配置
 strategy:
-    class: ActiveMarketMaker
-    instrument_id: "BTCUSDC-PERP.BINANCE"
-    bar_type: "BTCUSDC-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"
+  name: market_maker
+  class_path: strategy.market_maker:ActiveMarketMaker
 
+  params:
     # L2 订单簿
     subscribe_order_book: true
     order_book_depth: 10
@@ -28,12 +29,13 @@ strategy:
     inv_tanh_scale: 2.0
     ask_inv_weight: 1.2
 
-    # 库存
-    max_position_usd: 1000.0
-    soft_inventory_limit: 0.30
-    hard_inventory_limit: 0.70
+    # 库存（3000U 账户中，本策略净库存预算约 100U）
+    max_position_usd: 100.0
+    soft_inventory_limit: 0.30  # 约 30U 开始缩量/偏价
+    hard_inventory_limit: 0.70  # 约 70U 停止同向加仓
+    one_side_only_limit: 0.70   # 与 hard limit 对齐，只允许减仓方向
     soft_size_min_ratio: 0.3
-    kill_switch_limit: 1.2
+    kill_switch_limit: 1.2      # 约 120U 触发 kill switch
 
     # 订单生命周期
     limit_ttl_ms: 8000
@@ -46,8 +48,8 @@ strategy:
     # Imbalance dead zone
     dead_zone_threshold: 0.1
 
-    # sizing
-    capital_pct_per_trade: 2.0
+    # sizing（3000U 账户 * 1% ≈ 每边报价 30U）
+    capital_pct_per_trade: 0.3
 
     # ATR（用于动态 spread）
     atr_period: 14
@@ -100,7 +102,6 @@ strategy:
     microprice_skew_scale: 1.0
 
     # V3: Inventory tiered control
-    one_side_only_limit: 0.7
     deeper_layer_inv_threshold: 0.5
 
     # V4: Queue position
@@ -130,3 +131,17 @@ strategy:
 
     # V5: Asymmetric layered quoting
     asymmetric_layers: true
+
+  instruments:
+    - BTCUSDC-PERP.BINANCE
+
+  bar_type: "{instrument_id}-1-MINUTE-LAST-EXTERNAL"
+
+  subscribe:
+    bars: true
+    trade_ticks: true
+    quote_ticks: false
+    order_book: true
+
+  close_positions_on_stop: true
+  reduce_only_on_stop: true

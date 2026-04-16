@@ -24,6 +24,7 @@ import statistics
 from collections import deque
 from datetime import datetime, timedelta
 from decimal import Decimal
+from typing import Any, cast
 
 import structlog
 from nautilus_trader.common.enums import LogColor
@@ -497,8 +498,8 @@ class ActiveMarketMaker(BaseStrategy):
         wb = self._calc_weights(len(bids)) if bids else []
         wa = self._calc_weights(len(asks)) if asks else []
 
-        bid_w = sum(wb[i] * float(bids[i].size) for i in range(len(bids))) if bids else 0.0
-        ask_w = sum(wa[i] * float(asks[i].size) for i in range(len(asks))) if asks else 0.0
+        bid_w = sum(wb[i] * self._order_book_level_size(bids[i]) for i in range(len(bids))) if bids else 0.0
+        ask_w = sum(wa[i] * self._order_book_level_size(asks[i]) for i in range(len(asks))) if asks else 0.0
         total = bid_w + ask_w
         if total <= 0:
             return
@@ -509,6 +510,12 @@ class ActiveMarketMaker(BaseStrategy):
 
         if abs(self._smooth_imbalance) < self.config.dead_zone_threshold:
             self._smooth_imbalance = 0.0
+
+    def _order_book_level_size(self, level: Any) -> float:
+        """读取 order book 档位数量，兼容 Nautilus 方法式 size() 与测试桩属性式 size."""
+        size_attr = level.size
+        size = size_attr() if callable(size_attr) else size_attr
+        return float(cast(Any, size))
 
     def _calc_weights(self, n: int) -> list[float]:
         if self.config.imbalance_weight_mode == "exp":
