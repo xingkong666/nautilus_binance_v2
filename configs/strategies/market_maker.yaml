@@ -1,0 +1,132 @@
+strategy:
+    class: ActiveMarketMaker
+    instrument_id: "BTCUSDC-PERP.BINANCE"
+    bar_type: "BTCUSDC-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"
+
+    # L2 订单簿
+    subscribe_order_book: true
+    order_book_depth: 10
+    imbalance_decay: 0.3
+    imbalance_threshold: 0.58
+    imbalance_weight_mode: "linear"
+
+    # EMA 过滤
+    fast_ema_period: 20
+    slow_ema_period: 60
+
+    # 动态 spread
+    base_spread_ticks: 3
+    min_spread_ticks: 2
+    max_spread_ticks: 10
+    spread_vol_multiplier: 2.0
+    spread_recovery_ratio: 0.9
+
+    # skew
+    alpha_scale_ticks: 2.0
+    alpha_tanh_k: 2.0
+    inv_scale_ticks: 3.0
+    inv_tanh_scale: 2.0
+    ask_inv_weight: 1.2
+
+    # 库存
+    max_position_usd: 1000.0
+    soft_inventory_limit: 0.30
+    hard_inventory_limit: 0.70
+    soft_size_min_ratio: 0.3
+    kill_switch_limit: 1.2
+
+    # 订单生命周期
+    limit_ttl_ms: 8000
+    post_only: true
+    refresh_every_bar: true
+    drift_ticks: 2
+    skew_drift_ticks: 1
+    fill_cooldown_ms: 500
+
+    # Imbalance dead zone
+    dead_zone_threshold: 0.1
+
+    # sizing
+    capital_pct_per_trade: 2.0
+
+    # ATR（用于动态 spread）
+    atr_period: 14
+    atr_sl_multiplier: 2.0
+
+    # US-001: Microprice
+    use_microprice: true
+
+    # US-002: Adverse selection detection
+    adverse_selection_ticks: 3
+    adverse_selection_cooldown_ms: 2000
+
+    # US-003: Order queue awareness
+    order_refresh_ratio: 0.7
+
+    # US-004: Delta-driven quoting
+    quote_on_delta: false
+    delta_quote_min_interval_ms: 100
+
+    # US-005: Realized volatility
+    use_realized_vol: false
+    rv_window: 20
+
+    # US-006: Layered quoting
+    quote_layers: 1
+    layer_spread_step_ticks: 1.0
+    layer_size_decay: 0.7
+
+    # US-007: PnL speed circuit breaker
+    max_loss_usd: 50.0
+    loss_window_ms: 60000
+    pnl_cb_cooldown_ms: 300000
+
+    # US-008: Market quality filter
+    max_book_spread_ticks: 20.0
+    imbalance_spike_threshold: 0.9
+
+    # US-009: Cost model
+    min_expected_profit_bps: 1.0
+    taker_fee_bps: 4.0
+
+    # V3: Trade flow alpha
+    subscribe_trades: true
+    trade_flow_weight: 0.4
+
+    # V3: Pre-trade adverse cancel
+    pretrade_cancel_ticks: 0.5
+
+    # V3: Microprice deep utilization
+    microprice_skew_scale: 1.0
+
+    # V3: Inventory tiered control
+    one_side_only_limit: 0.7
+    deeper_layer_inv_threshold: 0.5
+
+    # V4: Queue position
+    queue_norm_volume: 10000.0
+    queue_improve_threshold: 0.7
+
+    # V4: Toxic flow
+    toxic_decay: 0.9
+
+    # V4: Quote quality score
+    quote_score_threshold: -0.5
+    toxic_one_side_threshold: 0.5
+
+    # V5: Microprice alpha driver
+    mp_alpha_weight: 0.5
+    imbalance_weight: 0.3
+
+    # V5: Asymmetric bid/ask alpha
+    mp_bias_strength: 0.3
+
+    # V5: Fill-prob driven execution
+    withdraw_fill_prob_threshold: 0.05
+    fill_prob_spread_adj: true
+
+    # V5: Toxic flow preemptive cancel
+    toxic_mp_drift_ticks: 1.5
+
+    # V5: Asymmetric layered quoting
+    asymmetric_layers: true
