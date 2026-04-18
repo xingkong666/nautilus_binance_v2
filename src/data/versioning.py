@@ -61,7 +61,7 @@ class DataVersionManager:
         # 计算校验和
         checksum = self._compute_checksum(version_dir)
 
-        # 更新 manifest
+        # 更新清单
         self._manifest["versions"].append(
             {
                 "id": version_id,

@@ -165,7 +165,7 @@ class PortfolioAllocator:
         )
 
     # ------------------------------------------------------------------
-    # Public API
+    # 公共 API
     # ------------------------------------------------------------------
 
     def allocate(self, total_capital: Decimal) -> dict[str, AllocationResult]:
@@ -310,7 +310,7 @@ class PortfolioAllocator:
         for snap in snapshots:
             sid = snap.strategy_id
 
-            # 策略不在分配结果中（disabled 或未知）且 close_unknown=True → 全平
+            # 策略不在分配结果中（已禁用或未知）且 close_unknown=True → 全平
             if sid not in target_allocations:
                 if close_unknown and snap.current_quantity != Decimal("0"):
                     intents.append(
@@ -447,7 +447,7 @@ class PortfolioAllocator:
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
-    # Private helpers
+    # 私有辅助函数
     # ------------------------------------------------------------------
 
     def _risk_parity_weights(self, strategies: list[StrategyAllocation]) -> dict[str, float]:

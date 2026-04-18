@@ -20,9 +20,9 @@ class OrderIntent:
     """
 
     instrument_id: str
-    side: str  # BUY / SELL
+    side: str  # 买 / 卖
     quantity: Decimal
-    order_type: str = "MARKET"  # MARKET / LIMIT / MARKET_IF_TOUCHED
+    order_type: str = "MARKET"  # 市价 / 限价 / 触价市价
     price: Decimal | None = None
     stop_loss: Decimal | None = None
     take_profit: Decimal | None = None
@@ -54,8 +54,8 @@ class OrderIntent:
         elif direction == SignalDirection.SHORT:
             side = "SELL"
         else:
-            # FLAT → 平仓
-            side = "SELL"  # 具体方向由 router 根据当前持仓判断
+            # 空仓信号 → 平仓
+            side = "SELL"  # 具体方向由路由器根据当前持仓判断
             kwargs["reduce_only"] = True
 
         return cls(

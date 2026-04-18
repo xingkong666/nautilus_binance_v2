@@ -109,7 +109,7 @@ class BacktestReporter:
         print(f"  Total Positions: {s['total_positions']}")
         print(sep)
 
-        # PnL 统计
+        # 损益统计
         if s["pnl"]:
             print("  📈 PnL Statistics:")
             for currency, stats in s["pnl"].items():
@@ -121,7 +121,7 @@ class BacktestReporter:
                         print(f"      {k:<35}: {v}")
         print(sep)
 
-        # Returns 统计
+        # 收益率统计
         if s["returns"]:
             print("  📉 Returns Statistics:")
             for k, v in s["returns"].items():
@@ -197,7 +197,7 @@ class BacktestReporter:
         summary_path.write_text(json.dumps(summary_data, ensure_ascii=False, indent=2))
         logger.info("report_saved", path=str(summary_path))
 
-        # 保存各 DataFrame 报告
+        # 保存各数据表报告
         for name, df in self._reports.items():
             if df is not None and hasattr(df, "to_csv") and len(df) > 0:
                 csv_path = output_dir / f"{name}.csv"
@@ -216,7 +216,7 @@ class BacktestReporter:
         s = self.summary()
         # dt.date 转字符串
         s["generated_at"] = dt.datetime.now(dt.UTC).isoformat()
-        # float -> round 4 位
+        # 浮点数四舍五入到 4 位
         if s["pnl"]:
             for currency in s["pnl"]:
                 s["pnl"][currency] = {

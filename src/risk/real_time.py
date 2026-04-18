@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Redis key for real-time risk metrics
+# 实时风险指标的 Redis 键
 _RISK_METRICS_KEY = "nautilus:risk:metrics"
 
 
@@ -90,7 +90,7 @@ class RealTimeRiskMonitor:
         else:
             drawdown_pct = 0.0
 
-        # 计算日PnL
+        # 计算日内 PnL
         self._daily_pnl = current_equity - self._initial_equity
 
         # 更新日损失使用率指标

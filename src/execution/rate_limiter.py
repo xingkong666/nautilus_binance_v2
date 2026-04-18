@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Redis keys
+# Redis 键
 _RL_SECOND_KEY = "nautilus:rl:orders:second"
 _RL_MINUTE_KEY = "nautilus:rl:orders:minute"
 
@@ -59,7 +59,7 @@ class RateLimiter:
         self._burst_size = config.get("burst_size", 10)
         self._redis = redis_client
 
-        # 本地 fallback 窗口
+        # 本地回退窗口
         self._second_window: deque[float] = deque()
         self._minute_window: deque[float] = deque()
 

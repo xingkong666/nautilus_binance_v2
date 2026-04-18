@@ -192,7 +192,7 @@ class MicroScalpStrategy(BaseStrategy):
         raw_price = close - offset if side == "BUY" else close + offset
         raw_price = max(raw_price, Decimal("0.00000001"))
 
-        # Align to instrument tick size using make_price() when available
+        # 可用时使用 make_price() 对齐到交易品种最小变动价位
         if self.instrument is not None:
             try:
                 return Decimal(str(self.instrument.make_price(float(raw_price))))

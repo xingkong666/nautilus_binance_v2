@@ -165,7 +165,7 @@ def _coerce_metric(value: Any) -> float:
         number = float(value)
     except (TypeError, ValueError):
         return float("-inf")
-    if number != number:  # NaN check
+    if number != number:  # NaN 检查
         return float("-inf")
     return number
 
@@ -323,7 +323,7 @@ def _regime_veto_symbols(
 
 
 # ---------------------------------------------------------------------------
-# WalkForwardEngine
+# 滚动前向引擎
 # ---------------------------------------------------------------------------
 
 
@@ -561,7 +561,7 @@ class WalkForwardEngine:
             "min_active_strategies": self._min_active_strategies,
         }
 
-        # --- Regime filter ---
+        # --- 市场状态过滤 ---
         symbol_regimes: dict[str, SymbolRegimeSnapshot] = {}
         regime_rows: list[dict[str, Any]] = []
         veto_strategy_names = [str(n) for n in self._regime_filter_cfg.get("veto_strategy_names", [])]
@@ -591,7 +591,7 @@ class WalkForwardEngine:
                 symbol_regimes[symbol] = snapshot
                 regime_rows.append(_regime_snapshot_to_row(window_index=window.index, snapshot=snapshot))
 
-        # --- IS 策略评估 ---
+        # --- 样本内策略评估 ---
         evaluated_rows: list[dict[str, Any]] = []
         active_entries: list[dict[str, Any]] = []
         volatility_map: dict[str, float] = {}
@@ -709,7 +709,7 @@ class WalkForwardEngine:
                 }
             )
 
-        # --- IS + OOS 回测 ---
+        # --- 样本内 + 样本外回测 ---
         scaled_specs, scaled_symbols, strategy_ids = _build_strategy_specs(
             factory=self._factory,
             strategy_entries=active_entries,
@@ -979,7 +979,7 @@ class WalkForwardEngine:
 
 
 # ---------------------------------------------------------------------------
-# 并行工作进程入口（模块级函数，pickle-safe）
+# 并行工作进程入口（模块级函数，pickle 安全）
 # ---------------------------------------------------------------------------
 
 

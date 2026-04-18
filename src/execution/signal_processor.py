@@ -197,16 +197,16 @@ class SignalProcessor:
         if self._position_sizer is None:
             return base_quantity
 
-        # Extract signal strength
+        # 提取信号强度
         signal_strength = getattr(signal, "strength", 1.0) or 1.0
 
-        # Get current price from various sources
+        # 从多种来源获取当前价格
         if current_price is None:
             current_price = (
                 self._parse_qty(metadata.get("bar_close")) or self._parse_qty(metadata.get("price")) or Decimal("0")
             )
 
-        # Get account equity: equity_provider takes precedence over metadata, no hardcoded fallback
+        # 获取账户权益：equity_provider 优先于 metadata，不使用硬编码回退值
         account_equity: Decimal | None = None
         if self._equity_provider is not None:
             account_equity = self._equity_provider()

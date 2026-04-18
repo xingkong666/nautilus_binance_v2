@@ -26,7 +26,7 @@ class TradeAnalysis:
     exit_price: Decimal
     pnl: Decimal
     fees: Decimal
-    slippage_bps: float  # 滑点 (basis points)
+    slippage_bps: float  # 滑点（基点）
     duration_seconds: float
     strategy_id: str = "unknown"
 

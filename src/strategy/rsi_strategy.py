@@ -85,7 +85,7 @@ class RSIStrategy(BaseStrategy):
         """
         current_rsi = self.rsi.value
 
-        # 第一根 bar，记录状态但不产出信号
+        # 第一根 K 线，记录状态但不产出信号
         if self._prev_rsi is None:
             self._prev_rsi = current_rsi
             return None
@@ -95,14 +95,14 @@ class RSIStrategy(BaseStrategy):
         oversold = self.config.oversold_level
         overbought = self.config.overbought_level
 
-        # 超卖回升：RSI 从下方穿越 oversold_level → LONG
+        # 超卖回升：RSI 从下方穿越 oversold_level → 做多
         if self._prev_rsi <= oversold < current_rsi:
             signal = SignalDirection.LONG
             self.log.info(
                 f"RSI oversold cross: prev={self._prev_rsi:.2f} → curr={current_rsi:.2f} (threshold={oversold}) → LONG",
             )
 
-        # 超买回落：RSI 从上方穿越 overbought_level → SHORT
+        # 超买回落：RSI 从上方穿越 overbought_level → 做空
         elif self._prev_rsi >= overbought > current_rsi:
             signal = SignalDirection.SHORT
             self.log.info(

@@ -229,8 +229,8 @@ class BacktestRunner:
             bar_execution=True,
             bar_adaptive_high_low_ordering=True,
             # 1.223.0: trade_execution 默认值从 False 改为 True，
-            # 显式设为 False 保持"只用 bar 驱动成交"的原有行为，
-            # 避免回测引入 trade tick 双重触发导致基准漂移。
+            # 显式设为 False 保持“只用 K 线驱动成交”的原有行为，
+            # 避免回测引入交易逐笔数据双重触发导致基准漂移。
             trade_execution=False,
             # 1.223.0 新增：模拟 Binance 市价单先发 OrderAccepted 再成交的行为，
             # 使回测成交流程更贴近实盘事件序列。
@@ -239,7 +239,7 @@ class BacktestRunner:
 
         return engine
 
-    # ------ 加载 instrument ------
+    # ------ 加载交易品种 ------
 
     def _load_instruments(self, symbols: list[str]) -> list[CryptoPerpetual]:
         """从 catalog 加载 instrument 定义.
@@ -268,7 +268,7 @@ class BacktestRunner:
 
         return result
 
-    # ------ 加载 Bar 数据 ------
+    # ------ 加载 K 线数据 ------
 
     def _add_bar_data(self, engine: BacktestEngine, instruments: list[CryptoPerpetual]) -> int:
         """从 catalog 加载指定时间范围的 Bar 数据并添加到引擎.
@@ -438,7 +438,7 @@ class BacktestRunResult:
 
     """
 
-    result: Any  # nautilus_trader.backtest.results.BacktestResult
+    result: Any  # nautilus_trader.backtest.results.BacktestResult（结果类型）
     reports: dict[str, Any]
     config: BacktestConfig
     analysis: dict[str, Any] = field(default_factory=dict)

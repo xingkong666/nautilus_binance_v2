@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Redis key for circuit breaker state
+# 熔断器状态的 Redis 键
 _CB_STATE_KEY = "nautilus:cb:state"
 
 
@@ -41,8 +41,8 @@ class CircuitLevel(Enum):
 class CircuitBreakerState:
     """熔断器状态."""
 
-    level: CircuitLevel = CircuitLevel.NORMAL  # replaces is_triggered: bool
-    action: str = ""  # halt_all / reduce_only / alert_only
+    level: CircuitLevel = CircuitLevel.NORMAL  # 替代 is_triggered: bool
+    action: str = ""  # 全部暂停 / 仅减仓 / 仅告警
     reason: str = ""
     triggered_at_ns: int = 0
     cooldown_until_ns: int = 0
@@ -76,7 +76,7 @@ class CircuitBreakerTrigger:
     threshold: float
     action: str = CB_HALT_ALL
     cooldown_minutes: int = 60
-    level: CircuitLevel = CircuitLevel.HALT  # NEW: which level this trigger sets
+    level: CircuitLevel = CircuitLevel.HALT  # 新增：此触发器设置的等级
 
 
 class CircuitBreaker:
@@ -145,7 +145,7 @@ class CircuitBreaker:
                     cooldown_until_ns = int(data.get("cooldown_until_ns", "0"))
                     now_ns = time.time_ns()
                     if now_ns < cooldown_until_ns:
-                        # Read level from Redis, fall back to HALT if invalid
+                        # 从 Redis 读取等级，无效时回退到 HALT
                         level_str = data.get("level", "halt")
                         level = (
                             CircuitLevel[level_str.upper()]
@@ -170,9 +170,9 @@ class CircuitBreaker:
                         return False
             except (ConnectionError, OSError, RedisError) as exc:
                 logger.warning("circuit_breaker_redis_read_failed", error=str(exc))
-                # fallback 到内存状态
+                # 回退到内存状态
 
-        # fallback: 内存状态
+        # 回退：内存状态
         if not self._state.is_triggered:
             return False
 
@@ -209,7 +209,7 @@ class CircuitBreaker:
         Args:
             drawdown_pct: Current drawdown percentage.
         """
-        # Find the highest level trigger that matches
+        # 查找匹配的最高等级触发器
         matching_trigger = None
         for trigger in self._triggers:
             if (
@@ -259,7 +259,7 @@ class CircuitBreaker:
         cooldown_seconds = trigger.cooldown_minutes * 60
         cooldown_until_ns = now_ns + cooldown_seconds * 1_000_000_000
         self._state = CircuitBreakerState(
-            level=trigger.level,  # replaces is_triggered=True
+            level=trigger.level,  # 替代 is_triggered=True
             action=trigger.action,
             reason=reason,
             triggered_at_ns=now_ns,
@@ -276,8 +276,8 @@ class CircuitBreaker:
                 self._redis.hset(
                     _CB_STATE_KEY,
                     {
-                        "level": trigger.level.value,  # NEW
-                        "is_triggered": "1",  # keep for backward compat
+                        "level": trigger.level.value,  # 新增
+                        "is_triggered": "1",  # 保留以兼容旧逻辑
                         "action": trigger.action,
                         "reason": reason,
                         "triggered_at_ns": str(now_ns),
@@ -302,10 +302,10 @@ class CircuitBreaker:
     def _reset(self) -> None:
         """重置熔断器."""
         logger.info("circuit_breaker_reset", previous_reason=self._state.reason)
-        self._state = CircuitBreakerState()  # defaults to CircuitLevel.NORMAL
+        self._state = CircuitBreakerState()  # 默认值为 CircuitLevel.NORMAL
 
         # 更新 Prometheus 指标
-        CIRCUIT_BREAKER_LEVEL.set(0)  # NORMAL = 0
+        CIRCUIT_BREAKER_LEVEL.set(0)  # NORMAL 等级为 0
         # 同步删除 Redis 状态
         if self._redis is not None and self._redis.is_available:
             try:
@@ -330,7 +330,7 @@ class CircuitBreaker:
             cooldown_until_ns = int(data.get("cooldown_until_ns", "0"))
             now_ns = time.time_ns()
             if now_ns < cooldown_until_ns:
-                # Read level from Redis, fall back to HALT if invalid
+                # 从 Redis 读取等级，无效时回退到 HALT
                 level_str = data.get("level", "halt")
                 level = (
                     CircuitLevel[level_str.upper()]

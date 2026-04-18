@@ -51,20 +51,20 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     order_book_depth: int = 10
     imbalance_decay: float = 0.3
     imbalance_threshold: float = 0.58
-    imbalance_weight_mode: str = "linear"  # "linear" | "exp"
+    imbalance_weight_mode: str = "linear"  # "linear" | "exp"（配置枚举值）
 
     # EMA 辅助过滤
     fast_ema_period: PositiveInt = 20
     slow_ema_period: PositiveInt = 60
 
-    # 动态 spread
+    # 动态价差
     base_spread_ticks: int = 3
     min_spread_ticks: int = 2
     max_spread_ticks: int = 10
     spread_vol_multiplier: float = 2.0
     spread_recovery_ratio: float = 0.9  # 迟滞恢复阈值
 
-    # skew 参数
+    # 偏斜参数
     alpha_scale_ticks: float = 2.0
     alpha_tanh_k: float = 2.0
     inv_scale_ticks: float = 3.0
@@ -86,13 +86,13 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     skew_drift_ticks: int = 1
     fill_cooldown_ms: int = 500
 
-    # Imbalance dead zone（不感应区）
+    # 不平衡死区（不感应区）
     dead_zone_threshold: float = 0.1
 
     # 强制开启订单簿订阅
     subscribe_order_book: bool = True
 
-    # US-001: Microprice（规模加权 mid）
+    # US-001: 微价格（规模加权中间价）
     use_microprice: bool = True
 
     # US-002: 逆向选择检测
@@ -128,46 +128,46 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     min_expected_profit_bps: float = 1.0
     taker_fee_bps: float = 4.0
 
-    # V3-US-002: Trade flow alpha
+    # V3-US-002: 成交流 alpha
     subscribe_trades: bool = True
     trade_flow_weight: float = 0.4
 
-    # V3-US-003: Pre-trade adverse cancel
+    # V3-US-003: 交易前逆向撤单
     pretrade_cancel_ticks: float = 0.5
 
-    # V3-US-004: Microprice deep utilization
+    # V3-US-004: 微价格深度利用
     microprice_skew_scale: float = 1.0
 
-    # V3-US-005: Inventory tiered control
+    # V3-US-005: 库存分层控制
     one_side_only_limit: float = 0.7
     deeper_layer_inv_threshold: float = 0.5
 
-    # V4-US-001: Queue position
+    # V4-US-001: 队列位置
     queue_norm_volume: float = 10000.0
     queue_improve_threshold: float = 0.7
 
-    # V4-US-002: Toxic flow
+    # V4-US-002: 有毒流
     toxic_decay: float = 0.9
 
-    # V4-US-003: Quote quality score
+    # V4-US-003: 报价质量分
     quote_score_threshold: float = -0.5
     toxic_one_side_threshold: float = 0.5
 
-    # V5-US-001: Microprice alpha driver
+    # V5-US-001: 微价格 alpha 驱动
     mp_alpha_weight: float = 0.5
     imbalance_weight: float = 0.3
 
-    # V5-US-002: Asymmetric bid/ask alpha
+    # V5-US-002: 非对称买/卖 alpha
     mp_bias_strength: float = 0.3
 
-    # V5-US-003: Fill-prob driven execution
+    # V5-US-003: 成交概率驱动执行
     withdraw_fill_prob_threshold: float = 0.05
     fill_prob_spread_adj: bool = True
 
-    # V5-US-004: Toxic flow preemptive cancel
+    # V5-US-004: 有毒流预防性撤单
     toxic_mp_drift_ticks: float = 1.5
 
-    # V5-US-005: Asymmetric layered quoting
+    # V5-US-005: 非对称分层报价
     asymmetric_layers: bool = True
 
 
@@ -185,13 +185,13 @@ class ActiveMarketMaker(BaseStrategy):
         self._fast_ema = ExponentialMovingAverage(config.fast_ema_period)
         self._slow_ema = ExponentialMovingAverage(config.slow_ema_period)
 
-        # 确保 ATR 已创建，用于动态 spread
+        # 确保 ATR 已创建，用于动态价差
         self._ensure_atr_indicator()
 
-        # L2 imbalance 状态
+        # L2 不平衡状态
         self._smooth_imbalance: float = 0.0  # 范围 [-1, 1]
 
-        # 动态 spread 状态
+        # 动态价差 状态
         self._current_spread_ticks: float = float(config.base_spread_ticks)
         self._quote_suspended: bool = False
 
@@ -202,14 +202,14 @@ class ActiveMarketMaker(BaseStrategy):
         self._active_bid_ids: list[ClientOrderId | None] = []
         self._active_ask_ids: list[ClientOrderId | None] = []
 
-        # drift-threshold 状态
+        # 漂移阈值状态
         self._quoted_mid: float | None = None
         self._quoted_skew: float | None = None
 
         # 成交冷却状态
         self._last_fill_ts: datetime | None = None
 
-        # Kill switch 状态
+        # 熔断开关状态
         self._kill_switch: bool = False
 
         # US-002: 逆向选择
@@ -237,19 +237,19 @@ class ActiveMarketMaker(BaseStrategy):
         # US-008: 市场质量过滤
         self._quote_quality_ok: bool = True
 
-        # V3-US-001: 已实现 PnL 追踪（替代 notional）
+        # V3-US-001: 已实现 PnL 追踪（替代名义额）
         self._open_fills: list[tuple[float, float, str]] = []
         self._last_microprice: float | None = None
 
-        # V3-US-002: Trade flow alpha
+        # V3-US-002: 成交流 alpha
         self._agg_buy_vol: float = 0.0
         self._agg_sell_vol: float = 0.0
 
-        # V3-US-003: Pre-trade adverse cancel
+        # V3-US-003: 交易前逆向撤单
         self._quoted_bid_price: float | None = None
         self._quoted_ask_price: float | None = None
 
-        # V4-US-001: Queue position
+        # V4-US-001: 队列位置
         self._last_best_bid_size: float | None = None
         self._last_best_ask_size: float | None = None
 
@@ -258,17 +258,17 @@ class ActiveMarketMaker(BaseStrategy):
         self._ask_queue_on_submit: float | None = None
         self._queue_traded_volume: float = 0.0
 
-        # V4-US-002: Toxic flow
+        # V4-US-002: 有毒流
         self._toxic_flow_score: float = 0.0
         self._last_fill_mid: float | None = None
 
-        # V4-US-003: Quote quality score
+        # V4-US-003: 报价质量分
         self._last_quote_score: float = 0.0
 
-        # V5-US-004: Toxic preemptive cancel
+        # V5-US-004: 有毒流预防性撤单
         self._prev_microprice: float | None = None
 
-        # V5-US-005: Asymmetric layered quoting
+        # V5-US-005: 非对称分层报价
         self._last_dir_val: float = 0.0
 
     # ------------------------------------------------------------------
@@ -317,10 +317,10 @@ class ActiveMarketMaker(BaseStrategy):
         elif trade.aggressor_side == AggressorSide.SELLER:
             self._agg_sell_vol += qty
 
-        # V4+: 累计队列消耗量（复用已计算的 qty）
+        # V4+: 累计队列消耗量（复用已计算的数量）
         self._queue_traded_volume += qty
 
-        # V4-US-002: 更新 toxic flow 分数
+        # V4-US-002: 更新有毒流分数
         self._update_toxic_flow(trade)
 
     def _calc_trade_flow_signal(self) -> float:
@@ -331,7 +331,7 @@ class ActiveMarketMaker(BaseStrategy):
         return (self._agg_buy_vol - self._agg_sell_vol) / total
 
     # ------------------------------------------------------------------
-    # V4-US-001: Queue Position
+    # V4-US-001: 队列位置
     # ------------------------------------------------------------------
 
     def _estimate_queue_ahead(self, side: str) -> float:
@@ -353,12 +353,12 @@ class ActiveMarketMaker(BaseStrategy):
         return min(self._queue_traded_volume / initial, 1.0)
 
     # ------------------------------------------------------------------
-    # V4-US-002: Toxic Flow
+    # V4-US-002: 有毒流
     # ------------------------------------------------------------------
 
     def _update_toxic_flow(self, trade: TradeTick) -> None:
         """基于 microprice drift 更新 toxic flow 分数（微观结构版）."""
-        # 使用 microprice 而非 mid，响应更快
+        # 使用微价格而非中间价，响应更快
         mp = self._last_microprice
         if mp is None:
             return
@@ -375,7 +375,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._last_fill_mid = mp
 
     # ------------------------------------------------------------------
-    # V4-US-003: Quote Quality Score
+    # V4-US-003: 报价质量分
     # ------------------------------------------------------------------
 
     def _calc_quote_score(self, dir_val: float) -> float:
@@ -397,7 +397,7 @@ class ActiveMarketMaker(BaseStrategy):
         return max(int(self.config.fast_ema_period), int(self.config.slow_ema_period), int(self.config.atr_period)) + 2
 
     # ------------------------------------------------------------------
-    # V3-US-003: Pre-trade adverse cancel
+    # V3-US-003: 交易前逆向撤单
     # ------------------------------------------------------------------
 
     def _check_pretrade_cancel(self) -> None:
@@ -419,7 +419,7 @@ class ActiveMarketMaker(BaseStrategy):
         except Exception:
             return
 
-        # best_ask 接近我的 bid → 价格即将向下穿越 → 撤 bid
+        # 最优卖价接近我方买价 → 价格即将向下穿越 → 撤买单
         if self._quoted_bid_price is not None and ba <= self._quoted_bid_price + threshold and self._active_bid_ids:
             bid_id = self._active_bid_ids[0]
             if bid_id is not None:
@@ -429,7 +429,7 @@ class ActiveMarketMaker(BaseStrategy):
                 self._active_bid_ids[0] = None
                 self._quoted_bid_price = None
 
-        # best_bid 接近我的 ask → 价格即将向上穿越 → 撤 ask
+        # 最优买价接近我方卖价 → 价格即将向上穿越 → 撤卖单
         if self._quoted_ask_price is not None and bb >= self._quoted_ask_price - threshold and self._active_ask_ids:
             ask_id = self._active_ask_ids[0]
             if ask_id is not None:
@@ -440,14 +440,14 @@ class ActiveMarketMaker(BaseStrategy):
                 self._quoted_ask_price = None
 
     # ------------------------------------------------------------------
-    # L2 imbalance
+    # L2 不平衡
     # ------------------------------------------------------------------
 
     def on_order_book_deltas(self, deltas: OrderBookDeltas) -> None:
         """处理 orderbook delta 更新，刷新加权 imbalance."""
         self._calc_weighted_imbalance()
 
-        # V4-US-001: Queue position — 追踪 best bid/ask size
+        # V4-US-001: 队列位置 — 追踪最优买/卖量
         try:
             ob = self.cache.order_book(self.config.instrument_id)
             if ob is not None:
@@ -460,10 +460,10 @@ class ActiveMarketMaker(BaseStrategy):
         except Exception:
             pass
 
-        # V3-US-003: Pre-trade adverse cancel
+        # V3-US-003: 交易前逆向撤单
         self._check_pretrade_cancel()
 
-        # V5-US-004: Toxic preemptive cancel
+        # V5-US-004: 有毒流预防性撤单
         self._check_toxic_preemptive()
         try:
             order_book = self.cache.order_book(self.config.instrument_id)
@@ -521,11 +521,11 @@ class ActiveMarketMaker(BaseStrategy):
         if self.config.imbalance_weight_mode == "exp":
             lam = 0.5
             return [math.exp(-lam * i) for i in range(n)]
-        # linear: weight[i] = (n-i)/n（线性加权）
+        # 线性模式：weight[i] = (n-i)/n（线性加权）
         return [(n - i) / n for i in range(n)]
 
     # ------------------------------------------------------------------
-    # Mid Price（US-001: Microprice）
+    # 中间价（US-001: 微价格）
     # ------------------------------------------------------------------
 
     def _get_microprice(self, bar: Bar | None) -> float | None:
@@ -553,7 +553,7 @@ class ActiveMarketMaker(BaseStrategy):
                             as_ = float(ask_size)
                             if bs > 0 and as_ > 0:
                                 return (bs * ba + as_ * bb) / (bs + as_)
-                        # 回退：简单 mid
+                        # 回退：简单中间价
                         return (bb + ba) / 2.0
         except Exception:
             pass
@@ -590,7 +590,7 @@ class ActiveMarketMaker(BaseStrategy):
         return None
 
     # ------------------------------------------------------------------
-    # US-005: 已实现波动率（Realized Volatility）
+    # US-005: 已实现波动率
     # ------------------------------------------------------------------
 
     def _update_realized_vol(self, mid: float) -> float | None:
@@ -629,7 +629,7 @@ class ActiveMarketMaker(BaseStrategy):
         return vol_price / tick
 
     # ------------------------------------------------------------------
-    # US-008: 市场质量过滤（Market Quality Filter）
+    # US-008: 市场质量过滤
     # ------------------------------------------------------------------
 
     def _check_market_quality(self, best_bid: float, best_ask: float) -> None:
@@ -655,7 +655,7 @@ class ActiveMarketMaker(BaseStrategy):
             self.log.warning("Market quality degraded, pausing quotes", color=LogColor.YELLOW)
 
     # ------------------------------------------------------------------
-    # US-009: 成本模型（Cost Model）
+    # US-009: 成本模型
     # ------------------------------------------------------------------
 
     def _calc_expected_profit_bps(self, mid: float) -> float:
@@ -679,7 +679,7 @@ class ActiveMarketMaker(BaseStrategy):
         return gross_bps - self.config.taker_fee_bps
 
     # ------------------------------------------------------------------
-    # US-002: 逆向选择检测（Adverse Selection Detection）
+    # US-002: 逆向选择检测
     # ------------------------------------------------------------------
 
     def _check_adverse_selection(self, mid: float) -> str | None:
@@ -705,7 +705,7 @@ class ActiveMarketMaker(BaseStrategy):
         return None
 
     # ------------------------------------------------------------------
-    # 动态 spread（已集成 US-005）
+    # 动态价差（已集成 US-005）
     # ------------------------------------------------------------------
 
     def _update_dynamic_spread(self) -> None:
@@ -736,7 +736,7 @@ class ActiveMarketMaker(BaseStrategy):
             self._quote_suspended = True
             return
 
-        # 迟滞恢复：仅当 spread 降至恢复比例以下时才重新报价
+        # 迟滞恢复：仅当价差降至恢复比例以下时才重新报价
         if self._quote_suspended:
             if raw <= float(self.config.max_spread_ticks) * self.config.spread_recovery_ratio:
                 self._quote_suspended = False
@@ -776,14 +776,14 @@ class ActiveMarketMaker(BaseStrategy):
 
         alpha_weight = max(0.0, 1.0 - abs(inv_ratio))
 
-        # V3-US-004: Microprice 偏离：microprice > mid → 买盘强 → bid/ask 上移
+        # V3-US-004: 微价格偏离：微价格 > 中间价 → 买盘强 → 买/卖报价上移
         mp_shift = 0.0
         if self.config.use_microprice and self._last_microprice is not None:
             tick_val = float(self.instrument.price_increment) if self.instrument is not None else 1.0
             mp_bias_ticks = (self._last_microprice - mid) / tick_val if tick_val > 0 else 0.0
             mp_shift = mp_bias_ticks * float(self.config.microprice_skew_scale) * tick_val
 
-        # V5-US-002: 非对称 alpha——microprice 方向决定偏置侧
+        # V5-US-002: 非对称 alpha——微价格方向决定偏置侧
         mp_bias = 0.0
         if self.config.use_microprice and self._last_microprice is not None and self.instrument is not None:
             try:
@@ -856,11 +856,11 @@ class ActiveMarketMaker(BaseStrategy):
         base_f = float(base_qty)
 
         if self._net_position_usd > 0:
-            # 净多头：硬限制或单边阈值时停报 bid，单边报 ask
+            # 净多头：硬限制或单边阈值时停报买单，单边报卖单
             bid_qty = Decimal("0") if at_hard or at_one_side else round_to_step(base_f * scale)
             ask_qty = round_to_step(base_f)
         elif self._net_position_usd < 0:
-            # 净空头：硬限制或单边阈值时停报 ask，单边报 bid
+            # 净空头：硬限制或单边阈值时停报卖单，单边报买单
             bid_qty = round_to_step(base_f)
             ask_qty = Decimal("0") if at_hard or at_one_side else round_to_step(base_f * scale)
         else:
@@ -929,7 +929,7 @@ class ActiveMarketMaker(BaseStrategy):
 
         raw = mp_sig * mp_w + imb * imb_w + tf * tf_w
 
-        # microprice 不可用时降级：只用 imbalance + trade_flow
+        # 微价格不可用时降级：只用不平衡量 + 成交流
         if self._last_microprice is None:
             total = imb_w + tf_w
             raw = (imb * imb_w + tf * tf_w) / total if total > 0 else 0.0
@@ -944,7 +944,7 @@ class ActiveMarketMaker(BaseStrategy):
         return raw
 
     # ------------------------------------------------------------------
-    # 价格夹紧（Price Clamp）
+    # 价格夹紧
     # ------------------------------------------------------------------
 
     def _clamp_quote_prices(self, bid_price: float, ask_price: float) -> tuple[float, float] | None:
@@ -998,7 +998,7 @@ class ActiveMarketMaker(BaseStrategy):
         dir_val = self._compute_dir_val()
         optimal_bid, optimal_ask, _ = self._calc_quote_prices(mid, dir_val)
 
-        # 检查 bid
+        # 检查买单
         if (
             self._bid_submit_time is not None
             and self._active_bid_id is not None
@@ -1012,7 +1012,7 @@ class ActiveMarketMaker(BaseStrategy):
                     self._active_bid_id = None
                     self._bid_submit_time = None
 
-        # 检查 ask
+        # 检查卖单
         if (
             self._ask_submit_time is not None
             and self._active_ask_id is not None
@@ -1169,7 +1169,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._bid_submit_time = self._utc_now() if self._active_bid_id else None
         self._ask_submit_time = self._utc_now() if self._active_ask_id else None
 
-        # V3-US-003: 记录报价价格用于 pre-trade cancel
+        # V3-US-003: 记录报价价格用于交易前撤单
         if self._active_bid_ids and self._active_bid_ids[0]:
             self._quoted_bid_price = bid_price
         if self._active_ask_ids and self._active_ask_ids[0]:
@@ -1196,7 +1196,7 @@ class ActiveMarketMaker(BaseStrategy):
         fill_side = "BUY" if event.order_side == OrderSide.BUY else "SELL"
         self._last_fill_price = fill_price
         self._last_fill_side = fill_side
-        # 匹配对手方 open fills（FIFO）
+        # 匹配对手方未平成交（先进先出）
         realized = 0.0
         remaining = fill_qty
         opposite = "SELL" if fill_side == "BUY" else "BUY"
@@ -1216,7 +1216,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._open_fills = new_open
         if remaining > 0:
             self._open_fills.append((fill_price, remaining, fill_side))
-        # 无 realized → 使用 mark-to-mid 代理
+        # 无已实现损益 → 使用按中间价标记的代理值
         if abs(realized) < 1e-10 and remaining > 0:
             mid = self._last_microprice or 0.0
             if mid > 0:
@@ -1224,7 +1224,7 @@ class ActiveMarketMaker(BaseStrategy):
                 realized = (mid - fill_price) * remaining * sign
         self._recent_fills.append((self._utc_now(), realized))
 
-        # V4-US-002: 成交后根据 mid 漂移强化 toxic 分数
+        # V4-US-002: 成交后根据中间价漂移强化有毒流分数
         mid_now = self._last_microprice
         if mid_now is not None:
             drift = mid_now - fill_price
@@ -1272,7 +1272,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._last_delta_quote_ts = now
 
     # ------------------------------------------------------------------
-    # V5-US-003: Fill-prob driven stale quote withdrawal
+    # V5-US-003: 成交概率驱动的过时报价撤销
     # ------------------------------------------------------------------
 
     def _maybe_withdraw_stale_quotes(self) -> None:
@@ -1302,7 +1302,7 @@ class ActiveMarketMaker(BaseStrategy):
             self._quoted_ask_price = None
 
     # ------------------------------------------------------------------
-    # V5-US-004: Toxic flow preemptive cancel
+    # V5-US-004: 有毒流预防性撤单
     # ------------------------------------------------------------------
 
     def _check_toxic_preemptive(self) -> None:
@@ -1315,7 +1315,7 @@ class ActiveMarketMaker(BaseStrategy):
         threshold = self.config.toxic_mp_drift_ticks * tick
         instant_drift = self._last_microprice - self._prev_microprice
 
-        # microprice 急跌 → 撤 bid
+        # 微价格急跌 → 撤买单
         if instant_drift < -threshold and self._active_bid_ids and self._active_bid_ids[0] is not None:
             bid_id = self._active_bid_ids[0]
             order = self.cache.order(bid_id)
@@ -1324,7 +1324,7 @@ class ActiveMarketMaker(BaseStrategy):
             self._active_bid_ids[0] = None
             self._quoted_bid_price = None
 
-        # microprice 急涨 → 撤 ask
+        # 微价格急涨 → 撤卖单
         if instant_drift > threshold and self._active_ask_ids and self._active_ask_ids[0] is not None:
             ask_id = self._active_ask_ids[0]
             order = self.cache.order(ask_id)
@@ -1394,7 +1394,7 @@ class ActiveMarketMaker(BaseStrategy):
         # US-005: 更新已实现波动率
         self._update_realized_vol(mid)
 
-        # V5-US-003: Fill-prob spread adjustment
+        # V5-US-003: 成交概率价差调整
         if self.config.fill_prob_spread_adj:
             fp_bid = self._calc_queue_fill_prob("BUY")
             fp_ask = self._calc_queue_fill_prob("SELL")
@@ -1441,7 +1441,7 @@ class ActiveMarketMaker(BaseStrategy):
             return
         bid_price, ask_price = clamped
 
-        # V4-US-001: Queue 优化：fill_prob 低 → queue 消耗慢 → improve price 提升成交优先级
+        # V4-US-001: 队列优化：成交概率低 → 队列消耗慢 → 改善价格以提升成交优先级
         if self.instrument is not None:
             tick_size = float(self.instrument.price_increment)
             fill_prob_bid = self._calc_queue_fill_prob("BUY")
@@ -1458,7 +1458,7 @@ class ActiveMarketMaker(BaseStrategy):
         if base_qty is None:
             return
 
-        # US-004: 缓存 base qty 供 delta 驱动报价使用
+        # US-004: 缓存基础数量供 delta 驱动报价使用
         self._last_base_qty = base_qty.as_decimal()
 
         # 若处于冷却期则将 adverse_side 传给数量计算
@@ -1473,7 +1473,7 @@ class ActiveMarketMaker(BaseStrategy):
             self._cancel_all_quotes()
             return
 
-        # V4: Quote Score 决策
+        # V4: 报价分决策
         score = self._calc_quote_score(dir_val)
         self._last_quote_score = score
 
@@ -1481,13 +1481,13 @@ class ActiveMarketMaker(BaseStrategy):
             self._cancel_all_quotes()
             return
 
-        # Toxic flow 单边控制
+        # 有毒流单边控制
         if self._toxic_flow_score > self.config.toxic_one_side_threshold:
             ask_qty = Decimal("0")
         elif self._toxic_flow_score < -self.config.toxic_one_side_threshold:
             bid_qty = Decimal("0")
 
-        # 低分时扩 spread（不超过 max_spread_ticks）
+        # 低分时扩大价差（不超过 max_spread_ticks）
         if score < 0:
             expanded = self._current_spread_ticks * 1.5
             self._current_spread_ticks = min(expanded, float(self.config.max_spread_ticks))
@@ -1495,7 +1495,7 @@ class ActiveMarketMaker(BaseStrategy):
         if self.config.refresh_every_bar and not self.config.quote_on_delta:
             self._refresh_quotes(bid_price, ask_price, bid_qty, ask_qty, mid, avg_shift)
 
-        # V3-US-002: 每根 bar 结束后重置 trade flow 累计量
+        # V3-US-002: 每根 K 线结束后重置成交流累计量
         self._agg_buy_vol = 0.0
         self._agg_sell_vol = 0.0
         self._queue_traded_volume = 0.0
@@ -1581,27 +1581,27 @@ class ActiveMarketMaker(BaseStrategy):
         self._pnl_cb_reset_at = None
         # US-008: 重置市场质量标志
         self._quote_quality_ok = True
-        # V3-US-001: 重置 realized PnL 追踪
+        # V3-US-001: 重置已实现 PnL 追踪
         self._open_fills.clear()
         self._last_microprice = None
-        # V3-US-002: 重置 trade flow
+        # V3-US-002: 重置成交流
         self._agg_buy_vol = 0.0
         self._agg_sell_vol = 0.0
         # V3-US-003: 重置报价价格
         self._quoted_bid_price = None
         self._quoted_ask_price = None
-        # V4-US-001: 重置 queue position
+        # V4-US-001: 重置队列位置
         self._last_best_bid_size = None
         self._last_best_ask_size = None
         self._bid_queue_on_submit = None
         self._ask_queue_on_submit = None
         self._queue_traded_volume = 0.0
-        # V4-US-002: 重置 toxic flow
+        # V4-US-002: 重置有毒流
         self._toxic_flow_score = 0.0
         self._last_fill_mid = None
-        # V4-US-003: 重置 quote score
+        # V4-US-003: 重置报价分
         self._last_quote_score = 0.0
-        # V5-US-004: 重置 prev microprice
+        # V5-US-004: 重置前一微价格
         self._prev_microprice = None
-        # V5-US-005: 重置 last dir_val
+        # V5-US-005: 重置上一方向值
         self._last_dir_val = 0.0

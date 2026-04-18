@@ -76,11 +76,11 @@ class VegasTunnelStrategy(BaseStrategy):
         self._ensure_atr_indicator()
 
         self._prev_fast_above_slow: bool | None = None
-        # 当前 bar 的隧道边界，供 _maybe_exit 引用（trail_stop_after_tp2）
+        # 当前 K 线的隧道边界，供 _maybe_exit 引用（trail_stop_after_tp2）
         self._tunnel_upper: float = 0.0
         self._tunnel_lower: float = 0.0
 
-        self._is_long: bool | None = None  # None = flat, True = long, False = short
+        self._is_long: bool | None = None  # None 表示空仓，True 表示多头，False 表示空头
         self._entry_price: float | None = None
         self._remaining_qty = Decimal("0")
         self._stop_price: float | None = None
@@ -163,7 +163,7 @@ class VegasTunnelStrategy(BaseStrategy):
         long_ready = long_cross and fast > tunnel_upper and slow > tunnel_upper
         short_ready = short_cross and fast < tunnel_lower and slow < tunnel_lower
 
-        # 与持仓反向信号，先平再说，避免同 bar 反手冲突
+        # 与持仓反向信号，先平再说，避免同一根 K 线反手冲突
         if is_long and short_ready:
             return self._close_full(reason="reverse_signal_short")
         if is_short and long_ready:
@@ -267,7 +267,7 @@ class VegasTunnelStrategy(BaseStrategy):
         if self._is_long is False and close >= stop:
             return self._close_full(reason="stop_loss")
 
-        # 分批止盈（每根 bar 最多触发一档）
+        # 分批止盈（每根 K 线最多触发一档）
         for idx in range(3):
             if self._tp_filled[idx]:
                 continue

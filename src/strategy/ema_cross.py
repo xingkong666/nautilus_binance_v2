@@ -88,7 +88,7 @@ class EMACrossStrategy(BaseStrategy):
         """
         fast_above = self.fast_ema.value >= self.slow_ema.value
 
-        # 第一根 bar, 记录状态但不产出信号
+        # 第一根 K 线，记录状态但不产出信号
         if self._prev_fast_above is None:
             self._prev_fast_above = fast_above
             return None

@@ -79,19 +79,19 @@ class FillHandler:
             try:
                 from decimal import Decimal
 
-                # Create TradeAnalysis from fill data
-                # Note: For single fills, we use the same price for entry and exit
-                # Real PnL calculation would require position tracking across multiple fills
+                # 根据成交数据创建 TradeAnalysis
+                # 注意：单笔成交使用同一价格作为入场价和出场价
+                # 真实 PnL 计算需要跨多笔成交追踪仓位
                 analysis = TradeAnalysis(
                     instrument_id=instrument_id,
                     side=side,
                     quantity=Decimal(quantity),
                     entry_price=Decimal(price),
-                    exit_price=Decimal(price),  # Same as entry for single fill
-                    pnl=Decimal("0"),  # Zero PnL for single fill without position tracking
+                    exit_price=Decimal(price),  # 单笔成交时与入场价相同
+                    pnl=Decimal("0"),  # 未追踪仓位的单笔成交按零 PnL 处理
                     fees=Decimal(fees),
-                    slippage_bps=0.0,  # Would need expected price to calculate slippage
-                    duration_seconds=0.0,  # Would need order submission time to calculate
+                    slippage_bps=0.0,  # 计算滑点需要预期价格
+                    duration_seconds=0.0,  # 计算需要订单提交时间
                     strategy_id=strategy_id or "unknown",
                 )
                 self._post_trade_analyzer.record_trade(analysis)

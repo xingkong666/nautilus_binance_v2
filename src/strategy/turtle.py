@@ -49,11 +49,11 @@ class TurtleStrategy(BaseStrategy):
         super().__init__(config, event_bus)
         self._ensure_atr_indicator()
 
-        # NT built-in Donchian channels (replace manual deque[float] tracking)
+        # NT 内置唐奇安通道（替代手动 deque[float] 追踪）
         self._entry_channel = DonchianChannel(int(config.entry_period))
         self._exit_channel = DonchianChannel(int(config.exit_period))
 
-        self._position_side: str = "flat"  # flat / long / short
+        self._position_side: str = "flat"  # 空仓 / 多头 / 空头
         self._units_held: int = 0
         self._unit_qty: Decimal | None = None
         self._last_add_price: float | None = None
@@ -61,7 +61,7 @@ class TurtleStrategy(BaseStrategy):
 
         self._pending_order: _PendingOrder | None = None
 
-        # Previous-bar Donchian values for exclude-current semantics
+        # 前一根 K 线的唐奇安值，用于排除当前 K 线语义
         self._prev_entry_high: float | None = None
         self._prev_entry_low: float | None = None
         self._prev_exit_high: float | None = None
@@ -83,7 +83,7 @@ class TurtleStrategy(BaseStrategy):
         )
 
     def _on_historical_bar(self, bar: Bar) -> None:
-        pass  # DonchianChannel and ATR are updated via register_indicator_for_bars
+        pass  # DonchianChannel 和 ATR 通过 register_indicator_for_bars 更新
 
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
         """Generate signal.
@@ -111,8 +111,8 @@ class TurtleStrategy(BaseStrategy):
         cur_exit_high = float(self._exit_channel.upper)
         cur_exit_low = float(self._exit_channel.lower)
 
-        # When exclude_current is True, compare close against previous bar's
-        # channel values so the current bar's price does not inflate the channel.
+        # exclude_current 为 True 时，将收盘价与前一根 K 线的
+        # 通道值比较，避免当前 K 线价格抬高通道。
         if self.config.breakout_lookback_exclude_current and self._prev_entry_high is not None:
             entry_high = self._prev_entry_high
             entry_low = self._prev_entry_low  # type: ignore[assignment]
@@ -135,7 +135,7 @@ class TurtleStrategy(BaseStrategy):
             exit_low=exit_low,
         )
 
-        # Snapshot current values for next bar's comparison
+        # 保存当前值快照，供下一根 K 线比较
         self._prev_entry_high = cur_entry_high
         self._prev_entry_low = cur_entry_low
         self._prev_exit_high = cur_exit_high

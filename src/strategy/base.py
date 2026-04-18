@@ -112,14 +112,14 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         self.instrument: Instrument | None = None
         self._event_bus = event_bus
 
-        # bracket 订单跟踪：position_id -> (sl_order_id, tp_order_id)
+        # 括号单跟踪：position_id -> (sl_order_id, tp_order_id)
         self._sl_orders: dict[str, ClientOrderId] = {}
         self._tp_orders: dict[str, ClientOrderId] = {}
         self._indicators_registered = False
         self._warmup_history_requested = False
         self._warmup_history_preloaded = False
 
-        # 通用 bar 计数与信号冷却（供子类使用）
+        # 通用 K 线计数与信号冷却（供子类使用）
         self._bar_index: int = 0
         self._last_signal_bar_index: int | None = None
 
@@ -363,7 +363,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
             self.log.warning("Order skipped: resolved quantity is 0")
             return
 
-        # 平当前所有仓位（会触发 on_position_closed，自动取消 bracket 单）
+        # 平当前所有仓位（会触发 on_position_closed，自动取消括号单）
         self.close_all_positions(instrument_id)
 
         if direction == SignalDirection.FLAT:
@@ -701,7 +701,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         )
 
     # ------------------------------------------------------------------
-    # Bracket 止损/���盈管理
+    # 括号止损/止盈管理
     # ------------------------------------------------------------------
 
     def on_position_opened(self, event: PositionOpened) -> None:

@@ -352,7 +352,7 @@ class BaseBinanceDownloader:
         save_dir.mkdir(parents=True, exist_ok=True)
         csv_path = save_dir / f"{base_name}.csv"
 
-        # 快路径：本地已有有效 CSV 时直接返回，避免创建 HTTP client。
+        # 快路径：本地已有有效 CSV 时直接返回，避免创建 HTTP 客户端。
         if self._validate_existing_csv(csv_path):
             self._write_manifest(save_dir, date_str, "skipped")
             return csv_path
@@ -523,7 +523,7 @@ class KlineCatalogLoader:
         # 验证
         validate_kline_dataframe(df)
 
-        # 写入 instrument 信息 (FIX-3)
+        # 写入交易品种信息（FIX-3）
         instrument_key = str(instrument.id)
         if instrument_key not in self._instrument_written:
             self._catalog.write_data([instrument])
@@ -686,7 +686,7 @@ class DataPipeline:
             logger.warning("pipeline_no_data", symbol=symbol)
             return 0
 
-        # 2. 加载到 catalog
+        # 2. 加载到数据目录
         total_bars = self.loader.load_csvs(csv_paths, instrument, interval, cleanup_raw=cleanup_raw)
 
         # 3. 连续性检查 (FIX-2)
