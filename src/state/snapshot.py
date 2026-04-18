@@ -43,8 +43,8 @@ class PositionSnapshot:
     """仓位快照."""
 
     instrument_id: str
-    side: str  # LONG / SHORT / FLAT
-    quantity: str  # Decimal as string
+    side: str  # 多头 / 空头 / 空仓
+    quantity: str  # Decimal 字符串
     avg_entry_price: str
     unrealized_pnl: str
     realized_pnl: str

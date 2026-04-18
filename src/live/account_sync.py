@@ -45,8 +45,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Re-export data models so existing imports like
-# `from src.live.account_sync import AccountBalance` continue to work.
+# 重新导出数据模型，确保现有导入如
+# `from src.live.account_sync import AccountBalance` 继续可用。
 __all__ = [
     "AccountSync",
     "AccountBalance",
@@ -58,7 +58,7 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# AccountSync
+# 账户同步
 # ---------------------------------------------------------------------------
 
 

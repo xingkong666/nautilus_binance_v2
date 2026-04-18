@@ -155,7 +155,7 @@ class Container:
             redis_client=self._redis_client,
         )
 
-        # Initialize PostTradeAnalyzer
+        # 初始化 PostTradeAnalyzer
         self._post_trade_analyzer = PostTradeAnalyzer()
 
         # 4. 资金分配
@@ -295,14 +295,14 @@ class Container:
         """
         logger.info("container_teardown")
 
-        # Stop snapshot scheduler first (background thread, no external deps)
+        # 先停止快照调度器（后台线程，无外部依赖）
         if self._snapshot_scheduler is not None and self._snapshot_scheduler.is_running:
             try:
                 self._snapshot_scheduler.stop()
             except (AttributeError, RuntimeError):
                 logger.exception("snapshot_scheduler_stop_failed")
 
-        # Cancel daily reset timer
+        # 取消每日重置定时器
         _reset_timer = getattr(self, "_daily_reset_timer", None)
         if _reset_timer is not None:
             _reset_timer.cancel()

@@ -111,7 +111,7 @@ class RecoveryManager:
             RecoveryReport，含 snapshot 字段（可能为 None）。
 
         """
-        # Step 1: 加载本地快照
+        # 第 1 步：加载本地快照
         snapshot = self._snapshot_mgr.load_latest()
 
         if snapshot is None:

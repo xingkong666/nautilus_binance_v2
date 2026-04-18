@@ -24,19 +24,19 @@ from src.live.supervisor import LiveSupervisor, SupervisorState
 from src.live.watchdog import WatchCheckResult, Watchdog, WatchEntry
 
 __all__ = [
-    # supervisor
+    # 督导器
     "LiveSupervisor",
     "SupervisorState",
-    # account_sync
+    # 账户同步
     "AccountSync",
     "AccountBalance",
     "PositionSnapshot",
     "SyncResult",
-    # watchdog
+    # 看门狗
     "Watchdog",
     "WatchEntry",
     "WatchCheckResult",
-    # health
+    # 健康检查
     "LiveHealthProbe",
     "HealthStatus",
 ]

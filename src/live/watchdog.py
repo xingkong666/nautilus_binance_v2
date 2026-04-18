@@ -34,8 +34,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Re-export types so existing imports like
-# `from src.live.watchdog import WatchEntry` continue to work.
+# 重新导出类型，确保现有导入如
+# `from src.live.watchdog import WatchEntry` 继续可用。
 __all__ = [
     "Watchdog",
     "Watchable",
@@ -45,7 +45,7 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Watchdog
+# 看门狗
 # ---------------------------------------------------------------------------
 
 

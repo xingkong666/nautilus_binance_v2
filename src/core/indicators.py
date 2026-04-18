@@ -71,7 +71,7 @@ class WilderAdx(Indicator):
         self._dx_buffer: deque[float] = deque()
 
     # ------------------------------------------------------------------
-    # NT Indicator 接口
+    # NT 指标接口
     # ------------------------------------------------------------------
 
     def handle_bar(self, bar: Bar) -> None:
@@ -112,8 +112,8 @@ class WilderAdx(Indicator):
 
     def reset(self) -> None:
         """重置指标到初始状态（公开接口）."""
-        self._reset()  # clears our state
-        super().reset()  # NT base clears initialized / has_inputs flags
+        self._reset()  # 清理本类状态
+        super().reset()  # NT 基类会清理 initialized / has_inputs 标志
 
     # ------------------------------------------------------------------
     # 兼容旧 _AdxState.update() 调用方式

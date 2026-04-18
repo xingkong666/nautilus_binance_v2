@@ -162,7 +162,7 @@ class DrawdownWatcher(BaseWatcher):
         self._critical_pct = critical_pct
         self._cooldown_seconds = cooldown_seconds
         self._peak_equity: Decimal = Decimal(0)
-        self._last_alert_ts: dict[str, float] = {}  # level_name -> timestamp
+        self._last_alert_ts: dict[str, float] = {}  # 级别名 -> 时间戳
         super().__init__(event_bus, alert_manager)
 
     def _register(self) -> None:
@@ -257,7 +257,7 @@ class FillLatencyWatcher(BaseWatcher):
 
         """
         self._latency_threshold_ms = latency_threshold_ms
-        self._submit_ts: dict[str, int] = {}  # order_id -> submit_timestamp_ns
+        self._submit_ts: dict[str, int] = {}  # 订单 ID -> 提交时间戳（ns）
         super().__init__(event_bus, alert_manager)
 
     def _register(self) -> None:

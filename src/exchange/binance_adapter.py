@@ -71,7 +71,7 @@ _DEFAULT_BINANCE_ACCOUNT_TYPE = getattr(
 
 
 # ---------------------------------------------------------------------------
-# Config
+# 配置
 # ---------------------------------------------------------------------------
 
 
@@ -137,7 +137,7 @@ class BinanceAdapterConfig:
 
 
 # ---------------------------------------------------------------------------
-# Adapter
+# 适配器
 # ---------------------------------------------------------------------------
 
 
@@ -175,7 +175,7 @@ class BinanceAdapter:
         self._hedge_mode: bool | None = None
 
     # ------------------------------------------------------------------
-    # Properties
+    # 属性
     # ------------------------------------------------------------------
 
     @property
@@ -562,7 +562,7 @@ class BinanceAdapter:
         }
         risk_engine_defaults.update(self.config.risk_engine)
 
-        # Logging 默认配置：从 config.log_level 读取，并启用 pyo3 桥接
+        # 日志默认配置：从 config.log_level 读取，并启用 pyo3 桥接
         # use_pyo3=True 将 NT Rust 日志桥接到 Python logging / structlog 管道
         logging_defaults: dict[str, Any] = {
             "log_level": self.config.log_level,
@@ -663,7 +663,7 @@ class BinanceAdapter:
         def _runner() -> None:
             try:
                 result["value"] = asyncio.run(coro)
-            except BaseException as exc:  # pragma: no cover - defensive branch
+            except BaseException as exc:  # pragma: no cover - 防御性分支
                 error["value"] = exc
 
         thread = threading.Thread(target=_runner, name="BinanceAdapterAsyncBridge", daemon=True)

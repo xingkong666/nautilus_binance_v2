@@ -90,7 +90,7 @@ class OrderIntentEvent(Event):
     """订单意图事件 (策略产出 → 风控审核 → 执行)."""
 
     instrument_id: str = ""
-    side: str = ""  # BUY / SELL
+    side: str = ""  # 买入 / 卖出
     quantity: Decimal = Decimal(0)
     order_type: str = "MARKET"
     price: Decimal | None = None
@@ -107,7 +107,7 @@ class OrderIntentEvent(Event):
 class RiskAlertEvent(Event):
     """风控告警事件."""
 
-    level: str = "WARNING"  # WARNING / ERROR / CRITICAL
+    level: str = "WARNING"  # 警告 / 错误 / 严重
     rule_name: str = ""
     message: str = ""
     details: dict[str, Any] = field(default_factory=dict)
