@@ -2,44 +2,44 @@
 env: prod
 
 logging:
-  level: WARNING
-  format: json
-  console: false
+    level: DEBUG # DEBUG WARNING
+    format: json
+    console: false
 
 data:
-  catalog_dir: data/processed/catalog
-  raw_dir: data/raw
-  features_dir: data/features
+    catalog_dir: data/processed/catalog
+    raw_dir: data/raw
+    features_dir: data/features
 
 redis:
-  host: "127.0.0.1"
-  port: 6379
-  db: 0
+    host: "127.0.0.1"
+    port: 6379
+    db: 0
 
 cache:
-  enabled: true
-  database: redis
-  live:
-    flush_on_start: false
-  backtest:
-    use_instance_id: true
-    flush_on_start: false
+    enabled: true
+    database: redis
+    live:
+        flush_on_start: false
+    backtest:
+        use_instance_id: true
+        flush_on_start: false
 
 monitoring:
-  enabled: true
-  prometheus_port: 9100
+    enabled: true
+    prometheus_port: 9100
 
 risk:
-  enabled: true
-  mode: hard
+    enabled: true
+    mode: hard
 
 exchange:
-  environment: LIVE
+    environment: LIVE
 
 execution:
-  submit_orders: false
+    submit_orders: true
 
 live:
-  strategy_config: configs/strategies/vegas_tunnel.yaml
-  universe_top_n: 200
-  exclude_stablecoin_bases: true
+    strategy_config: configs/strategies/market_maker.yaml
+    universe_top_n: 200
+    exclude_stablecoin_bases: true

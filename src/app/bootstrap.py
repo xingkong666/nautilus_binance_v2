@@ -462,6 +462,7 @@ def run_live(
 def main() -> None:
     """Run the script entrypoint."""
     args = _parse_args()
+    print(args)
     config = load_app_config(env=args.env)
     live_strategy_config = args.strategy_config or config.live.strategy_config
     if live_strategy_config:

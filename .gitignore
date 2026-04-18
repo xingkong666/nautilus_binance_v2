@@ -45,3 +45,5 @@ backup/**/*.err
 # OS
 .DS_Store
 Thumbs.db
+
+.omc/*
