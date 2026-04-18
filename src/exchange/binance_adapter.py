@@ -301,7 +301,7 @@ class BinanceAdapter:
         try:
             if self._started:
                 self.request_stop()
-                await asyncio.sleep(0.5)  # 留给 NT 内部清理时间
+                await asyncio.sleep(0.5)  # 留给交易引擎内部清理时间
             self.dispose()
         except Exception as exc:
             logger.warning("binance_adapter_stop_error", error=str(exc))
@@ -547,13 +547,13 @@ class BinanceAdapter:
         # 执行引擎默认配置
         exec_engine_defaults: dict[str, Any] = {
             "reconciliation": True,
-            "reconciliation_lookback_mins": 1440,  # 最近 24h
+            "reconciliation_lookback_mins": 1440,  # 最近 24 小时
         }
         exec_engine_defaults.update(self.config.exec_engine)
 
         # 风控引擎默认配置
-        # 最大单笔名义金额留空，NT 默认无限制；
-        # 若需限制，请在风控引擎配置中按合约 ID 格式传入，
+        # 最大单笔名义金额留空，交易引擎默认无限制；
+        # 若需限制，请在风控引擎配置中按合约标识格式传入，
         # 例如：{"BTCUSDT-PERP.BINANCE": "1000000"}
         risk_engine_defaults: dict[str, Any] = {
             "bypass": False,
@@ -562,8 +562,8 @@ class BinanceAdapter:
         }
         risk_engine_defaults.update(self.config.risk_engine)
 
-        # 日志默认配置：从配置日志级别读取，并启用 pyo3 桥接
-        # 启用 pyo3 会将 NT Rust 日志桥接到 Python 日志 / structlog 管道
+        # 日志默认配置：从配置日志级别读取，并启用桥接
+        # 启用桥接会将交易引擎底层日志接入 Python 日志 / 结构化日志管道
         logging_defaults: dict[str, Any] = {
             "log_level": self.config.log_level,
             "use_pyo3": True,

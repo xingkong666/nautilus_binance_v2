@@ -34,7 +34,7 @@ import structlog
 if TYPE_CHECKING:
     from src.core.config import LoggingConfig
 
-# 防止重复配置 structlog（structlog.configure 是幂等的，但标准库处理器重置需保护）
+# 防止重复配置结构化日志（配置调用是幂等的，但标准库处理器重置需保护）
 _INITIALIZED: bool = False
 _INIT_LOCK: threading.Lock = threading.Lock()
 
@@ -75,12 +75,12 @@ def setup_logging(
 
     with _INIT_LOCK:
         if _INITIALIZED:
-            # structlog 已配置，仅更新标准库日志级别（允许动态调整）
+            # 结构化日志已配置，仅更新标准库日志级别（允许动态调整）
             logging.getLogger().setLevel(log_level)
             return
 
         # -------------------------------------------------------------------
-        # 1. 配置 structlog 处理链
+        # 1. 配置结构化日志处理链
         # -------------------------------------------------------------------
         processors: list[Any] = [
             structlog.contextvars.merge_contextvars,
@@ -105,7 +105,7 @@ def setup_logging(
         )
 
         # -------------------------------------------------------------------
-        # 2. 标准库 logging 配置
+        # 2. 标准库日志配置
         # -------------------------------------------------------------------
         handler: logging.Handler = logging.StreamHandler(sys.stdout) if console else logging.NullHandler()
         handler.setLevel(log_level)

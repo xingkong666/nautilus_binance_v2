@@ -304,7 +304,7 @@ class Watchdog:
             return True
 
         except ImportError:
-            # psutil 未安装，跳过系统检查
+            # 系统资源库未安装，跳过系统检查
             return True
         except Exception as exc:
             logger.error("system_check_error", error=str(exc), exc_info=True)

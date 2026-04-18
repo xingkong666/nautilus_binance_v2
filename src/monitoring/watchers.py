@@ -257,7 +257,7 @@ class FillLatencyWatcher(BaseWatcher):
 
         """
         self._latency_threshold_ms = latency_threshold_ms
-        self._submit_ts: dict[str, int] = {}  # 订单 ID -> 提交时间戳（ns）
+        self._submit_ts: dict[str, int] = {}  # 订单编号 -> 提交时间戳（纳秒）
         super().__init__(event_bus, alert_manager)
 
     def _register(self) -> None:

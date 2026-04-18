@@ -421,7 +421,7 @@ class AccountSync:
         except Exception as exc:
             logger.error("reconciliation_event_publish_failed", error=str(exc), exc_info=True)
 
-        # 写入 Redis 缓存（过期时间 = 同步间隔 + 5 秒安全余量）
+        # 写入缓存（过期时间 = 同步间隔 + 5 秒安全余量）
         self._cache_to_redis(result)
 
     def _update_real_time_risk(self, balances: list[AccountBalance]) -> None:

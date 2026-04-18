@@ -31,7 +31,7 @@ class Interval(Enum):
     MONTH_1 = "1M"
 
 
-# Binance 时间间隔 → 毫秒映射  # 修复-2
+# 交易所时间间隔 → 毫秒映射  # 修复-2
 INTERVAL_TO_MS: dict[Interval, int] = {
     Interval.MINUTE_1: 60_000,
     Interval.MINUTE_3: 180_000,
@@ -48,7 +48,7 @@ INTERVAL_TO_MS: dict[Interval, int] = {
 }
 
 
-# Binance 时间间隔 → Nautilus BarType 周期映射
+# 交易所时间间隔 → K 线类型周期映射
 INTERVAL_TO_NAUTILUS: dict[Interval, str] = {
     Interval.MINUTE_1: "1-MINUTE",
     Interval.MINUTE_3: "3-MINUTE",

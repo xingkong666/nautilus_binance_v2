@@ -155,7 +155,7 @@ class Container:
             redis_client=self._redis_client,
         )
 
-        # 初始化 PostTradeAnalyzer
+        # 初始化事后归因分析器
         self._post_trade_analyzer = PostTradeAnalyzer()
 
         # 4. 资金分配
@@ -200,7 +200,7 @@ class Container:
         exchange_cfg = cfg.exchange or cfg.strategies.get("exchange", {})
         if exchange_cfg or cfg.env in ("prod", "staging"):
             env_settings = self._get_env_settings()
-            # 优先读取 YAML 中的环境字段，其次按运行环境推断
+            # 优先读取配置文件中的环境字段，其次按运行环境推断
             # 生产环境 → 实盘，其余（开发/预发/测试网） → 测试网
             env_str = exchange_cfg.get("environment", "TESTNET" if cfg.env != "prod" else "LIVE")
             try:
@@ -326,7 +326,7 @@ class Container:
                 logger.exception("prometheus_server_stop_failed")
 
         if self._binance_adapter and self._binance_adapter.is_started:
-            # 适配器 stop() 是异步方法；同步清理中仅记录警告，
+            # 适配器停止方法是异步方法；同步清理中仅记录警告，
             # 调用方应在事件循环中先等待适配器停止，再调用清理。
             logger.warning(
                 "binance_adapter_not_stopped",
@@ -516,7 +516,7 @@ class Container:
         """
         bus = EventBus()
 
-        # 全局事件计数（Prometheus）
+        # 全局事件计数（监控指标）
         if self._config.monitoring.enabled:
 
             def _metrics_handler(event: Any) -> None:

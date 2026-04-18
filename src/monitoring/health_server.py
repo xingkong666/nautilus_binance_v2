@@ -102,7 +102,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(body).encode())
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
-        pass  # 静默 HTTP 日志
+        pass  # 静默网络服务日志
 
 
 class _ReusableHTTPServer(HTTPServer):
