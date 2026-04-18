@@ -49,21 +49,21 @@ def order_intent():
 @pytest.mark.parametrize(
     "leverage,max_lev,should_pass",
     [
-        (5.0, 10, True),  # under limit
-        (10.0, 10, True),  # at limit
-        (15.0, 10, False),  # over limit
-        (0.0, 10, True),  # unknown leverage - skip check
-        (-1.0, 10, True),  # invalid leverage - skip check
+        (5.0, 10, True),  # 低于限制
+        (10.0, 10, True),  # 处于极限
+        (15.0, 10, False),  # 超过限制
+        (0.0, 10, True),  # unknown杠杆 - 跳过检查
+        (-1.0, 10, True),  # 无效杠杆 - 跳过检查
     ],
 )
 def test_leverage_check(leverage, max_lev, should_pass, event_bus, order_intent):
     """Test leverage validation."""
     config = {
-        "max_order_size_usd": 100000,  # Increased to avoid order size failure
-        "max_position_size_usd": 500000,  # Increased to avoid position size failure
+        "max_order_size_usd": 100000,  # 增加以避免订单size 失败
+        "max_position_size_usd": 500000,  # 增加以避免位置size 失败
         "max_leverage": max_lev,
-        "min_order_interval_ms": 0,  # Disable interval check
-        "max_open_orders": 50,  # High number to avoid open orders failure
+        "min_order_interval_ms": 0,  # 禁用间隔检查
+        "max_open_orders": 50,  # 高数量以避免未结订单失败
     }
 
     risk_manager = PreTradeRiskManager(event_bus, config)
@@ -128,7 +128,7 @@ def test_leverage_check_prometheus_counter_incremented(event_bus, order_intent):
             current_position_usd=Decimal("1000"),
             current_open_orders=1,
             current_price=Decimal("50000"),
-            current_leverage=10.0,  # exceeds max of 5
+            current_leverage=10.0,  # 超过最大值 5
         )
 
         assert not result.passed
@@ -153,12 +153,12 @@ def test_leverage_check_event_bus_alert_published(event_bus, order_intent):
         current_position_usd=Decimal("1000"),
         current_open_orders=1,
         current_price=Decimal("50000"),
-        current_leverage=10.0,  # exceeds max of 5
+        current_leverage=10.0,  # 超过最大值 5
     )
 
     assert not result.passed
 
-    # Verify RiskAlertEvent was published
+    # 验证RiskAlertEvent已发布
     event_bus.publish.assert_called_once()
     published_event = event_bus.publish.call_args[0][0]
     assert published_event.level == "ERROR"

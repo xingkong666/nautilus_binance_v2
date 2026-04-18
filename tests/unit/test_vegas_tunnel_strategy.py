@@ -104,7 +104,7 @@ def test_long_entry_on_cross_above_tunnel() -> None:
     assert strategy._pending_order is not None
     assert strategy._pending_order.action == "entry"
     assert strategy._pending_order.side == "BUY"
-    # Position is open: entry_price set, remaining_qty > 0
+    # 持仓未平仓：entry_price 已设置，remaining_qty > 0
     assert strategy._entry_price == 125.0
     assert strategy._remaining_qty > 0
     assert strategy._is_long is True
@@ -123,7 +123,7 @@ def test_tp1_triggers_partial_exit_and_move_stop_to_breakeven() -> None:
 
     first = strategy.generate_signal(make_bar(close=125.0))
     assert first == SignalDirection.LONG
-    _set_portfolio_side(strategy, "long")  # sync mock after open
+    _set_portfolio_side(strategy, "long")  # 打开后同步模拟
 
     # ATR=5.0, tp_fib_1=1.0 (default) → TP1 = 125 + 5*1.0 = 130.0
     second = strategy.generate_signal(make_bar(close=130.1))
@@ -149,10 +149,10 @@ def test_cooldown_blocks_immediate_reentry() -> None:
     strategy._prev_fast_above_slow = False
     first = strategy.generate_signal(make_bar(close=125.0))
     assert first == SignalDirection.LONG
-    _set_portfolio_side(strategy, "long")  # sync mock after open
+    _set_portfolio_side(strategy, "long")  # 打开后同步模拟
 
     strategy._close_full(reason="manual_test_close")
-    _set_portfolio_side(strategy, "flat")  # sync mock after close
+    _set_portfolio_side(strategy, "flat")  # 在close之后同步模拟
 
     strategy._prev_fast_above_slow = False
     second = strategy.generate_signal(make_bar(close=126.0))
@@ -195,9 +195,9 @@ def test_tp3_closes_remaining_position() -> None:
 
     first = strategy.generate_signal(make_bar(close=125.0))
     assert first == SignalDirection.LONG
-    _set_portfolio_side(strategy, "long")  # sync mock after open
+    _set_portfolio_side(strategy, "long")  # 打开后同步模拟
 
-    # ATR=5.0, fib 1.0/1.618/2.618, entry=125 → tp1=130, tp2=133.09, tp3=138.09
+    # ATR=5.0，fib 1.0/1.618/2.618，条目=125 → tp1=130，tp2=133.09，tp3=138.09
     strategy.generate_signal(make_bar(close=130.1))
     strategy.generate_signal(make_bar(close=133.2))
     third = strategy.generate_signal(make_bar(close=138.2))
@@ -351,17 +351,17 @@ def test_trail_stop_after_tp2_moves_stop_to_tunnel_lower() -> None:
     strategy.rsi = SimpleNamespace(initialized=False, value=50.0)  # type: ignore[assignment]
     strategy._prev_fast_above_slow = False
 
-    # 入场 bar
+    # 入场 K 线
     strategy.generate_signal(make_bar(close=125.0))
     assert strategy._is_long is True
     assert strategy._entry_price == 125.0
 
-    # tunnel_width=2; ATR=5, fib 1.0/1.618 → tp1=130.0, tp2=133.09
-    # TP1 bar
+    # tunnel_width=2； ATR=5，fib 1.0/1.618 → tp1=130.0，tp2=133.09
+    # TP1bar
     strategy.generate_signal(make_bar(close=130.1))
     assert strategy._stop_price == 125.0  # 保本上移
 
-    # TP2 bar — close=133.1 >= tp2(≈133.09)，触发 trail_stop_after_tp2
-    # 此时 _tunnel_lower=100.0（最后一个 bar 的隧道下边界）
+    # TP2 K 线 — close=133.1 >= tp2(≈133.09)，触发 trail_stop_after_tp2
+    # 此时 _tunnel_lower=100.0（最后一个 K 线 的隧道下边界）
     strategy.generate_signal(make_bar(close=133.1))
     assert strategy._stop_price == 100.0  # 追踪至 tunnel_lower

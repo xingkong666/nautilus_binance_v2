@@ -16,7 +16,7 @@ import pytest
 from src.core.indicators import WilderAdx
 
 # ---------------------------------------------------------------------------
-# Reference implementation (原始 _AdxState，用于数值回归对比)
+# 参考实现（原始 _AdxState，用于数值回归对比）
 # ---------------------------------------------------------------------------
 
 
@@ -91,7 +91,7 @@ class _RefAdxState:
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# 辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -118,7 +118,7 @@ def _make_mock_bar(high: float, low: float, close: float) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# Tests: NT Indicator interface
+# 测试：NT 指标接口
 # ---------------------------------------------------------------------------
 
 
@@ -150,7 +150,7 @@ class TestWilderAdxInterface:
         adx = WilderAdx(14)
         for high, low, close in _make_bars(20):
             adx.update(high, low, close)
-        # Either not initialized, or value is available if initialized
+        # 要么尚未初始化，要么初始化后已有可用值
         assert not adx.initialized or adx.value is not None
 
     def test_initialized_after_sufficient_bars(self) -> None:
@@ -221,7 +221,7 @@ class TestWilderAdxInterface:
 
 
 # ---------------------------------------------------------------------------
-# Tests: numerical parity with reference _AdxState
+# 测试：与参考 _AdxState 的数值一致性
 # ---------------------------------------------------------------------------
 
 
@@ -279,7 +279,7 @@ class TestWilderAdxNumericalParity:
     def test_flat_market_adx_near_zero(self) -> None:
         """In a perfectly flat market ADX should converge near zero."""
         adx = WilderAdx(14)
-        # Identical bars — no directional movement
+        # 相同 K 线 —— 无方向性移动
         for _ in range(200):
             adx.update(100.0, 100.0, 100.0)
         if adx.initialized and adx.value is not None:

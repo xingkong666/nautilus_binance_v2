@@ -1,6 +1,6 @@
 # 交易对配置
 # 使用 NautilusTrader TestInstrumentProvider 名称映射
-# 默认 live 启动会按这里的 market_cap_rank / 文件顺序，选择前 N 个非稳定币 base asset 交易对。
+# 默认 居住 启动会按这里的 market_cap_rank / 文件顺序，选择前 N 个非稳定币 根据 资产 交易对。
 
 instruments:
   BTCUSDT:

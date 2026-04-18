@@ -21,27 +21,27 @@ def test_circuit_breaker_state_properties():
     """Test CircuitBreakerState backward compatibility and new properties."""
     from src.risk.circuit_breaker import CircuitBreakerState
 
-    # Test NORMAL level
+    # 测试 NORMAL 级别
     state_normal = CircuitBreakerState(level=CircuitLevel.NORMAL)
-    assert not state_normal.is_triggered  # backward compat
+    assert not state_normal.is_triggered  # 向后兼容
     assert state_normal.allows_new_positions
     assert state_normal.size_multiplier == 1.0
 
-    # Test WARN level
+    # 测试 WARN 级别
     state_warn = CircuitBreakerState(level=CircuitLevel.WARN)
-    assert not state_warn.is_triggered  # WARN doesn't trigger backward compat
+    assert not state_warn.is_triggered  # 警告不会触发向后兼容
     assert state_warn.allows_new_positions
     assert state_warn.size_multiplier == 1.0
 
-    # Test DEGRADED level
+    # 测试 DEGRADED 级别
     state_degraded = CircuitBreakerState(level=CircuitLevel.DEGRADED)
-    assert state_degraded.is_triggered  # backward compat
+    assert state_degraded.is_triggered  # 向后兼容
     assert not state_degraded.allows_new_positions
     assert state_degraded.size_multiplier == 0.5
 
-    # Test HALT level
+    # 测试 HALT 级别
     state_halt = CircuitBreakerState(level=CircuitLevel.HALT)
-    assert state_halt.is_triggered  # backward compat
+    assert state_halt.is_triggered  # 向后兼容
     assert not state_halt.allows_new_positions
     assert state_halt.size_multiplier == 0.0
 
@@ -71,7 +71,7 @@ def test_parse_triggers_with_levels():
             {
                 "type": "drawdown",
                 "threshold_pct": 10.0,
-                # no level specified - should default to HALT
+                # 未指定级别 - 应为default至停止
             },
         ]
     }
@@ -83,16 +83,16 @@ def test_parse_triggers_with_levels():
     assert cb._triggers[0].level == CircuitLevel.WARN
     assert cb._triggers[1].level == CircuitLevel.DEGRADED
     assert cb._triggers[2].level == CircuitLevel.HALT
-    assert cb._triggers[3].level == CircuitLevel.HALT  # default
+    assert cb._triggers[3].level == CircuitLevel.HALT  # 默认值
 
 
 @pytest.mark.parametrize(
     "drawdown_pct,expected_level,expected_triggered",
     [
-        (2.5, CircuitLevel.NORMAL, False),  # below all thresholds
-        (3.5, CircuitLevel.WARN, False),  # WARN level - not "triggered" in backward compat
-        (5.5, CircuitLevel.DEGRADED, True),  # DEGRADED level - "triggered"
-        (8.5, CircuitLevel.HALT, True),  # HALT level - "triggered"
+        (2.5, CircuitLevel.NORMAL, False),  # 低于所有阈值
+        (3.5, CircuitLevel.WARN, False),  # 警告级别 - 在向后兼容中未“触发”
+        (5.5, CircuitLevel.DEGRADED, True),  # 降级级别 - “已触发”
+        (8.5, CircuitLevel.HALT, True),  # 停止级别 - “已触发”
     ],
 )
 def test_drawdown_level_transitions(drawdown_pct, expected_level, expected_triggered):
@@ -108,7 +108,7 @@ def test_drawdown_level_transitions(drawdown_pct, expected_level, expected_trigg
     event_bus = EventBus()
     cb = CircuitBreaker(event_bus, config)
 
-    # Trigger based on drawdown
+    # 基于回撤触发
     cb.check_drawdown(drawdown_pct)
 
     assert cb._state.level == expected_level
@@ -129,16 +129,16 @@ def test_size_multiplier_per_level():
     event_bus = EventBus()
     cb = CircuitBreaker(event_bus, config)
 
-    # Test WARN level (3% drawdown)
+    # 测试 WARN 级别 (3% drawdown)
     cb.check_drawdown(3.5)
     assert cb.state.size_multiplier == 1.0
 
-    # Reset and test DEGRADED level (5% drawdown)
+    # 重置并测试DEGRADED水平（5%回撤）
     cb._reset()
     cb.check_drawdown(5.5)
     assert cb.state.size_multiplier == 0.5
 
-    # Reset and test HALT level (8% drawdown)
+    # 重置并测试HALT水平（8%回撤）
     cb._reset()
     cb.check_drawdown(8.5)
     assert cb.state.size_multiplier == 0.0
@@ -146,7 +146,7 @@ def test_size_multiplier_per_level():
 
 def test_redis_serialization_with_levels():
     """Test Redis round-trip preserves circuit level correctly."""
-    # Mock Redis client
+    # 模拟Redis客户端
     redis_client = MagicMock()
     redis_client.is_available = True
 
@@ -159,21 +159,21 @@ def test_redis_serialization_with_levels():
     event_bus = EventBus()
     cb = CircuitBreaker(event_bus, config, redis_client=redis_client)
 
-    # Trigger DEGRADED level
+    # 触发DEGRADED级别
     cb.check_drawdown(5.5)
 
-    # Verify Redis hset was called with level
+    # 验证 Redis 设定值 是否已使用 级别 调用
     redis_client.hset.assert_called_once()
     call_args = redis_client.hset.call_args[0]
     redis_data = call_args[1]
 
     assert redis_data["level"] == "degraded"
-    assert redis_data["is_triggered"] == "1"  # backward compat
+    assert redis_data["is_triggered"] == "1"  # 向后兼容
 
 
 def test_restore_from_redis_with_level():
     """Test restoring circuit breaker state from Redis includes level."""
-    # Mock Redis client with stored state
+    # 具有存储状态的模拟Redis客户端
     redis_client = MagicMock()
     redis_client.is_available = True
     redis_client.hgetall.return_value = {
@@ -182,13 +182,13 @@ def test_restore_from_redis_with_level():
         "action": "halt_all",
         "reason": "test reason",
         "triggered_at_ns": str(time.time_ns()),
-        "cooldown_until_ns": str(time.time_ns() + 3600 * 1_000_000_000),  # 1 hour future
+        "cooldown_until_ns": str(time.time_ns() + 3600 * 1_000_000_000),  # 1小时未来
     }
 
     config = {"triggers": []}
     event_bus = EventBus()
 
-    # Create new circuit breaker - should restore from Redis
+    # 创建新的断路器 - 应从Redis恢复
     cb = CircuitBreaker(event_bus, config, redis_client=redis_client)
 
     assert cb._state.level == CircuitLevel.DEGRADED
@@ -208,14 +208,14 @@ def test_allows_new_positions_property():
     event_bus = EventBus()
     cb = CircuitBreaker(event_bus, config)
 
-    # NORMAL - allows new positions
+    # 普通的 -允许新位置
     assert cb.state.allows_new_positions
 
-    # WARN - still allows new positions
+    # 警告 -仍然允许新职位
     cb.check_drawdown(3.5)
     assert cb.state.allows_new_positions
 
-    # DEGRADED - blocks new positions
+    # 降级-阻止新位置
     cb._reset()
     cb.check_drawdown(5.5)
     assert not cb.state.allows_new_positions
@@ -233,12 +233,12 @@ def test_backward_compatibility():
     event_bus = EventBus()
     cb = CircuitBreaker(event_bus, config)
 
-    # WARN level should NOT be "triggered" for backward compatibility
+    # 警告级别应“触发”不是以实现向后兼容性
     cb.check_drawdown(3.5)
     assert not cb._state.is_triggered
     assert not cb.is_active
 
-    # DEGRADED level SHOULD be "triggered" for backward compatibility
+    # DEGRADED级别SHOULD 被“触发”以实现向后兼容性
     cb._reset()
     cb.check_drawdown(5.5)
     assert cb._state.is_triggered

@@ -7,14 +7,14 @@ repos:
           - id: trailing-whitespace
 
     - repo: https://github.com/astral-sh/ruff-pre-commit
-      # Ruff version.
+      # 拉夫版本。
       rev: v0.15.6
       hooks:
-          # Run the linter.
+          # 运行 linter。
           - id: ruff-check
             args: [--fix]
           - id: ruff
             args: [--extend-select, D]
-          # Run the formatter.
+          # 运行格式化程序。
           - id: ruff-format
             types_or: [python, pyi, jupyter]

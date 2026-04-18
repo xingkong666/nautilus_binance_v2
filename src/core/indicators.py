@@ -62,12 +62,12 @@ class WilderAdx(Indicator):
         self._plus_dm_sum: float = 0.0
         self._minus_dm_sum: float = 0.0
 
-        # Wilder 平滑后的值
+        # 维尔德平滑后的值
         self._smoothed_tr: float | None = None
         self._smoothed_plus_dm: float | None = None
         self._smoothed_minus_dm: float | None = None
 
-        # ADX 初始化阶段的 DX 值缓冲
+        # 平均ADX初始化阶段的 DX 值缓冲
         self._dx_buffer: deque[float] = deque()
 
     # ------------------------------------------------------------------
@@ -116,7 +116,7 @@ class WilderAdx(Indicator):
         super().reset()  # 交易引擎基类会清理初始化状态 / 输入标志
 
     # ------------------------------------------------------------------
-    # 兼容旧版 ADX 状态更新调用方式
+    # 兼容旧版 平均ADX状态更新调用方式
     # ------------------------------------------------------------------
 
     def update(self, high: float, low: float, close: float) -> None:
@@ -173,7 +173,7 @@ class WilderAdx(Indicator):
                 self._smoothed_minus_dm = self._minus_dm_sum
                 self._dx_buffer.clear()
 
-        # ---- 阶段 2：Wilder 平滑更新 ----
+        # ---- 阶段 2：维尔德平滑更新 ----
         else:
             n = float(self.period)
             self._smoothed_tr = self._smoothed_tr - (self._smoothed_tr / n) + tr
@@ -193,14 +193,14 @@ class WilderAdx(Indicator):
             self.plus_di = plus_di
             self.minus_di = minus_di
 
-            # ---- 阶段 3a：ADX 初始化（收集指定周期数量的 DX 并取均值）----
+            # ---- 阶段 3a：平均ADX初始化（收集指定周期数量的 DX 并取均值）----
             if self.value is None:
                 self._dx_buffer.append(dx)
                 if len(self._dx_buffer) >= self.period:
                     self.value = sum(self._dx_buffer) / float(self.period)
                     self._dx_buffer.clear()
                     self._set_initialized(True)
-            # ---- 阶段 3b：ADX 实时更新 ----
+            # ---- 阶段 3b：平均ADX实时更新 ----
             else:
                 self.value = ((self.value * (self.period - 1)) + dx) / float(self.period)
                 if not self.initialized:

@@ -563,7 +563,7 @@ class BinanceAdapter:
         risk_engine_defaults.update(self.config.risk_engine)
 
         # 日志默认配置：从配置日志级别读取，并启用桥接
-        # 启用桥接会将交易引擎底层日志接入 Python 日志 / 结构化日志管道
+        # 启用桥接会将交易引擎底层日志接入 Python日志 / 结构化日志管道
         logging_defaults: dict[str, Any] = {
             "log_level": self.config.log_level,
             "use_pyo3": True,

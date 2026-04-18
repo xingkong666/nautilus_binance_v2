@@ -1,4 +1,4 @@
-# Micro scalp strategy config
+# 微头皮策略配置
 strategy:
   name: micro_scalp
   class_path: strategy.micro_scalp:MicroScalpStrategy
@@ -20,7 +20,7 @@ strategy:
     chase_ticks: 2
     post_only: true
     trade_size: 0.01
-    # capital_pct_per_trade: 10.0  # optional: use equity percentage sizing
+    # capital_pct_per_trade: 10.0 # 可选：使用股权百分比大小
 
   instruments:
     - BTCUSDT-PERP.BINANCE

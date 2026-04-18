@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# 实时风险指标的 Redis 键
+# 实时风险指标的 Redis键
 _RISK_METRICS_KEY = "nautilus:risk:metrics"
 
 
@@ -90,7 +90,7 @@ class RealTimeRiskMonitor:
         else:
             drawdown_pct = 0.0
 
-        # 计算日内 PnL
+        # 计算日内 PNL
         self._daily_pnl = current_equity - self._initial_equity
 
         # 更新日损失使用率指标
@@ -125,7 +125,7 @@ class RealTimeRiskMonitor:
                 self._fire_alert("CRITICAL", "daily_loss", msg)
                 self._alerts_fired.add(alert_key)
 
-        # 推送指标到 Redis（供 Grafana/外部进程消费）
+        # 推送指标到 Redis（供 格拉法纳/外部进程消费）
         self._push_metrics_to_redis(current_equity, drawdown_pct)
 
         return alerts

@@ -31,7 +31,7 @@ from src.state.snapshot import SnapshotManager, SystemSnapshot, _validate_snapsh
 from src.state.snapshot_scheduler import SnapshotScheduler
 
 # ---------------------------------------------------------------------------
-# Helpers
+# 辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -44,7 +44,7 @@ def _make_snapshot() -> SystemSnapshot:
 
 
 # ---------------------------------------------------------------------------
-# Test 1 — Atomic snapshot write (.tmp → rename)
+# 测试1——原子快照写入（.tmp→重命名）
 # ---------------------------------------------------------------------------
 
 
@@ -59,13 +59,13 @@ def test_snapshot_atomic_write() -> None:
         tmp = saved_path.with_suffix(".tmp")
         assert not tmp.exists(), ".tmp file must be removed after atomic rename"
 
-        # Content must be valid JSON
+        # 内容必须有效JSON
         data = json.loads(saved_path.read_text())
         assert data["account_balance"] == "1000"
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — Corrupted latest.json → fallback to previous snapshot
+# 测试 2 —— 损坏 latest.json→ 回退 to 以前的 快照
 # ---------------------------------------------------------------------------
 
 
@@ -74,14 +74,14 @@ def test_snapshot_load_corrupted_fallback() -> None:
     with tempfile.TemporaryDirectory() as d:
         mgr = _make_snapshot_manager(Path(d))
 
-        # Save a valid snapshot first
+        # 首先保存有效快照
         snap1 = SystemSnapshot(account_balance="999")
         mgr.save(snap1)
 
-        # Corrupt latest.json
+        # 损坏latest.json
         latest = Path(d) / "latest.json"
         latest.unlink(missing_ok=True)
-        latest.write_text("{invalid json!!}")  # corrupt
+        latest.write_text("{invalid json!!}")  # 腐败
 
         result = mgr.load_latest()
         assert result is not None, "Should fall back to a valid snapshot"
@@ -89,7 +89,7 @@ def test_snapshot_load_corrupted_fallback() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — Schema validation raises ValueError on missing fields
+# 测试 3 —— 模式验证在缺失字段上引发 值错误
 # ---------------------------------------------------------------------------
 
 
@@ -117,7 +117,7 @@ def test_snapshot_schema_validation_ok() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 4 — SnapshotScheduler triggers state_provider on interval
+# 测试4 —— 快照调度器 每隔一段时间触发state_provider
 # ---------------------------------------------------------------------------
 
 
@@ -140,7 +140,7 @@ def test_snapshot_scheduler_triggers() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 5 — SnapshotScheduler implements Watchable (last_heartbeat_ns updates)
+# 测试 5 —— 快照调度器 实现 Watchable (last_heartbeat_ns updates)
 # ---------------------------------------------------------------------------
 
 
@@ -161,7 +161,7 @@ def test_snapshot_scheduler_is_watchable() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 6 — ReconciliationEngine quantity tolerance (0.001% → matched)
+# 测试 6 —— ReconciliationEngine 数量 容差 (0.001% → matched)
 # ---------------------------------------------------------------------------
 
 
@@ -173,7 +173,7 @@ def test_reconciliation_quantity_tolerance() -> None:
     engine = ReconciliationEngine(event_bus=bus)
 
     local = [{"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "1.00000", "side": "LONG"}]
-    # 0.00001 / 1.00000 = 0.001% < tolerance 0.01%
+    # 0.00001 / 1.00000 = 0.001% < 公差 0.01%
     exchange = [{"instrument_id": "BTCUSDT-PERP.BINANCE", "quantity": "1.00001", "side": "LONG"}]
 
     result = engine.reconcile(local_positions=local, exchange_positions=exchange)
@@ -182,7 +182,7 @@ def test_reconciliation_quantity_tolerance() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 7 — ReconciliationEngine orphan order detection
+# 测试 7 —— ReconciliationEngine 孤儿 订单 检测
 # ---------------------------------------------------------------------------
 
 
@@ -210,7 +210,7 @@ def test_reconciliation_orphan_orders() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 8 — RecoveryReport fields and recommended_action logic
+# 测试 8 —— 恢复报告 字段 和 recommended_action 逻辑
 # ---------------------------------------------------------------------------
 
 
@@ -252,7 +252,7 @@ def test_compute_recommended_action_halt() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 9 — RecoveryManager recommended_action="halt" when mismatch > 5
+# 测试 9 —— 恢复管理器 recommended_action="halt" 什么时候 不匹配 > 5
 # ---------------------------------------------------------------------------
 
 
@@ -261,11 +261,11 @@ def test_recovery_halt_on_many_mismatches() -> None:
     with tempfile.TemporaryDirectory() as d:
         mgr = _make_snapshot_manager(Path(d))
 
-        # Save a snapshot so recovery has something to load
+        # 保存快照以便恢复时可以加载一些内容
         snap = SystemSnapshot(account_balance="500")
         mgr.save(snap)
 
-        # 6 mismatching exchange positions not in local snapshot
+        # 6 个不匹配的交易所头寸不在本地快照中
         exchange_positions = [
             {"instrument_id": f"TOKEN{i}-PERP.BINANCE", "quantity": "1.0", "side": "LONG"} for i in range(6)
         ]
@@ -288,7 +288,7 @@ def test_recovery_halt_on_many_mismatches() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 10 — LiveSupervisor DEGRADED triggers _attempt_recovery
+# 测试 10 —— LiveSupervisor DEGRADED 触发 _attempt_recovery
 # ---------------------------------------------------------------------------
 
 
@@ -307,7 +307,7 @@ def test_supervisor_degraded_attempts_recovery() -> None:
     event.event_type = EventType.CIRCUIT_BREAKER
 
     with patch.object(_asyncio, "run_coroutine_threadsafe") as mock_rcts:
-        # Simulate a running event loop
+        # 模拟正在运行的事件循环
         mock_loop = MagicMock()
         mock_loop.is_running.return_value = True
         sup._loop = mock_loop
@@ -318,14 +318,14 @@ def test_supervisor_degraded_attempts_recovery() -> None:
         assert sup._error_count == 1
         mock_loop.is_running.assert_called()
         mock_rcts.assert_called_once()
-        # First arg to run_coroutine_threadsafe must be a coroutine
+        # run_coroutine_threadsafe 的第一个参数必须是协程
         coro = mock_rcts.call_args[0][0]
-        # Clean up the coroutine to avoid RuntimeWarning
+        # 清理协程以避免 运行时警告
         coro.close()
 
 
 # ---------------------------------------------------------------------------
-# Test 11 — LiveSupervisor recovery succeeds → state=RUNNING, error_count=0
+# 测试 11 —— LiveSupervisor 恢复 成功 → state=RUNNING, error_count=0
 # ---------------------------------------------------------------------------
 
 
@@ -338,7 +338,7 @@ def test_supervisor_recovery_succeeds_resets_state() -> None:
     sup._state = SupervisorState.DEGRADED
     sup._error_count = 1
 
-    # Patch _restart_adapter to succeed immediately
+    # 补丁_restart_adapter立即成功
     async def _ok_restart() -> None:
         pass
 
@@ -351,7 +351,7 @@ def test_supervisor_recovery_succeeds_resets_state() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 12 — LiveSupervisor recovery exhausted → stop_event set
+# 测试 12 —— LiveSupervisor 恢复 耗尽 → stop_event 放
 # ---------------------------------------------------------------------------
 
 

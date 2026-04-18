@@ -65,7 +65,7 @@ def setup_logging(
     """
     global _INITIALIZED  # noqa: PLW0603
 
-    # 从 Nautilus 配置中提取参数（优先级高于位置参数）
+    # 从 Nautilus配置中提取参数（优先级高于位置参数）
     if nautilus_cfg is not None:
         level = nautilus_cfg.level
         json_format = nautilus_cfg.format.lower() != "console"

@@ -165,7 +165,7 @@ class PortfolioAllocator:
         )
 
     # ------------------------------------------------------------------
-    # 公共 API
+    # 公共 应用程序编程接口
     # ------------------------------------------------------------------
 
     def allocate(self, total_capital: Decimal) -> dict[str, AllocationResult]:
@@ -310,7 +310,7 @@ class PortfolioAllocator:
         for snap in snapshots:
             sid = snap.strategy_id
 
-            # 策略不在分配结果中（已禁用或未知）且 close_unknown=True → 全平
+            # 策略不在分配结果中（已禁用或未知）且 close_unknown=True→ 全平
             if sid not in target_allocations:
                 if close_unknown and snap.current_quantity != Decimal("0"):
                     intents.append(

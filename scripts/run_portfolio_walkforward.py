@@ -86,10 +86,10 @@ def main() -> None:
     base_output_dir = Path(args.output_dir) if args.output_dir else Path("experiments/walkforward") / portfolio_name
     base_output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Support selection_min_score grid sweep (backward-compatible)
+    # 支持 selection_min_score网格扫描（向后兼容）
     scenario_thresholds: list[float | None] = selection_min_score_grid or [selection_min_score_default]
 
-    # Pre-compute windows once (used only for display; Engine generates them internally)
+    # 预计算窗口一次（仅用于显示；引擎内部生成它们）
     backtest_cfg = portfolio_cfg.get("backtest", {})
     import datetime as dt
 
@@ -113,7 +113,7 @@ def main() -> None:
             scenario_dir = base_output_dir / f"score_{_format_score_label(threshold)}"
             scenario_dir.mkdir(parents=True, exist_ok=True)
 
-        # Override selection_min_score per-scenario
+        # 覆盖每个场景的 selection_min_score
         scenario_cfg = dict(portfolio_cfg)
         if "walkforward" in scenario_cfg:
             scenario_wf = dict(scenario_cfg["walkforward"])
@@ -132,7 +132,7 @@ def main() -> None:
         grid_rows.append(aggregate)
 
         leverage = float(backtest_cfg.get("leverage", app_config.account.max_leverage))
-        _ = leverage  # available for future display
+        _ = leverage  # 可用于将来显示
         print(f"组合名称: {portfolio_name}")
         print(f"窗口数量: {len(result.windows)}")
         print(f"结果目录: {scenario_dir}")

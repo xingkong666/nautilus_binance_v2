@@ -15,7 +15,7 @@ from src.risk.drawdown_control import DrawdownController
 from src.risk.pre_trade import PreTradeRiskManager
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# 测试夹具
 # ---------------------------------------------------------------------------
 
 
@@ -81,7 +81,7 @@ def drawdown_controller():
 
 
 # ---------------------------------------------------------------------------
-# CircuitBreaker 集成测试
+# 断路器集成测试
 # ---------------------------------------------------------------------------
 
 
@@ -135,7 +135,7 @@ class TestCircuitBreakerIntegration:
         circuit_breaker.check_daily_loss(daily_pnl=Decimal("-2000"))
         assert circuit_breaker.is_active is True
 
-        # 模拟上层在提交前检查熔断状态（实际由 OrderRouter / Supervisor 负责）
+        # 模拟上层在提交前检查熔断状态（实际由 OrderRouter / 导师 负责）
         _intent = OrderIntentEvent(
             instrument_id="BTCUSDT-PERP.BINANCE",
             side="BUY",
@@ -166,7 +166,7 @@ class TestCircuitBreakerIntegration:
 
 
 # ---------------------------------------------------------------------------
-# DrawdownController 集成测试
+# 回撤控制器 集成测试
 # ---------------------------------------------------------------------------
 
 
@@ -181,7 +181,7 @@ class TestDrawdownControllerIntegration:
         """
         drawdown_controller.update_equity(Decimal("100000"))
         multiplier = drawdown_controller.get_size_multiplier(Decimal("97500"))
-        # 回撤 2.5% < warning 3%
+        # 回撤 2.5% < 警告 3%
         assert multiplier == 1.0
 
     def test_warning_level_reduces_position(self, drawdown_controller):
@@ -192,7 +192,7 @@ class TestDrawdownControllerIntegration:
         """
         drawdown_controller.update_equity(Decimal("100000"))
         multiplier = drawdown_controller.get_size_multiplier(Decimal("97000"))
-        # 回撤 3% >= warning_pct → 返回 reduce_factor (default 0.5)
+        # 回撤 3% >= warning_pct → 返回 reduce_factor (默认值 0.5)
         assert multiplier == 0.5
 
     def test_critical_level_halts_trading(self, drawdown_controller):
@@ -214,7 +214,7 @@ class TestDrawdownControllerIntegration:
         """
         drawdown_controller.update_equity(Decimal("100000"))
         drawdown_controller.update_equity(Decimal("98000"))  # 不更新峰值
-        # 峰值仍为 100000，回撤 2% < warning
+        # 峰值仍为 100000，回撤 2% < 警告
         multiplier = drawdown_controller.get_size_multiplier(Decimal("98000"))
         assert multiplier == 1.0
 
@@ -230,7 +230,7 @@ class TestDrawdownControllerIntegration:
 
 
 # ---------------------------------------------------------------------------
-# PreTrade + CircuitBreaker 协同测试
+# 交易前 + 断路器协同测试
 # ---------------------------------------------------------------------------
 
 

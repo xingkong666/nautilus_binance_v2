@@ -53,7 +53,7 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     imbalance_threshold: float = 0.58
     imbalance_weight_mode: str = "linear"  # "linear" | "exp"（配置枚举值）
 
-    # EMA 辅助过滤
+    # EMA辅助过滤
     fast_ema_period: PositiveInt = 20
     slow_ema_period: PositiveInt = 60
 
@@ -99,10 +99,10 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     adverse_selection_ticks: int = 3
     adverse_selection_cooldown_ms: int = 2000
 
-    # US-003: 订单队列感知（GTD 刷新）
+    # US-003: 订单队列感知（GTD刷新）
     order_refresh_ratio: float = 0.7
 
-    # US-004: delta 驱动报价
+    # US-004: 三角洲驱动报价
     quote_on_delta: bool = False
     delta_quote_min_interval_ms: int = 100
 
@@ -115,7 +115,7 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     layer_spread_step_ticks: float = 1.0
     layer_size_decay: float = 0.7
 
-    # US-007: PnL 速度熔断器
+    # US-007: PNL速度熔断器
     max_loss_usd: float = 50.0
     loss_window_ms: int = 60000
     pnl_cb_cooldown_ms: int = 300000
@@ -128,7 +128,7 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     min_expected_profit_bps: float = 1.0
     taker_fee_bps: float = 4.0
 
-    # V3-US-002: 成交流 alpha
+    # V3-US-002: 成交流 阿尔法
     subscribe_trades: bool = True
     trade_flow_weight: float = 0.4
 
@@ -153,11 +153,11 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     quote_score_threshold: float = -0.5
     toxic_one_side_threshold: float = 0.5
 
-    # V5-US-001: 微价格 alpha 驱动
+    # V5-US-001: 微价格 阿尔法驱动
     mp_alpha_weight: float = 0.5
     imbalance_weight: float = 0.3
 
-    # V5-US-002: 非对称买/卖 alpha
+    # V5-US-002: 非对称买/卖 阿尔法
     mp_bias_strength: float = 0.3
 
     # V5-US-003: 成交概率驱动执行
@@ -185,7 +185,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._fast_ema = ExponentialMovingAverage(config.fast_ema_period)
         self._slow_ema = ExponentialMovingAverage(config.slow_ema_period)
 
-        # 确保 ATR 已创建，用于动态价差
+        # 确保 ATR已创建，用于动态价差
         self._ensure_atr_indicator()
 
         # L2 不平衡状态
@@ -221,7 +221,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._bid_submit_time: datetime | None = None
         self._ask_submit_time: datetime | None = None
 
-        # US-004: delta 驱动报价
+        # US-004: 三角洲驱动报价
         self._last_delta_quote_ts: datetime | None = None
         self._last_base_qty: Decimal | None = None
 
@@ -229,7 +229,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._price_returns: deque[float] = deque(maxlen=config.rv_window)
         self._last_mid_for_rv: float | None = None
 
-        # US-007: PnL 速度熔断器
+        # US-007: PNL速度熔断器
         self._recent_fills: deque[tuple[datetime, float]] = deque()
         self._pnl_circuit_open: bool = False
         self._pnl_cb_reset_at: datetime | None = None
@@ -237,11 +237,11 @@ class ActiveMarketMaker(BaseStrategy):
         # US-008: 市场质量过滤
         self._quote_quality_ok: bool = True
 
-        # V3-US-001: 已实现 PnL 追踪（替代名义额）
+        # V3-US-001: 已实现 PNL追踪（替代名义额）
         self._open_fills: list[tuple[float, float, str]] = []
         self._last_microprice: float | None = None
 
-        # V3-US-002: 成交流 alpha
+        # V3-US-002: 成交流 阿尔法
         self._agg_buy_vol: float = 0.0
         self._agg_sell_vol: float = 0.0
 
@@ -475,7 +475,7 @@ class ActiveMarketMaker(BaseStrategy):
         except Exception:
             pass
 
-        # US-004: delta 驱动报价
+        # US-004: 三角洲驱动报价
         if self.config.quote_on_delta:
             self._try_quote_on_delta()
 
@@ -934,7 +934,7 @@ class ActiveMarketMaker(BaseStrategy):
             total = imb_w + tf_w
             raw = (imb * imb_w + tf * tf_w) / total if total > 0 else 0.0
 
-        # EMA 方向门控：方向不一致时衰减一半
+        # EMA方向门控：方向不一致时衰减一半
         if self._fast_ema.initialized and self._slow_ema.initialized:
             ema_bull = float(self._fast_ema.value) > float(self._slow_ema.value)
             ema_bear = float(self._fast_ema.value) < float(self._slow_ema.value)
@@ -977,7 +977,7 @@ class ActiveMarketMaker(BaseStrategy):
         return bid_price, ask_price
 
     # ------------------------------------------------------------------
-    # US-003: 订单队列感知（GTD 刷新）
+    # US-003: 订单队列感知（GTD刷新）
     # ------------------------------------------------------------------
 
     def _maybe_refresh_expiring_orders(self, mid: float) -> None:
@@ -1234,7 +1234,7 @@ class ActiveMarketMaker(BaseStrategy):
                 self._toxic_flow_score = min(1.0, self._toxic_flow_score + 0.3)
 
     # ------------------------------------------------------------------
-    # US-004: delta 驱动报价
+    # US-004: 三角洲驱动报价
     # ------------------------------------------------------------------
 
     def _try_quote_on_delta(self) -> None:
@@ -1350,7 +1350,7 @@ class ActiveMarketMaker(BaseStrategy):
         if self._kill_switch:
             return
 
-        # US-007: PnL 熔断器检查
+        # US-007: PNL熔断器检查
         now = self._utc_now()
         if self._pnl_circuit_open:
             if self._pnl_cb_reset_at and now >= self._pnl_cb_reset_at:
@@ -1458,7 +1458,7 @@ class ActiveMarketMaker(BaseStrategy):
         if base_qty is None:
             return
 
-        # US-004: 缓存基础数量供 delta 驱动报价使用
+        # US-004: 缓存基础数量供 三角洲驱动报价使用
         self._last_base_qty = base_qty.as_decimal()
 
         # 若处于冷却期则将 adverse_side 传给数量计算
@@ -1569,19 +1569,19 @@ class ActiveMarketMaker(BaseStrategy):
         # US-003: 重置提交时间
         self._bid_submit_time = None
         self._ask_submit_time = None
-        # US-004: 重置 delta 报价状态
+        # US-004: 重置 三角洲报价状态
         self._last_base_qty = None
         self._last_delta_quote_ts = None
         # US-005: 重置已实现波动率
         self._price_returns.clear()
         self._last_mid_for_rv = None
-        # US-007: 重置 PnL 熔断器
+        # US-007: 重置 PNL熔断器
         self._recent_fills.clear()
         self._pnl_circuit_open = False
         self._pnl_cb_reset_at = None
         # US-008: 重置市场质量标志
         self._quote_quality_ok = True
-        # V3-US-001: 重置已实现 PnL 追踪
+        # V3-US-001: 重置已实现 PNL追踪
         self._open_fills.clear()
         self._last_microprice = None
         # V3-US-002: 重置成交流

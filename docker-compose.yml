@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
-    # 使用 configs/redis/ 下的 redis.conf 配置文件
+    # 使用 配置/Redis/ 下的 redis.会议 配置文件
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     volumes:
       - redis_data:/data

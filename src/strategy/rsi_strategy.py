@@ -95,14 +95,14 @@ class RSIStrategy(BaseStrategy):
         oversold = self.config.oversold_level
         overbought = self.config.overbought_level
 
-        # 超卖回升：RSI 从下方穿越 oversold_level → 做多
+        # 超卖回升：相对强弱指数从下方穿越 oversold_level → 做多
         if self._prev_rsi <= oversold < current_rsi:
             signal = SignalDirection.LONG
             self.log.info(
                 f"RSI oversold cross: prev={self._prev_rsi:.2f} → curr={current_rsi:.2f} (threshold={oversold}) → LONG",
             )
 
-        # 超买回落：RSI 从上方穿越 overbought_level → 做空
+        # 超买回落：相对强弱指数从上方穿越 overbought_level → 做空
         elif self._prev_rsi >= overbought > current_rsi:
             signal = SignalDirection.SHORT
             self.log.info(

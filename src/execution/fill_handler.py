@@ -79,16 +79,16 @@ class FillHandler:
             try:
                 from decimal import Decimal
 
-                # 根据成交数据创建 TradeAnalysis
+                # 根据成交数据创建 贸易分析
                 # 注意：单笔成交使用同一价格作为入场价和出场价
-                # 真实 PnL 计算需要跨多笔成交追踪仓位
+                # 真实 PNL计算需要跨多笔成交追踪仓位
                 analysis = TradeAnalysis(
                     instrument_id=instrument_id,
                     side=side,
                     quantity=Decimal(quantity),
                     entry_price=Decimal(price),
                     exit_price=Decimal(price),  # 单笔成交时与入场价相同
-                    pnl=Decimal("0"),  # 未追踪仓位的单笔成交按零 PnL 处理
+                    pnl=Decimal("0"),  # 未追踪仓位的单笔成交按零 PNL处理
                     fees=Decimal(fees),
                     slippage_bps=0.0,  # 计算滑点需要预期价格
                     duration_seconds=0.0,  # 计算需要订单提交时间

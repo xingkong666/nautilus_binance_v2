@@ -253,7 +253,7 @@ class BaseBinanceDownloader:
             content = await self._download_async(client, url, timeout)
             zip_path.write_bytes(content)
 
-            # 校验 ZIP (FIX-1)
+            # 校验 拉链(使固定-1)
             if not self._validate_zip(zip_path, checksum_url=checksum_url):
                 zip_path.unlink(missing_ok=True)
                 self._write_manifest(save_dir, date_str, "failed")
@@ -352,7 +352,7 @@ class BaseBinanceDownloader:
         save_dir.mkdir(parents=True, exist_ok=True)
         csv_path = save_dir / f"{base_name}.csv"
 
-        # 快路径：本地已有有效 CSV 时直接返回，避免创建 HTTP 客户端。
+        # 快路径：本地已有有效 CSV 时直接返回，避免创建 HTTP协议客户端。
         if self._validate_existing_csv(csv_path):
             self._write_manifest(save_dir, date_str, "skipped")
             return csv_path
@@ -420,7 +420,7 @@ class BinanceSpotDownloader(BaseBinanceDownloader):
 
 
 # ---------------------------------------------------------------------------
-# Catalog 加载器
+# 目录加载器
 # ---------------------------------------------------------------------------
 
 
@@ -523,13 +523,13 @@ class KlineCatalogLoader:
         # 验证
         validate_kline_dataframe(df)
 
-        # 写入交易品种信息（FIX-3）
+        # 写入交易品种信息（使固定-3）
         instrument_key = str(instrument.id)
         if instrument_key not in self._instrument_written:
             self._catalog.write_data([instrument])
             self._instrument_written.add(instrument_key)
 
-        # 避免重复写入 (FIX-3)
+        # 避免重复写入 (使固定-3)
         start_ns = int(df["ts_event"].min())
         end_ns = int(df["ts_event"].max())
         if self._is_range_in_catalog(bar_type, start_ns, end_ns):
@@ -612,7 +612,7 @@ class KlineCatalogLoader:
         else:
             df = df_with_header
 
-        # 添加 Nautilus 需要的 ts_event 列
+        # 添加 Nautilus需要的 ts_event 列
         df["ts_event"] = pd.to_datetime(df["open_time"], unit="ms", utc=True).astype("int64")
         return df
 
@@ -689,7 +689,7 @@ class DataPipeline:
         # 2. 加载到数据目录
         total_bars = self.loader.load_csvs(csv_paths, instrument, interval, cleanup_raw=cleanup_raw)
 
-        # 3. 连续性检查 (FIX-2)
+        # 3. 连续性检查 (使固定-2)
         try:
             df_all = pd.concat([self.loader._read_and_normalize(p) for p in csv_paths], ignore_index=True)
             gaps = validate_data_completeness(df_all)

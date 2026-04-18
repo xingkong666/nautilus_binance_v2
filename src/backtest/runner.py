@@ -228,11 +228,11 @@ class BacktestRunner:
             default_leverage=Decimal(str(self._bt_cfg.leverage)),
             bar_execution=True,
             bar_adaptive_high_low_ordering=True,
-            # 1.223.0: trade_execution 默认值从 False 改为 True，
-            # 显式设为 False 保持“只用 K 线驱动成交”的原有行为，
+            # 1.223.0: trade_execution 默认值从 False改为 True，
+            # 显式设为 False保持“只用 K 线驱动成交”的原有行为，
             # 避免回测引入交易逐笔数据双重触发导致基准漂移。
             trade_execution=False,
-            # 1.223.0 新增：模拟 Binance 市价单先发 OrderAccepted 再成交的行为，
+            # 1.223.0 新增：模拟 Binance市价单先发 OrderAccepted再成交的行为，
             # 使回测成交流程更贴近实盘事件序列。
             use_market_order_acks=True,
         )

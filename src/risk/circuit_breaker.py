@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# 熔断器状态的 Redis 键
+# 熔断器状态的 Redis键
 _CB_STATE_KEY = "nautilus:cb:state"
 
 
@@ -41,7 +41,7 @@ class CircuitLevel(Enum):
 class CircuitBreakerState:
     """熔断器状态."""
 
-    level: CircuitLevel = CircuitLevel.NORMAL  # 替代 is_triggered: bool
+    level: CircuitLevel = CircuitLevel.NORMAL  # 替代 is_triggered: 布尔值
     action: str = ""  # 全部暂停 / 仅减仓 / 仅告警
     reason: str = ""
     triggered_at_ns: int = 0
@@ -105,9 +105,9 @@ class CircuitBreaker:
         self._redis = redis_client
         self._state = CircuitBreakerState()
         self._triggers = self._parse_triggers(config)
-        self._recent_losses: list[tuple[int, Decimal]] = []  # (timestamp_ns, loss_amount)
+        self._recent_losses: list[tuple[int, Decimal]] = []  # （timestamp_ns，loss_amount）
 
-        # 启动时从 Redis 恢复状态（跨进程重启后延续冷却）
+        # 启动时从 Redis恢复状态（跨进程重启后延续冷却）
         self._restore_from_redis()
 
     @staticmethod
@@ -137,7 +137,7 @@ class CircuitBreaker:
 
         优先从 Redis 读取跨进程共享状态；Redis 不可用时 fallback 到内存状态。
         """
-        # 尝试从 Redis 读取状态（跨进程共享）
+        # 尝试从 Redis读取状态（跨进程共享）
         if self._redis is not None and self._redis.is_available:
             try:
                 data = self._redis.hgetall(_CB_STATE_KEY)
@@ -145,14 +145,14 @@ class CircuitBreaker:
                     cooldown_until_ns = int(data.get("cooldown_until_ns", "0"))
                     now_ns = time.time_ns()
                     if now_ns < cooldown_until_ns:
-                        # 从 Redis 读取等级，无效时回退到 HALT
+                        # 从 Redis读取等级，无效时回退到 停止
                         level_str = data.get("level", "halt")
                         level = (
                             CircuitLevel[level_str.upper()]
                             if level_str.upper() in CircuitLevel.__members__
                             else CircuitLevel.HALT
                         )
-                        # 同步到内存（避免 Redis 每次都查）
+                        # 同步到内存（避免 Redis每次都查）
                         if not self._state.is_triggered:
                             self._state = CircuitBreakerState(
                                 level=level,
@@ -266,7 +266,7 @@ class CircuitBreaker:
             cooldown_until_ns=cooldown_until_ns,
         )
 
-        # 更新 Prometheus 指标
+        # 更新 普罗米修斯指标
         CIRCUIT_BREAKER_LEVEL.set(self._get_level_as_int(trigger.level))
         CIRCUIT_BREAKER_TRIGGERED.labels(trigger_type=trigger.trigger_type).inc()
 
@@ -302,11 +302,11 @@ class CircuitBreaker:
     def _reset(self) -> None:
         """重置熔断器."""
         logger.info("circuit_breaker_reset", previous_reason=self._state.reason)
-        self._state = CircuitBreakerState()  # 默认值为 CircuitLevel.NORMAL
+        self._state = CircuitBreakerState()  # 默认值为 CircuitLevel.普通的
 
-        # 更新 Prometheus 指标
-        CIRCUIT_BREAKER_LEVEL.set(0)  # NORMAL 等级为 0
-        # 同步删除 Redis 状态
+        # 更新 普罗米修斯指标
+        CIRCUIT_BREAKER_LEVEL.set(0)  # 普通的等级为 0
+        # 同步删除 Redis状态
         if self._redis is not None and self._redis.is_available:
             try:
                 self._redis.delete(_CB_STATE_KEY)
@@ -330,7 +330,7 @@ class CircuitBreaker:
             cooldown_until_ns = int(data.get("cooldown_until_ns", "0"))
             now_ns = time.time_ns()
             if now_ns < cooldown_until_ns:
-                # 从 Redis 读取等级，无效时回退到 HALT
+                # 从 Redis读取等级，无效时回退到 停止
                 level_str = data.get("level", "halt")
                 level = (
                     CircuitLevel[level_str.upper()]

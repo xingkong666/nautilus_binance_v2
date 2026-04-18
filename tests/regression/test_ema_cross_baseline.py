@@ -20,13 +20,13 @@ from nautilus_trader.model.objects import Price, Quantity
 from tests.regression.conftest import BAR_TYPE, make_sine_bars, run_ema_cross
 
 # ---------------------------------------------------------------------------
-# 基准值（Hardcoded Baselines）
+# 基准值（硬编码 Baselines）
 #
 # 这些值通过 "首次诚实运行" 得出，后续每次回归都与之比对。
 # 若确认代码改动合理导致基准变化，手动更新这里的值并附上 commit message。
 # ---------------------------------------------------------------------------
 
-# 正弦波数据 + EMA(5,20)，200 根 1m Bar
+# 正弦波数据 + EMA(5,20)，200 根 1m 酒吧
 # 由首次诚实运行确认：iterations=200, orders=12, positions=6
 SINE_BASELINE = {
     "iterations": 200,
@@ -125,7 +125,7 @@ class TestSineWaveBaseline:
             sine_bars: Sine bars.
         """
         metrics = run_ema_cross(sine_bars)
-        # NautilusTrader HEDGING 模式：每次方向变化产生 2 笔订单（平旧 + 开新）
+        # NautilusTrader 对冲模式：每次方向变化产生 2 笔订单（平旧 + 开新）
         # 第一次交叉只有 1 笔开仓；后续每次交叉产生 2 笔
         # 所以 total_orders >= total_positions
         assert metrics["total_orders"] >= metrics["total_positions"]
@@ -227,7 +227,7 @@ class TestParameterSensitivity:
         bars_400 = make_sine_bars(n=400, period=30.0)
         m200 = run_ema_cross(bars_200)
         m400 = run_ema_cross(bars_400)
-        # 400 根 bar 的订单应 >= 200 根（因为多了更多周期）
+        # 400 根 K 线 的订单应 >= 200 根（因为多了更多周期）
         assert m400["total_orders"] >= m200["total_orders"]
 
     def test_larger_trade_size_does_not_change_order_count(self, sine_bars):
@@ -294,7 +294,7 @@ class TestStrategyInvariants:
 
     def test_no_orders_insufficient_bars(self):
         """Bar 数量不足以预热 EMA 时，不产生订单。."""
-        # slow_period=20，只提供 19 根 bar → 无法计算 EMA → 无信号
+        # slow_period=20，只提供 19 根 K 线 → 无法计算 EMA→ 无信号
         bars = make_sine_bars(n=19, period=10.0)
         metrics = run_ema_cross(bars, fast_period=5, slow_period=20)
         assert metrics["total_orders"] == 0, "Bar 数不足预热时不应产生订单"

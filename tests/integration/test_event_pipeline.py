@@ -24,7 +24,7 @@ PG_URL = "postgresql://admin:Longmao!666@127.0.0.1:5432/nautilus_trader"
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# 测试夹具
 # ---------------------------------------------------------------------------
 
 
@@ -77,7 +77,7 @@ def fill_handler(event_bus, tmp_db):
 
 
 # ---------------------------------------------------------------------------
-# EventBus 基础测试
+# 事件总线基础测试
 # ---------------------------------------------------------------------------
 
 
@@ -146,7 +146,7 @@ class TestEventBus:
 
         event_bus.publish(SignalEvent(instrument_id="BTCUSDT-PERP.BINANCE", direction=SignalDirection.LONG))
 
-        # 坏 handler 不应阻止正常 handler 运行
+        # 坏 处理程序 不应阻止正常 处理程序 运行
         assert len(received) == 1
 
     def test_clear_removes_all_handlers(self, event_bus):
@@ -208,7 +208,7 @@ class TestPreTradeWithEventBus:
         alerts = []
         event_bus.subscribe(EventType.RISK_ALERT, alerts.append)
 
-        # 10000 USD max_order_size_usd; 1 BTC @ 50000 = 50000 USD
+        # 10000USDmax_order_size_usd; 1BTC@50000 = 50000USD
         intent = OrderIntentEvent(
             instrument_id="BTCUSDT-PERP.BINANCE",
             side="BUY",
@@ -235,7 +235,7 @@ class TestPreTradeWithEventBus:
         intent = OrderIntentEvent(
             instrument_id="BTCUSDT-PERP.BINANCE",
             side="BUY",
-            quantity=Decimal("0.1"),  # 0.1 BTC @ 50000 = 5000 USD
+            quantity=Decimal("0.1"),  # 0.1BTC@50000 = 5000USD
         )
         result = pre_trade_risk.check(
             intent=intent,
@@ -262,7 +262,7 @@ class TestPreTradeWithEventBus:
         result = pre_trade_risk.check(
             intent=intent,
             current_position_usd=Decimal(0),
-            current_open_orders=11,  # max is 10
+            current_open_orders=11,  # 最大值为 10
             current_price=Decimal("50000"),
         )
 
@@ -270,7 +270,7 @@ class TestPreTradeWithEventBus:
 
 
 # ---------------------------------------------------------------------------
-# FillHandler → TradePersistence 集成
+# 填充处理程序 → 贸易持续性 集成
 # ---------------------------------------------------------------------------
 
 
@@ -366,7 +366,7 @@ class TestFillHandlerWithPersistence:
 
 
 # ---------------------------------------------------------------------------
-# 完整流水线测试（Signal → Risk → Fill → DB）
+# 完整流水线测试（信号 → 风险 → 成交 → DB）
 # ---------------------------------------------------------------------------
 
 

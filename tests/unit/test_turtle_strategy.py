@@ -206,8 +206,8 @@ def test_historical_bar_prefills_donchian_windows() -> None:
     """Verify that historical bar prefills Donchian channels via register_indicator_for_bars."""
     strategy = make_strategy()
 
-    # _on_historical_bar is a no-op; channels update via register_indicator_for_bars.
-    # Feed bars directly to channels to verify DonchianChannel integration.
+    # _on_historical_bar 是空操作；通道通过 register_indicator_for_bars 更新。
+    # 直接向通道喂入 bar，以验证 DonchianChannel集成。
     strategy._entry_channel.update_raw(101.0, 99.0)
     strategy._entry_channel.update_raw(102.0, 98.0)
     strategy._entry_channel.update_raw(103.0, 97.0)

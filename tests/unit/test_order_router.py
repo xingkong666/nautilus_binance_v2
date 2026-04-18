@@ -16,7 +16,7 @@ from src.execution.order_intent import OrderIntent
 from src.execution.order_router import OrderRouter
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# 测试夹具
 # ---------------------------------------------------------------------------
 
 
@@ -75,7 +75,7 @@ def make_mock_strategy(instrument_id: str = "BTCUSDT-PERP.BINANCE") -> MagicMock
     strategy = MagicMock()
     strategy.config.instrument_id = instrument_id
 
-    # mock instrument
+    # 模拟仪器
     instrument = MagicMock()
     instrument.id = MagicMock()
     instrument.id.__str__ = lambda self: instrument_id
@@ -83,7 +83,7 @@ def make_mock_strategy(instrument_id: str = "BTCUSDT-PERP.BINANCE") -> MagicMock
     instrument.make_price = lambda price: price  # 直接透传
     strategy.cache.instrument.return_value = instrument
 
-    # mock order_factory.market() 返回一个假订单
+    # 模拟 order_factory.market() 返回一个假订单
     fake_order = MagicMock()
     strategy.order_factory.market.return_value = fake_order
     strategy.order_factory.limit.return_value = fake_order
@@ -536,7 +536,7 @@ class TestOrderRouterEvents:
         with pytest.raises(ValueError, match="Invalid quantity after step normalization"):
             router.route(make_intent(quantity="0.0004"))
 
-        # Error alert should still be published before the exception
+        # 错误警报仍应在异常发生之前发布
         assert len(alerts) == 1
         alert = alerts[0]
         assert alert.level == "ERROR"

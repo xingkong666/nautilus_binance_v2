@@ -48,7 +48,7 @@ class EMAPullbackATRStrategy(BaseStrategy):
         self.fast_ema = ExponentialMovingAverage(config.fast_ema_period)
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
 
-        # BaseStrategy 只在 ATR 止盈止损开启时初始化 ATR；该策略信号本身也依赖 ATR。
+        # 基础策略只在 ATR止盈止损开启时初始化 ATR；该策略信号本身也依赖 ATR。
         self._ensure_atr_indicator()
 
         self._prev_close: float | None = None

@@ -191,7 +191,7 @@ class BacktestReporter:
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 保存 JSON 汇总
+        # 保存 JSON汇总
         summary_path = output_dir / "summary.json"
         summary_data = self._serializable_summary()
         summary_path.write_text(json.dumps(summary_data, ensure_ascii=False, indent=2))
@@ -214,7 +214,7 @@ class BacktestReporter:
 
         """
         s = self.summary()
-        # dt.date 转字符串
+        # dt.日期 转字符串
         s["generated_at"] = dt.datetime.now(dt.UTC).isoformat()
         # 浮点数四舍五入到 4 位
         if s["pnl"]:

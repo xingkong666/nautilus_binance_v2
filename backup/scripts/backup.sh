@@ -34,7 +34,7 @@ rm -f "$TMP_DUMP"
 mv -f "$TMP_GZ" "$OUT"
 echo "[INFO] PostgreSQL backup written: $OUT"
 
-# ---------- Redis ----------
+# ---------- Redis----------
 REDIS_BACKUP_DIR="$BACKUP_DIR/redis"
 mkdir -p "$REDIS_BACKUP_DIR"
 log "Backing up Redis..."
@@ -46,25 +46,25 @@ else
 	log "No /data/dump.rdb found; skipping Redis RDB copy"
 fi
 
-# ---------- Prometheus ----------
+# ---------- 普罗米修斯----------
 PROM_BACKUP_DIR="$BACKUP_DIR/prometheus"
 mkdir -p "$PROM_BACKUP_DIR"
 log "Backing up Prometheus..."
 tar czf "$PROM_BACKUP_DIR/prometheus_${DATE}.tar.gz" -C /prometheus . || die "Prometheus tar failed"
 
-# ---------- Grafana ----------
+# ---------- 格拉法纳----------
 GRAFANA_BACKUP_DIR="$BACKUP_DIR/grafana"
 mkdir -p "$GRAFANA_BACKUP_DIR"
 log "Backing up Grafana..."
 tar czf "$GRAFANA_BACKUP_DIR/grafana_${DATE}.tar.gz" -C /var/lib/grafana . || die "Grafana tar failed"
 
-# ---------- Alertmanager ----------
+# ---------- 警报管理器 ----------
 ALERT_BACKUP_DIR="$BACKUP_DIR/alertmanager"
 mkdir -p "$ALERT_BACKUP_DIR"
 log "Backing up Alertmanager..."
 tar czf "$ALERT_BACKUP_DIR/alertmanager_${DATE}.tar.gz" -C /alertmanager . || die "Alertmanager tar failed"
 
-# ---------- Cleanup: keep last 30 days ----------
+# ---------- 清理：保留最后30天 ----------
 log "Cleaning backups older than 30 days..."
 find "$BACKUP_DIR" -type f -mtime +30 \( -name "*.gz" -o -name "*.rdb" -o -name "*.tar.gz" \) -delete
 

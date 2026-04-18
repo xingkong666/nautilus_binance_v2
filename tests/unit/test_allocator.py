@@ -12,7 +12,7 @@ from src.portfolio.allocator import (
 )
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# 测试夹具
 # ---------------------------------------------------------------------------
 
 TWO_STRATEGIES = [
@@ -67,7 +67,7 @@ class TestInit:
 
 
 # ---------------------------------------------------------------------------
-# equal 模式
+# 平等的 模式
 # ---------------------------------------------------------------------------
 
 
@@ -100,7 +100,7 @@ class TestEqualMode:
 
 
 # ---------------------------------------------------------------------------
-# weight 模式
+# 重量 模式
 # ---------------------------------------------------------------------------
 
 
@@ -108,7 +108,7 @@ class TestWeightMode:
     """Test cases for weight mode."""
 
     def test_weight_proportional(self):
-        # weight 2:1 → ema_cross 应拿 2/3，mean_revert 拿 1/3
+        # 重量 2:1 → ema_cross 应拿 2/3，mean_revert 拿 1/3
         """Verify that weight proportional."""
         allocator = make_allocator(mode="weight", reserve_pct=0.0)
         results = allocator.allocate(Decimal("3000"))
@@ -152,8 +152,8 @@ class TestRiskParityMode:
             {"strategy_id": "high_vol"},
         ]
         allocator = make_allocator(mode="risk_parity", strategies=strategies, reserve_pct=0.0)
-        allocator.update_volatility("low_vol", 0.1)  # 10% vol → 权重 10
-        allocator.update_volatility("high_vol", 0.5)  # 50% vol → 权重 2
+        allocator.update_volatility("low_vol", 0.1)  # 10% 波动率 → 权重 10
+        allocator.update_volatility("high_vol", 0.5)  # 50% 波动率 → 权重 2
         results = allocator.allocate(Decimal("12000"))
         # low_vol 权重 10/(10+2) ≈ 83%，high_vol ≈ 17%
         assert results["low_vol"].allocated_capital > results["high_vol"].allocated_capital
@@ -200,7 +200,7 @@ class TestGetAvailableCapital:
 
 
 # ---------------------------------------------------------------------------
-# rebalance
+# 重新平衡
 # ---------------------------------------------------------------------------
 
 
@@ -216,7 +216,7 @@ class TestRebalance:
                 strategy_id="ema_cross",
                 instrument_id="BTCUSDT-PERP",
                 current_quantity=Decimal("0.1"),
-                current_price=Decimal("49000"),  # value = 4900
+                current_price=Decimal("49000"),  # 值 = 4900
                 margin_used=Decimal("490"),
             )
         ]
@@ -232,7 +232,7 @@ class TestRebalance:
                 strategy_id="ema_cross",
                 instrument_id="BTCUSDT-PERP",
                 current_quantity=Decimal("0.08"),
-                current_price=Decimal("50000"),  # value = 4000
+                current_price=Decimal("50000"),  # 值 = 4000
             )
         ]
         intents = allocator.rebalance(snaps, Decimal("10000"))
@@ -313,7 +313,7 @@ class TestDynamicEnable:
 
 
 # ---------------------------------------------------------------------------
-# summary
+# 汇总
 # ---------------------------------------------------------------------------
 
 

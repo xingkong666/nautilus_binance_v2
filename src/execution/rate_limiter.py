@@ -16,11 +16,11 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Redis 键
+# Redis键
 _RL_SECOND_KEY = "nautilus:rl:orders:second"
 _RL_MINUTE_KEY = "nautilus:rl:orders:minute"
 
-# Lua 原子脚本：滑动窗口限流（原子检查 + 计入）
+# Lua原子脚本：滑动窗口限流（原子检查 + 计入）
 _RATE_LIMIT_LUA = """
 local now = tonumber(ARGV[1])
 local window = tonumber(ARGV[2])
@@ -76,7 +76,7 @@ class RateLimiter:
         本地模式下仍需此方法。
         """
         if self._redis is not None and self._redis.is_available:
-            # Redis 模式由 can_proceed 中 Lua 脚本原子处理，无需二次记录
+            # Redis 模式由 can_proceed 中 Lua脚本原子处理，无需二次记录
             return
         now = time.time()
         self._second_window.append(now)

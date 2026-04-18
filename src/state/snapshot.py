@@ -44,7 +44,7 @@ class PositionSnapshot:
 
     instrument_id: str
     side: str  # 多头 / 空头 / 空仓
-    quantity: str  # 十进制数字符串
+    quantity: str  # Decimal数字符串
     avg_entry_price: str
     unrealized_pnl: str
     realized_pnl: str
@@ -131,10 +131,10 @@ class SnapshotManager:
 
         serialized = json.dumps(asdict(snapshot), cls=DecimalEncoder, indent=2)
         tmp_path.write_text(serialized)
-        # os.replace 在 POSIX 上是原子操作；Windows 上也是原子替换
+        # os.代替在 POSIX上是原子操作；视窗上也是原子替换
         os.replace(tmp_path, filepath)
 
-        # 更新 latest 符号链接（先建新链接再替换旧链接，保证原子性）
+        # 更新 最新的符号链接（先建新链接再替换旧链接，保证原子性）
         latest = self._snapshot_dir / "latest.json"
         latest_tmp = self._snapshot_dir / "latest.json.tmp"
         if latest_tmp.exists():

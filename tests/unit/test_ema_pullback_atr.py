@@ -71,11 +71,11 @@ def test_uptrend_pullback_rebound_triggers_long() -> None:
     strategy.slow_ema = SimpleNamespace(value=95.0)  # type: ignore[assignment]
     strategy._atr_indicator = SimpleNamespace(initialized=True, value=5.0)
 
-    # bar1 触发回撤武装（low <= fast - ATR）
+    # bar1 触发回撤武装（低 <= fast - ATR）
     first = strategy.generate_signal(make_bar(101.0, 102.0, 94.0, 98.0))
     assert first is None
 
-    # bar2 回收快线（prev_close < fast 且 close >= fast）触发 LONG
+    # bar2 回收快线（prev_close < fast 且 收盘价 >= fast）触发 LONG
     second = strategy.generate_signal(make_bar(98.0, 103.0, 97.0, 101.0))
     assert second == SignalDirection.LONG
 
@@ -134,7 +134,7 @@ def test_adx_threshold_blocks_when_trend_strength_low() -> None:
     strategy.fast_ema = SimpleNamespace(value=100.0)  # type: ignore[assignment]
     strategy.slow_ema = SimpleNamespace(value=95.0)  # type: ignore[assignment]
     strategy._atr_indicator = SimpleNamespace(initialized=True, value=5.0)
-    # WilderAdx inherits Cython Indicator — replace with a plain mock
+    # 维尔德阿德克斯 继承 Cython 指标—— 使用普通 模拟 替代
     strategy._adx = SimpleNamespace(update=lambda *_: None, initialized=True, value=10.0)  # type: ignore[assignment]
 
     strategy.generate_signal(make_bar(101.0, 102.0, 94.0, 98.0))

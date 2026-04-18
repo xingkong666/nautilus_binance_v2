@@ -40,14 +40,14 @@ import time
 from pathlib import Path
 
 # ------------------------------------------------------------------------------
-# Path bootstrap
+# 路径初始化
 # ------------------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 # ------------------------------------------------------------------------------
-# Imports
+# 导入
 # ------------------------------------------------------------------------------
 
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
@@ -58,7 +58,7 @@ from src.core.logging import setup_logging
 from src.data.loaders import BinanceFuturesDownloader, DataPipeline
 
 # ------------------------------------------------------------------------------
-# Globals
+# 全局变量
 # ------------------------------------------------------------------------------
 
 #: symbol -> TestInstrumentProvider 方法的映射，由 load_instruments_config() 填充。
@@ -69,7 +69,7 @@ MAX_RETRY = 3
 
 
 # ------------------------------------------------------------------------------
-# CLI
+# 命令行接口
 # ------------------------------------------------------------------------------
 
 
@@ -128,7 +128,7 @@ def parse_args() -> argparse.Namespace:
 
 
 # ------------------------------------------------------------------------------
-# Helpers
+# 辅助函数
 # ------------------------------------------------------------------------------
 
 
@@ -227,7 +227,7 @@ def retry_download(fn, *args):
 
 
 # ------------------------------------------------------------------------------
-# Main
+# 主流程
 # ------------------------------------------------------------------------------
 
 
@@ -263,7 +263,7 @@ def main() -> None:
     raw_dir = config.data.raw_dir
     catalog_dir = config.data.catalog_dir
 
-    # --auto-latest 时将全局 end 设为昨天（各 symbol 的 start 在循环内单独处理）
+    # --汽车-latest 时将全局 结尾 设为昨天（各 象征 的 启动 在循环内单独处理）
     if args.auto_latest:
         end = dt.date.today() - dt.timedelta(days=1)
 
@@ -303,7 +303,7 @@ def main() -> None:
             days = (symbol_end - symbol_start).days + 1
             print(f"  Range: {symbol_start} → {symbol_end} ({days} days)")
 
-            # 下载 CSV 文件（失败自动重试）
+            # 下载 CSV文件（失败自动重试）
             paths = retry_download(
                 downloader.download_range,
                 symbol,

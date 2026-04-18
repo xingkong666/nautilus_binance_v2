@@ -82,7 +82,7 @@ class PostTradeAnalyzer:
         """
         self._trades.append(trade)
 
-        # 更新 Prometheus 指标
+        # 更新 普罗米修斯指标
         POST_TRADE_SLIPPAGE_BPS.observe(trade.slippage_bps)
         POST_TRADE_PNL.labels(
             strategy_id=trade.strategy_id,

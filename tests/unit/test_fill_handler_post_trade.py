@@ -41,14 +41,14 @@ def fill_handler(event_bus, persistence, post_trade_analyzer):
 
 def test_fill_handler_records_trade_to_post_trade_analyzer(fill_handler, post_trade_analyzer):
     """测试 FillHandler 向 PostTradeAnalyzer 记录交易."""
-    # Given
+    # 前置条件
     instrument_id = "BTCUSDT"
     side = "BUY"
     quantity = "1.5"
     price = "45000.0"
     fees = "10.0"
 
-    # When
+    # 执行
     fill_handler.on_fill(
         instrument_id=instrument_id,
         side=side,
@@ -57,7 +57,7 @@ def test_fill_handler_records_trade_to_post_trade_analyzer(fill_handler, post_tr
         fees=fees,
     )
 
-    # Then
+    # 断言
     assert len(post_trade_analyzer._trades) == 1
     trade = post_trade_analyzer._trades[0]
 
@@ -74,7 +74,7 @@ def test_fill_handler_records_trade_to_post_trade_analyzer(fill_handler, post_tr
 
 def test_fill_handler_generates_report_with_one_trade(fill_handler, post_trade_analyzer):
     """测试处理一笔成交后生成报告."""
-    # Given
+    # 前置条件
     fill_handler.on_fill(
         instrument_id="ETHUSDT",
         side="SELL",
@@ -83,28 +83,28 @@ def test_fill_handler_generates_report_with_one_trade(fill_handler, post_trade_a
         fees="5.0",
     )
 
-    # When
+    # 执行
     report = post_trade_analyzer.generate_report("2024-01-01")
 
-    # Then
+    # 断言
     assert report.total_trades == 1
-    assert report.winning_trades == 0  # Zero PnL means not winning
-    assert report.losing_trades == 1  # Zero PnL counts as losing
+    assert report.winning_trades == 0  # 零PnL意味着没有获胜
+    assert report.losing_trades == 1  # 零PnL算作失败
     assert report.total_pnl == Decimal("0")
     assert report.total_fees == Decimal("5.0")
-    assert report.net_pnl == Decimal("-5.0")  # Negative due to fees
+    assert report.net_pnl == Decimal("-5.0")  # 费用为负数
 
 
 def test_fill_handler_without_post_trade_analyzer(event_bus, persistence):
     """测试没有 PostTradeAnalyzer 的 FillHandler 正常工作."""
-    # Given
+    # 前置条件
     fill_handler = FillHandler(
         event_bus=event_bus,
         persistence=persistence,
         post_trade_analyzer=None,
     )
 
-    # When - should not raise exception
+    # 什么时候 - 不应引发异常
     fill_handler.on_fill(
         instrument_id="ADAUSDT",
         side="BUY",
@@ -113,13 +113,13 @@ def test_fill_handler_without_post_trade_analyzer(event_bus, persistence):
         fees="0.15",
     )
 
-    # Then - persistence should still be called
+    # 然后 - 仍应调用持久性
     persistence.record_trade.assert_called_once()
 
 
 def test_fill_handler_handles_post_trade_analyzer_exception(event_bus, persistence):
     """测试 PostTradeAnalyzer 异常时 FillHandler 仍正常工作."""
-    # Given
+    # 前置条件
     mock_analyzer = MagicMock(spec=PostTradeAnalyzer)
     mock_analyzer.record_trade.side_effect = ValueError("Test error")
 
@@ -129,7 +129,7 @@ def test_fill_handler_handles_post_trade_analyzer_exception(event_bus, persisten
         post_trade_analyzer=mock_analyzer,
     )
 
-    # When - should not raise exception despite analyzer error
+    # 什么时候 - 尽管分析器错误，不应引发异常
     fill_handler.on_fill(
         instrument_id="DOTUSDT",
         side="SELL",
@@ -138,6 +138,6 @@ def test_fill_handler_handles_post_trade_analyzer_exception(event_bus, persisten
         fees="1.25",
     )
 
-    # Then - persistence should still be called
+    # 然后 - 仍应调用持久性
     persistence.record_trade.assert_called_once()
     mock_analyzer.record_trade.assert_called_once()

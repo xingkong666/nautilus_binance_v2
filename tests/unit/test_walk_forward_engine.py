@@ -21,7 +21,7 @@ from src.backtest.walk_forward_engine import (
 from src.backtest.walkforward import WalkforwardWindow
 
 # ---------------------------------------------------------------------------
-# Helpers
+# 辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -85,7 +85,7 @@ def _make_engine() -> WalkForwardEngine:
 
 
 # ---------------------------------------------------------------------------
-# Test 1 — perfect consistency (all OOS > 0)
+# 测试 1 —— 完全 一致性 (全部 OOS > 0)
 # ---------------------------------------------------------------------------
 
 
@@ -106,7 +106,7 @@ def test_stability_perfect_consistency() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — zero consistency (all OOS < 0)
+# 测试 2 —— 零 一致性 (全部 OOS < 0)
 # ---------------------------------------------------------------------------
 
 
@@ -126,14 +126,14 @@ def test_stability_zero_consistency() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — positive IS/OOS correlation
+# 测试 3 —— 正 IS/OOS 相关
 # ---------------------------------------------------------------------------
 
 
 def test_stability_correlation_positive() -> None:
     """IS↑ OOS↑ → Pearson correlation > 0."""
     engine = _make_engine()
-    # Monotonically increasing IS & OOS → perfect positive correlation
+    # 单调递增IS & OOS→ 完美正相关
     windows = [
         _make_window_result(1, is_pnl_pct=1.0, oos_pnl_pct=0.5),
         _make_window_result(2, is_pnl_pct=3.0, oos_pnl_pct=1.5),
@@ -146,7 +146,7 @@ def test_stability_correlation_positive() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 4 — single window (no crash, correlation=0.0)
+# 测试 4 —— 单个 窗口 (no crash, correlation=0.0)
 # ---------------------------------------------------------------------------
 
 
@@ -158,13 +158,13 @@ def test_stability_single_window() -> None:
 
     assert report.window_count == 1
     assert report.is_oos_correlation == 0.0
-    # consistency_rate should still be computed (1 OOS > 0 window out of 1)
+    # consistency_rate 仍应计算（1 OOS> 0 个窗口，共 1 个）
     assert report.consistency_rate == 1.0
     assert report.passed is True
 
 
 # ---------------------------------------------------------------------------
-# Test 5 — degradation_ratio (IS=5%, OOS=2% → ratio≈0.4)
+# 测试 5 —— degradation_ratio (IS=5%, OOS=2% → ratio≈0.4)
 # ---------------------------------------------------------------------------
 
 
@@ -183,7 +183,7 @@ def test_stability_degradation_ratio() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 6 — zero IS PnL → degradation_ratio=0.0, no ZeroDivisionError
+# 测试 6 —— 零 IS PNL→ degradation_ratio=0.0, no 零除法错误
 # ---------------------------------------------------------------------------
 
 
@@ -197,12 +197,12 @@ def test_stability_zero_is_pnl() -> None:
     report = engine._compute_stability(windows)
 
     assert report.degradation_ratio == 0.0
-    # No exception raised (the important assertion is that we got here)
+    # 没有引发异常（重要的断言是我们到达这里）
     assert isinstance(report, StabilityReport)
 
 
 # ---------------------------------------------------------------------------
-# Test 7 — WindowResult dataclass fields are complete
+# 测试7——WindowResult数据类字段完整
 # ---------------------------------------------------------------------------
 
 
@@ -236,7 +236,7 @@ def test_window_result_dataclass() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 8 — WalkForwardResult aggregate contains test_mean_pnl_pct
+# 测试 8 —— 前进结果 总计的 包含 test_mean_pnl_pct
 # ---------------------------------------------------------------------------
 
 
@@ -265,7 +265,7 @@ def test_walk_forward_result_aggregate() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 9 — empty windows → safe StabilityReport with passed=False
+# 测试9——空窗口→安全的StabilityReport，passed=False
 # ---------------------------------------------------------------------------
 
 
@@ -283,7 +283,7 @@ def test_stability_empty_windows() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 10 — generate_windows produces correct count
+# 测试 10 —— generate_windows 产生 正确的 数量
 # ---------------------------------------------------------------------------
 
 
@@ -292,7 +292,7 @@ def test_generate_windows_count() -> None:
     engine = _make_engine()
     windows = engine.generate_windows()
 
-    # 2024-01-01 to 2024-12-31, train=6m, test=3m, step=3m → 2 windows
+    # 2024-01-01 至 2024-12-31，train=6m，test=3m，step=3m → 2 个窗口
     assert len(windows) == 2
     assert windows[0].train_start == dt.date(2024, 1, 1)
     assert windows[0].test_start == dt.date(2024, 7, 1)

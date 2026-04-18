@@ -165,7 +165,7 @@ def _coerce_metric(value: Any) -> float:
         number = float(value)
     except (TypeError, ValueError):
         return float("-inf")
-    if number != number:  # NaN 检查
+    if number != number:  # 南检查
         return float("-inf")
     return number
 
@@ -841,7 +841,7 @@ class WalkForwardEngine:
         mean_is = sum(is_pnls) / n
         mean_oos = sum(oos_pnls) / n
 
-        # Pearson 相关（手算，避免 scipy 依赖）
+        # Pearson相关（手算，避免 scipy依赖）
         correlation = 0.0
         if n >= 2:
             cov = sum((a - mean_is) * (b - mean_oos) for a, b in zip(is_pnls, oos_pnls, strict=True)) / n
@@ -979,7 +979,7 @@ class WalkForwardEngine:
 
 
 # ---------------------------------------------------------------------------
-# 并行工作进程入口（模块级函数，pickle 安全）
+# 并行工作进程入口（模块级函数，泡菜安全）
 # ---------------------------------------------------------------------------
 
 

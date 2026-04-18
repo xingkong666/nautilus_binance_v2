@@ -83,7 +83,7 @@ class TurtleStrategy(BaseStrategy):
         )
 
     def _on_historical_bar(self, bar: Bar) -> None:
-        pass  # DonchianChannel 和 ATR 通过 register_indicator_for_bars 更新
+        pass  # DonchianChannel 和 ATR通过 register_indicator_for_bars 更新
 
     def generate_signal(self, bar: Bar) -> SignalDirection | None:
         """Generate signal.

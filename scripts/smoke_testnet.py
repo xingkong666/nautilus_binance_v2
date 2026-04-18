@@ -37,7 +37,7 @@ if env_file.exists():
             os.environ.setdefault(k.strip(), v.strip())
     print(f"✅ 已加载 .env: {env_file}")
 
-# ── NautilusTrader imports ───────────────────────────────────────────────────
+# ── NautilusTrader进口 ───────────────────────────────────────────────────
 from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
 from nautilus_trader.adapters.binance.config import (
     BinanceAccountType,
@@ -69,7 +69,7 @@ from src.core.nautilus_cache import build_nautilus_cache_settings
 
 # ── 配置 ─────────────────────────────────────────────────────────────────────
 SYMBOL = "BTCUSDT-PERP.BINANCE"
-ORDER_QTY = "0.002"  # BTC 约 68k，0.002 × 68k = 136 USDT > 最小名义价值 100 USDT
+ORDER_QTY = "0.002"  # 比特币约 68k，0.002 × 68k = 136 泰达币> 最小名义价值 100 泰达币
 SHUTDOWN_TIMEOUT_SECONDS = 180.0
 _REQUEST_STOP: Callable[[], None] | None = None
 
@@ -252,7 +252,7 @@ def build_node() -> TradingNode:
     node.add_data_client_factory("BINANCE", BinanceLiveDataClientFactory)
     node.add_exec_client_factory("BINANCE", BinanceLiveExecClientFactory)
 
-    # 手动注册策略（避免 ImportableStrategyConfig 路径问题）
+    # 手动注册策略（避免 导入策略配置 路径问题）
     strategy = SmokeStrategy(
         config=SmokeConfig(
             strategy_id="SMOKE-001",

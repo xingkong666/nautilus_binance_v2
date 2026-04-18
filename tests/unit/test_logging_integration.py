@@ -191,7 +191,7 @@ class TestNautilusAdapterLoggingConfig:
         cfg = BinanceAdapterConfig(log_level="DEBUG")
         adapter = BinanceAdapter(cfg)
 
-        # Mock TradingNode to capture config without connecting
+        # 模拟 交易节点 无需连接即可捕获配置
         with patch("src.exchange.binance_adapter.TradingNode") as mock_node_cls:
             mock_node_cls.return_value = MagicMock()
             mock_node_cls.return_value.build = MagicMock()

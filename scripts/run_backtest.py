@@ -81,7 +81,7 @@ def _interval_from_bar_type(bar_type_tpl: str, instrument_id: InstrumentId) -> I
     - 纯 ``EXTERNAL`` 格式（1m）：直接返回 MINUTE_1，数据源即为 1m。
     """
     resolved = bar_type_tpl.replace("{instrument_id}", str(instrument_id))
-    # 格式: BTCUSDT-PERP.BINANCE-{step}-{agg}-LAST-{INTERNAL@1-MINUTE-EXTERNAL | EXTERNAL}
+    # 格式: BTCUSDT-PERP.BINANCE-{step}-{agg}-LAST-{INTERNAL@1-MINUTE-EXTERNAL| EXTERNAL}
     # instrument_id 含一个 "-"，split 后 parts[2]=step, parts[3]=aggregation
     parts = resolved.split("-")
     if len(parts) >= 4:
@@ -160,7 +160,7 @@ def load_strategy_from_yaml(
     if strategy_name in _CONFIG_REGISTRY:
         cfg_module, cfg_cls_name = _CONFIG_REGISTRY[strategy_name]
     else:
-        # fallback：根据策略类名推断
+        # 回退：根据策略类名推断
         cfg_cls_name = strat_cls_name.replace("Strategy", "Config")
         cfg_module = strat_module
     config_cls = _import(cfg_module, cfg_cls_name)
@@ -181,7 +181,7 @@ def load_strategy_from_yaml(
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# 命令行接口
 # ---------------------------------------------------------------------------
 
 

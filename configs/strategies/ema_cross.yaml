@@ -1,4 +1,4 @@
-# EMA 交叉策略配置
+# EMA交叉策略配置
 strategy:
   name: ema_cross
   class_path: strategy.ema_cross:EMACrossStrategy

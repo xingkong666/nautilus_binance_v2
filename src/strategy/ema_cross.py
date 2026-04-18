@@ -58,8 +58,8 @@ class EMACrossStrategy(BaseStrategy):
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
         self._prev_fast_above: bool | None = None
 
-        # BaseStrategy 仅在启用 ATR 止盈止损时构建 ATR 指标；
-        # EMA 的波动过滤也需要 ATR，因此在此补充初始化。
+        # 基础策略仅在启用 ATR止盈止损时构建 ATR指标；
+        # EMA的波动过滤也需要 ATR，因此在此补充初始化。
         if config.entry_min_atr_ratio > 0:
             self._ensure_atr_indicator()
 

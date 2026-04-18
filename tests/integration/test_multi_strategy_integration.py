@@ -117,7 +117,7 @@ class TestMultiStrategyBacktest:
         m_multi = run_multi_strategy(bars)
 
         # 两个策略合计订单数 = 两个单独运行的订单数之和
-        # （BacktestEngine 为每个策略独立管理订单）
+        # （回测引擎为每个策略独立管理订单）
         assert m_multi["total_orders"] == m_ema["total_orders"] + m_rsi["total_orders"], (
             f"多策略订单数 {m_multi['total_orders']} 应等于 EMA({m_ema['total_orders']}) + RSI({m_rsi['total_orders']})"
         )
@@ -144,7 +144,7 @@ class TestMultiStrategyBacktest:
 
 
 # ---------------------------------------------------------------------------
-# PortfolioAllocator 与多策略联调
+# 投资组合分配器 与多策略联调
 # ---------------------------------------------------------------------------
 
 
@@ -192,11 +192,11 @@ class TestPortfolioAllocatorMultiStrategy:
         results = allocator.allocate(Decimal("9000"))
         ema_alloc = results["ema_cross"].allocated_capital
         rsi_alloc = results["rsi_strategy"].allocated_capital
-        # EMA : RSI = 2 : 1 → 6000 : 3000
-        # allocator 使用 ROUND_DOWN 截断，实际值可能略低于精确值
+        # EMA: 相对强弱指数= 2 : 1 → 6000 : 3000
+        # 分配器 使用 ROUND_DOWN 截断，实际值可能略低于精确值
         assert ema_alloc >= Decimal("5999.99")
         assert rsi_alloc >= Decimal("2999.99")
-        # 验证比例关系：EMA 分配量约为 RSI 的两倍
+        # 验证比例关系：EMA分配量约为 相对强弱指数的两倍
         assert ema_alloc == rsi_alloc * 2 or abs(ema_alloc - rsi_alloc * 2) <= Decimal("0.02")
 
     def test_reserve_reduces_deployable_capital(self):
@@ -228,14 +228,14 @@ class TestPortfolioAllocatorMultiStrategy:
                 ],
             }
         )
-        # EMA 波动率更高 → 应分配更少资金
+        # EMA波动率更高 → 应分配更少资金
         allocator.update_volatility("ema_cross", 0.4)  # 高波动率
         allocator.update_volatility("rsi_strategy", 0.2)  # 低波动率
 
         results = allocator.allocate(Decimal("10000"))
         ema_alloc = results["ema_cross"].allocated_capital
         rsi_alloc = results["rsi_strategy"].allocated_capital
-        # RSI 波动率低 → 权重高 → 分配更多
+        # 相对强弱指数波动率低 → 权重高 → 分配更多
         assert rsi_alloc > ema_alloc
 
     def test_risk_parity_fallback_equal_without_volatility(self):
@@ -366,7 +366,7 @@ class TestPortfolioAllocatorMultiStrategy:
             }
         )
         total_capital = Decimal("10000")
-        # EMA 策略目标 5000，当前持仓价值仅 2000（偏差 60%）→ 应触发
+        # EMA策略目标 5000，当前持仓价值仅 2000（偏差 60%）→ 应触发
         snapshots = [
             PortfolioSnapshot(
                 strategy_id="ema_cross",
@@ -404,7 +404,7 @@ class TestPortfolioAllocatorMultiStrategy:
             ),
         ]
         intents = allocator.rebalance(snapshots, Decimal("10000"))
-        # 禁用策略有持仓 → close_unknown=True → 应产生平仓指令
+        # 禁用策略有持仓 → close_unknown=True→ 应产生平仓指令
         assert len(intents) == 1
         assert intents[0].reduce_only is True
 
@@ -439,7 +439,7 @@ class TestPortfolioAllocatorMultiStrategy:
                 ],
             }
         )
-        # 各 5000，EMA 已用保证金 1000 → 可用 4000
+        # 各 5000，EMA已用保证金 1000 → 可用 4000
         available = allocator.get_available_capital(
             "ema_cross",
             Decimal("10000"),
@@ -479,7 +479,7 @@ class TestPortfolioAllocatorMultiStrategy:
             allocator.get_available_capital("nonexistent", Decimal("10000"))
 
     # ------------------------------------------------------------------
-    # summary 工具
+    # 汇总 工具
     # ------------------------------------------------------------------
 
     def test_summary_contains_both_strategies(self):

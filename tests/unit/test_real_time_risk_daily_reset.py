@@ -8,12 +8,12 @@ from src.risk.real_time import RealTimeRiskMonitor
 
 def test_reset_daily_clears_alerts():
     """After reset_daily(), alerts can fire again."""
-    # Setup
+    # 准备
     event_bus = EventBus()
     config = {
-        "max_drawdown_pct": 50.0,  # Set very high to avoid max drawdown alerts
+        "max_drawdown_pct": 50.0,  # 设置非常high以避免最大回撤警报
         "daily_loss_limit_usd": 1000,
-        "trailing_drawdown_pct": 50.0,  # Set very high to avoid trailing drawdown alerts
+        "trailing_drawdown_pct": 50.0,  # 设置非常high以避免尾随回撤警报
     }
     monitor = RealTimeRiskMonitor(
         event_bus=event_bus,
@@ -21,45 +21,45 @@ def test_reset_daily_clears_alerts():
         redis_client=None,
     )
 
-    # Initialize with 10,000 USDT
+    # 使用 10,000 泰达币进行初始化
     initial_equity = Decimal("10000")
     monitor.initialize(initial_equity)
 
-    # Trigger daily loss alert by dropping equity below daily limit
-    # daily_loss_limit_usd = 1000, so equity < 9000 should trigger
-    current_equity = Decimal("8500")  # Loss of 1500 > 1000 limit (only 15% drawdown)
+    # 通过将权益降至每日限额以下来触发每日损失警报
+    # daily_loss_limit_usd = 1000，所以权益 < 9000 应该触发
+    current_equity = Decimal("8500")  # 亏损 1500 > 1000 限额（仅回撤 15%）
     alerts = monitor.update(current_equity)
 
-    # Verify daily loss alert was fired (should be only 1 alert now)
+    # 验证每日损失警报是否已触发（现在应该只有 1 个警报）
     assert len(alerts) == 1
     assert "单日亏损超限" in alerts[0]
     assert "daily_loss" in monitor._alerts_fired
 
-    # Update again with same equity - no new alerts (already fired)
+    # 以相同的权益再次更新 - 没有新警报（已触发）
     alerts = monitor.update(current_equity)
     assert len(alerts) == 0
 
-    # Reset daily state with current equity as new baseline
+    # 将每日状态重置为新的当前权益基准
     monitor.reset_daily(current_equity)
 
-    # Verify daily state was cleared
+    # 验证每日状态已清除
     assert monitor._initial_equity == current_equity
     assert monitor._daily_pnl == Decimal("0")
     assert len(monitor._alerts_fired) == 0
 
-    # Trigger alert again - should fire because alerts were cleared
-    # Drop below daily limit again (1000 USDT loss from new baseline)
-    new_equity = Decimal("7300")  # Loss of 1200 from 8500 baseline
+    # 再次触发警报 - 应该触发，因为警报已清除
+    # 再次跌破每日限额（新baseline 损失 1000USDT）
+    new_equity = Decimal("7300")  # 8500 减少 1200 基准
     alerts = monitor.update(new_equity)
 
-    # Verify alert fires again after reset
+    # 验证重置后再次触发警报
     assert len(alerts) == 1
     assert "单日亏损超限" in alerts[0]
 
 
 def test_reset_daily_updates_baseline():
     """reset_daily() updates the initial equity baseline."""
-    # Setup
+    # 准备
     event_bus = EventBus()
     config = {"daily_loss_limit_usd": 500}
     monitor = RealTimeRiskMonitor(
@@ -68,15 +68,15 @@ def test_reset_daily_updates_baseline():
         redis_client=None,
     )
 
-    # Initialize with 5,000 USDT
+    # 使用 5,000 泰达币进行初始化
     initial_equity = Decimal("5000")
     monitor.initialize(initial_equity)
     assert monitor._initial_equity == initial_equity
 
-    # Reset with new equity value
+    # 以新的股权价值重置
     new_equity = Decimal("7500")
     monitor.reset_daily(new_equity)
 
-    # Verify new baseline
+    # 验证新基准
     assert monitor._initial_equity == new_equity
     assert monitor._daily_pnl == Decimal("0")

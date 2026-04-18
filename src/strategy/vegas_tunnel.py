@@ -80,7 +80,7 @@ class VegasTunnelStrategy(BaseStrategy):
         self._tunnel_upper: float = 0.0
         self._tunnel_lower: float = 0.0
 
-        self._is_long: bool | None = None  # None 表示空仓，True 表示多头，False 表示空头
+        self._is_long: bool | None = None  # None表示空仓，True表示多头，False表示空头
         self._entry_price: float | None = None
         self._remaining_qty = Decimal("0")
         self._stop_price: float | None = None

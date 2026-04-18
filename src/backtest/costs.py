@@ -95,7 +95,7 @@ class BacktestCostAnalyzer:
 
         pnl_total = self._extract_total_pnl(pnl_stats)
 
-        # Nautilus 账户报表已反映佣金，因此只有在佣金缺失时才补扣建模费用。
+        # Nautilus账户报表已反映佣金，因此只有在佣金缺失时才补扣建模费用。
         fee_cost_applied = Decimal("0") if commissions_total > 0 else modeled_fee_cost
         additional_cost_applied = fee_cost_applied + modeled_slippage_cost + funding_cost
         pnl_after_costs = pnl_total - additional_cost_applied

@@ -99,7 +99,7 @@ def assert_baseline(metrics: dict, baseline: dict, label: str = "") -> None:
 
 
 # ---------------------------------------------------------------------------
-# 基准值（Hardcoded Baselines）
+# 基准值（硬编码 Baselines）
 # ---------------------------------------------------------------------------
 
 # 正弦波 200 根 Bar，RSI(14)，超卖30/超买70
@@ -245,7 +245,7 @@ class TestRSIParameterSensitivity:
         """
         m_strict = run_rsi(sine_bars, oversold=30.0, overbought=70.0)
         m_loose = run_rsi(sine_bars, oversold=40.0, overbought=60.0)
-        # 更宽松的阈值 → RSI 更容易穿越 → 订单数 >=
+        # 更宽松的阈值 → 相对强弱指数更容易穿越 → 订单数 >=
         assert m_loose["total_orders"] >= m_strict["total_orders"], (
             f"宽松阈值(40/60) orders={m_loose['total_orders']} 应 >= 严格阈值(30/70) orders={m_strict['total_orders']}"
         )
@@ -286,8 +286,8 @@ class TestRSIParameterSensitivity:
             trend_bars_up: Trend bars up.
         """
         metrics = run_rsi(trend_bars_up)
-        # 纯上涨趋势，RSI 大概率不会跌入超卖区（<30），即使有也极少
-        # 这里只做方向性验证：上涨趋势的 RSI 越过超卖区的次数 <= 正弦波
+        # 纯上涨趋势，相对强弱指数大概率不会跌入超卖区（<30），即使有也极少
+        # 这里只做方向性验证：上涨趋势的 相对强弱指数越过超卖区的次数 <= 正弦波
         sine = make_sine_bars(n=200, period=30.0)
         m_sine = run_rsi(sine)
         assert metrics["total_orders"] <= m_sine["total_orders"]

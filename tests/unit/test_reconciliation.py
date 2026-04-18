@@ -14,7 +14,7 @@ from src.state.recovery import RecoveryManager
 from src.state.snapshot import PositionSnapshot, SnapshotManager, SystemSnapshot
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# 测试夹具
 # ---------------------------------------------------------------------------
 
 
@@ -78,7 +78,7 @@ def recovery_mgr_with_reconciler(snapshot_mgr, reconciler):
 
 
 # ---------------------------------------------------------------------------
-# ReconciliationEngine — 完全匹配场景
+# 协调引擎— 完全匹配场景
 # ---------------------------------------------------------------------------
 
 
@@ -142,7 +142,7 @@ class TestReconciliationMatch:
 
 
 # ---------------------------------------------------------------------------
-# ReconciliationEngine — 不匹配场景
+# 协调引擎— 不匹配场景
 # ---------------------------------------------------------------------------
 
 
@@ -226,9 +226,9 @@ class TestReconciliationMismatch:
                 {"instrument_id": "SOLUSDT-PERP.BINANCE", "quantity": "10.0"},  # 本地没有
             ],
         )
-        # BTCUSDT: quantity_mismatch
-        # ETHUSDT: local_only
-        # SOLUSDT: exchange_only
+        # BTCUSDT：quantity_mismatch
+        # ETHUSDT：local_only
+        # SOLUSDT：exchange_only
         assert result.matched is False
         assert len(result.mismatches) == 3
 
@@ -274,7 +274,7 @@ class TestReconciliationMismatch:
 
 
 # ---------------------------------------------------------------------------
-# RecoveryManager — 快照恢复流程
+# 恢复管理器— 快照恢复流程
 # ---------------------------------------------------------------------------
 
 
@@ -550,7 +550,7 @@ class TestRecoveryManager:
 
 
 # ---------------------------------------------------------------------------
-# SnapshotManager 基础测试（服务于上层恢复路径）
+# 快照管理器基础测试（服务于上层恢复路径）
 # ---------------------------------------------------------------------------
 
 

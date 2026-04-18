@@ -61,7 +61,7 @@ def validate_kline_dataframe(df: pd.DataFrame) -> None:
         logger.warning("data_has_nulls", null_counts=nulls)
         raise DataValidationError(f"存在空值: {nulls}")
 
-    # 3. OHLC 逻辑检查
+    # 3. OHLC逻辑检查
     invalid_high = (df["high"] < df["low"]).sum()
     if invalid_high > 0:
         logger.warning("invalid_ohlc", high_lt_low_count=int(invalid_high))

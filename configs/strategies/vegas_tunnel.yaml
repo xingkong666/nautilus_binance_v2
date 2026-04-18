@@ -1,12 +1,12 @@
-# Vegas Tunnel 策略配置（sweep 优化版 v2）
-# IS 区间：2024-07-01 ~ 2025-03-31，ETHUSDT 1h
+# 维加斯 隧道 策略配置（扫 优化版 v2）
+# IS 区间：2024-07-01 ~ 2025-03-31，以太币USDT1h
 # 最优参数来源：vegas_tunnel_sweep_is.csv，PnL%=1.58%，WinRate=74%，42 仓位
 strategy:
     name: vegas_tunnel
     class_path: strategy.vegas_tunnel:VegasTunnelStrategy
 
     params:
-        # --- EMA 参数（sweep 最优：10/30 优于原版 12/36）---
+        # --- EMA参数（扫 最优：10/30 优于原版 12/36）---
         fast_ema_period: 12
         slow_ema_period: 36
         tunnel_ema_period_1: 144
@@ -19,7 +19,7 @@ strategy:
         # --- 风控（stop_atr=0.8 比 1.0 胜率更高）---
         stop_atr_multiplier: 0.8
 
-        # --- 止盈（tp1=1.2×ATR，tp2=2.0×ATR，tp3=2.618×ATR；用 ATR 代替隧道宽度作为真实市场空间）---
+        # --- 止盈（tp1=1.2×ATR，tp2=2.0×ATR，tp3=2.618×ATR；用 ATR代替隧道宽度作为真实市场空间）---
         tp_fib_1: 1.2
         tp_fib_2: 2.0
         tp_fib_3: 2.618
@@ -31,7 +31,7 @@ strategy:
         # --- 可选：TP2 后将止损追踪至隧道边（默认关闭，实盘稳健后再开启）---
         trail_stop_after_tp2: true
 
-        # --- 可选：RSI 过滤（默认全通，设置后可防超买/超卖入场）---
+        # --- 可选：相对强弱指数过滤（默认全通，设置后可防超买/超卖入场）---
         rsi_filter_period: 14
         rsi_long_max: 65.0 # 多头信号时 RSI 必须 < 此值
         rsi_short_min: 35.0 # 空头信号时 RSI 必须 > 此值

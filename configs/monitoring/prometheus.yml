@@ -1,6 +1,6 @@
-# Prometheus 配置
-# 抓取目标：交易系统指标（:9100/metrics）+ Prometheus 自身
-# 文档：https://prometheus.io/docs/prometheus/latest/configuration/configuration/
+# 普罗米修斯配置
+# 抓取目标：交易系统指标（:9100/metrics）+ 普罗米修斯自身
+# 文档：https://prometheus.io/文档/普罗米修斯/latest/配置/配置/
 
 global:
   scrape_interval: 15s          # 默认抓取间隔
@@ -11,7 +11,7 @@ global:
     env: "prod"
 
 # ---------------------------------------------------------------------------
-# Alertmanager 集成（docker-compose 中的 alertmanager 服务）
+# 警报管理器 集成（泊坞窗-撰写 中的 警报管理器 服务）
 # ---------------------------------------------------------------------------
 alerting:
   alertmanagers:
@@ -30,14 +30,14 @@ rule_files:
 # ---------------------------------------------------------------------------
 scrape_configs:
 
-  # Prometheus 自身
+  # Prometheus本身
   - job_name: "prometheus"
     static_configs:
       - targets: ["localhost:9090"]
 
   # 交易系统：由 PrometheusServer（prometheus_client.start_http_server）暴露
-  # 端口对应 configs/env/{dev,prod}.yaml 中 monitoring.prometheus_port: 9100
-  # 容器外运行时 target 改为 host.docker.internal:9100 或宿主机 IP
+  # 端口对应 配置/环境/{dev,prod}.yaml 中 monitoring.prometheus_port: 9100
+  # 容器外运行时 目标 改为 host.docker.internal:9100 或宿主机 IP
   - job_name: "nautilus_trading"
     scrape_interval: 5s           # 交易指标刷新更频繁
     scrape_timeout: 4s
@@ -46,21 +46,21 @@ scrape_configs:
         labels:
           component: "trading_engine"
     metrics_path: /metrics
-    # 关键指标（供 Grafana 面板 / 告警规则参考）：
-    #   trading_orders_total          - 订单计数 [instrument, side, order_type]
-    #   trading_fills_total           - 成交计数 [instrument, side]
-    #   trading_fill_latency_seconds  - 成交延迟直方图
-    #   trading_pnl_total_usdt        - 累计 PnL
-    #   trading_pnl_daily_usdt        - 当日 PnL
-    #   trading_position_size         - 持仓大小 [instrument, side]
-    #   risk_drawdown_pct             - 当前回撤百分比
-    #   risk_checks_total             - 风控检查计数 [check_type, result]
-    #   risk_circuit_breaker_triggered_total - 熔断触发计数 [trigger_type]
-    #   system_heartbeat_timestamp    - 心跳时间戳（监控存活）
-    #   system_reconciliation_status  - 对账状态（1=正常, 0=异常）
-    #   system_event_bus_events_total - 事件总线计数 [event_type]
+    # 关键指标（供 格拉法纳面板 / 告警规则参考）：
+    # trading_orders_total          - 订单计数 [instrument, side, order_type]
+    # trading_fills_total           - 成交计数 [instrument, side]
+    # trading_fill_latency_seconds  - 成交延迟直方图
+    # trading_pnl_total_usdt        - 累计 PNL
+    # trading_pnl_daily_usdt - PnL当天
+    # trading_position_size         - 持仓大小 [instrument, side]
+    # risk_drawdown_pct             - 当前回撤百分比
+    # risk_checks_total             - 风控检查计数 [check_type, result]
+    # risk_circuit_breaker_triggered_total - 熔断触发计数 [trigger_type]
+    # system_heartbeat_timestamp    - 心跳时间戳（监控存活）
+    # system_reconciliation_status  - 对账状态（1=正常, 0=异常）
+    # system_event_bus_events_total - 事件总线计数 [event_type]
 
-  # 健康检查端点（HealthServer 暴露在 :8080，通过 blackbox 或直接抓取）
+  # 健康检查端点（健康服务器暴露在 :8080，通过 黑匣子 或直接抓取）
   - job_name: "nautilus_health"
     scrape_interval: 10s
     metrics_path: /health

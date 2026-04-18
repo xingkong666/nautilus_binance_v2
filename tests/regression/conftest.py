@@ -38,7 +38,7 @@ END_DATE = dt.date(2024, 1, 1)  # 单日，用合成数据
 
 
 # ---------------------------------------------------------------------------
-# Bar 生成器
+# 酒吧生成器
 # ---------------------------------------------------------------------------
 
 
@@ -161,7 +161,7 @@ def build_engine(starting_balance: int = STARTING_BALANCE) -> BacktestEngine:
         starting_balances=[Money(starting_balance, USDT)],
         default_leverage=Decimal("10"),
         bar_execution=True,
-        # 1.223.0: 显式设 False 保持纯 bar 驱动行为，防止基准漂移
+        # 1.223.0: 显式设 False保持纯 K 线 驱动行为，防止基准漂移
         trade_execution=False,
         use_market_order_acks=True,
     )
@@ -225,7 +225,7 @@ def run_ema_cross(
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# 测试夹具
 # ---------------------------------------------------------------------------
 
 

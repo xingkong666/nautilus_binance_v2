@@ -1,7 +1,7 @@
 # 告警配置
 alerting:
   enabled: true
-  # RiskAlert 去重冷却窗口（同 rule_name + instrument_id），单位秒
+  # 风险提示 去重冷却窗口（同 rule_name + instrument_id），单位秒
   risk_alert_cooldown_seconds: 60
 
   channels:
@@ -40,17 +40,17 @@ alerting:
       message: "🔴 对账不一致: {details}"
 
 # -----------------------------------------------------------------------
-# 监控缺口说明（Monitoring Gaps） — 以下告警规则已在 YAML 定义但无对应 Watcher 代码
+# 监控缺口说明（监控 Gaps） — 以下告警规则已在 YAML定义但无对应 守望者 代码
 #
-# position_limit_warning:
-#   当前：仅 YAML 规则，无 Watcher 代码实现
-#   需要：新建 PositionLimitWatcher 订阅 PositionEvent，当 position_usd > max_position_size_usd * 0.8 时告警
+# position_limit_warning：
+# 当前：仅 YAML规则，无 守望者 代码实现
+# 需要：新建 持仓限价观察者 订阅 PositionEvent，当 position_usd > max_position_size_usd * 0.8 时告警
 #
-# daily_pnl_milestone:
-#   需要：新建 DailyPnLWatcher 订阅 AccountEvent，按配置阈值触发每日盈亏里程碑告警
+# daily_pnl_milestone：
+# 需要：新建 每日PnL观察者 订阅 AccountEvent，按配置阈值触发每日盈亏里程碑告警
 #
-# strategy_health:
-#   需要：新建 StrategyHealthWatcher 订阅心跳事件，监控策略长时间无信号异常
+# strategy_health：
+# 需要：新建 策略健康观察者 订阅心跳事件，监控策略长时间无信号异常
 #
-# Phase 2 调整：将 drawdown_warning condition 改为 "drawdown_pct > 13.0"
+# 阶段 2 调整：将 drawdown_warning 状况 改为 "drawdown_pct > 13.0"
 # -----------------------------------------------------------------------

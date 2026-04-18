@@ -46,7 +46,7 @@ RSI_GRID: dict[str, list[Any]] = {
     "atr_tp_multiplier": [None, 3.0, 4.0, 5.0],
 }
 
-MICRO_SCALP_GRID: dict[str, list[Any]] = {  # ~4374 combos
+MICRO_SCALP_GRID: dict[str, list[Any]] = {  # ~4374 连击
     "fast_ema_period": [5, 8, 12],
     "slow_ema_period": [15, 21, 30],
     "rsi_period": [5, 7, 10],
@@ -57,7 +57,7 @@ MICRO_SCALP_GRID: dict[str, list[Any]] = {  # ~4374 combos
     "signal_cooldown_bars": [1, 2, 3],
 }
 
-VEGAS_TUNNEL_GRID: dict[str, list[Any]] = {  # ~6561 combos
+VEGAS_TUNNEL_GRID: dict[str, list[Any]] = {  # ~6561 连击
     "fast_ema_period": [10, 12, 14],
     "slow_ema_period": [30, 36, 45],
     "signal_cooldown_bars": [2, 3, 5],
@@ -68,7 +68,7 @@ VEGAS_TUNNEL_GRID: dict[str, list[Any]] = {  # ~6561 combos
     "atr_filter_min_ratio": [0.003, 0.005, 0.008],
 }
 
-TURTLE_GRID: dict[str, list[Any]] = {  # ~648 combos
+TURTLE_GRID: dict[str, list[Any]] = {  # 〜648 连击
     "entry_period": [15, 20, 25],
     "exit_period": [8, 10, 12],
     "atr_period": [14, 20],
@@ -77,7 +77,7 @@ TURTLE_GRID: dict[str, list[Any]] = {  # ~648 combos
     "max_units": [2, 3, 4],
 }
 
-EMA_PULLBACK_GRID: dict[str, list[Any]] = {  # ~810 combos
+EMA_PULLBACK_GRID: dict[str, list[Any]] = {  # 〜810 连击
     "fast_ema_period": [10, 20, 30],
     "slow_ema_period": [30, 50, 100],
     "pullback_atr_multiplier": [0.5, 1.0, 1.5],
@@ -85,8 +85,8 @@ EMA_PULLBACK_GRID: dict[str, list[Any]] = {  # ~810 combos
     "signal_cooldown_bars": [2, 3, 5],
 }
 
-# Fast grids (2 values per param) for time-constrained runs (~256 combos each)
-FAST_MICRO_SCALP_GRID: dict[str, list[Any]] = {  # ~256 combos
+# 快速网格（每个参数 2 个值）用于时间受限的运行（每个约 256 个组合）
+FAST_MICRO_SCALP_GRID: dict[str, list[Any]] = {  # 〜256 连击
     "fast_ema_period": [5, 12],
     "slow_ema_period": [15, 30],
     "rsi_period": [5, 10],
@@ -97,7 +97,7 @@ FAST_MICRO_SCALP_GRID: dict[str, list[Any]] = {  # ~256 combos
     "signal_cooldown_bars": [1, 3],
 }
 
-FAST_VEGAS_TUNNEL_GRID: dict[str, list[Any]] = {  # ~256 combos
+FAST_VEGAS_TUNNEL_GRID: dict[str, list[Any]] = {  # 〜256 连击
     "fast_ema_period": [10, 14],
     "slow_ema_period": [30, 45],
     "signal_cooldown_bars": [2, 5],
@@ -108,7 +108,7 @@ FAST_VEGAS_TUNNEL_GRID: dict[str, list[Any]] = {  # ~256 combos
     "atr_filter_min_ratio": [0.003, 0.008],
 }
 
-FAST_TURTLE_GRID: dict[str, list[Any]] = {  # ~64 combos
+FAST_TURTLE_GRID: dict[str, list[Any]] = {  # 〜64 连击
     "entry_period": [15, 25],
     "exit_period": [8, 12],
     "atr_period": [14, 20],
@@ -117,7 +117,7 @@ FAST_TURTLE_GRID: dict[str, list[Any]] = {  # ~64 combos
     "max_units": [2, 4],
 }
 
-FAST_EMA_PULLBACK_GRID: dict[str, list[Any]] = {  # ~32 combos
+FAST_EMA_PULLBACK_GRID: dict[str, list[Any]] = {  # 〜32 连击
     "fast_ema_period": [10, 30],
     "slow_ema_period": [30, 100],
     "pullback_atr_multiplier": [0.5, 1.5],
@@ -261,7 +261,7 @@ def _extract_stats(run_result: Any) -> dict[str, float]:
         contains_any=["max drawdown", "maximum drawdown"],
     )
 
-    # Cost-adjusted PnL: try native fields first, then compute from fees
+    # 成本调整PnL：首先尝试本地字段，然后根据费用计算
     pnl_after_costs = _extract_metric(
         spaces,
         exact_keys=["PnL (after costs)", "PnL After Costs", "Net PnL"],
@@ -273,7 +273,7 @@ def _extract_stats(run_result: Any) -> dict[str, float]:
         contains_any=["pnl% after", "pnl_pct_after"],
     )
 
-    # Compute cost-adjusted metrics if not available natively
+    # 如果本机不可用，则计算成本调整后的指标
     total_orders = int(getattr(result, "total_orders", 0) or 0)
     raw_pnl = _extract_metric(
         spaces,
@@ -897,7 +897,7 @@ def main() -> None:
 
     sweep_tasks = _build_sweep_tasks(args, grid=args.grid)
 
-    # Inject interval into every task so run_single_backtest can read it
+    # 将interval 注入每个任务，以便run_single_backtest可以读取它
     is_tasks = [
         {
             **task,
@@ -934,7 +934,7 @@ def main() -> None:
     if args.no_oos:
         return
 
-    # ---- OOS Phase ----
+    # ---- 样本外阶段 ----
     oos_tasks: list[dict[str, Any]] = []
 
     oos_tasks.extend(

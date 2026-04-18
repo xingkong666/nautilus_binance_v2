@@ -39,7 +39,7 @@ def test_url_generation(tmp_path: Path) -> None:
 
     expected_url = f"https://data.binance.vision/data/futures/um/daily/klines/{symbol}/{interval.value}/{base_name}.zip"
 
-    # 验证 URL 拼接逻辑正确 (通过检查目录未提前创建来侧面验证)
+    # 验证 网址拼接逻辑正确 (通过检查目录未提前创建来侧面验证)
     save_dir = tmp_path / "futures" / symbol
     assert not save_dir.exists()
     assert expected_url.startswith(downloader.BASE_URL)

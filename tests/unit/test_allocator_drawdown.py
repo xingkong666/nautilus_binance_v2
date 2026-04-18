@@ -156,7 +156,7 @@ class TestAllocatorDrawdownIntegration:
         # 正常可部署资金：14250 * 0.95 = 13537.5
         # 应用回撤乘数 0.3：13537.5 * 0.3 = 4061.25
         # 按权重分配：strategy1 (2/3) = 2707.50, strategy2 (1/3) = 1353.75
-        # 但由于 Decimal 精度和四舍五入，实际值可能略有不同
+        # 但由于 Decimal精度和四舍五入，实际值可能略有不同
 
         expected_s1 = Decimal("2707.49")  # 调整为实际计算结果
         expected_s2 = Decimal("1353.74")  # 调整为实际计算结果

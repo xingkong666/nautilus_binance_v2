@@ -58,7 +58,7 @@ class PositionSizer:
             size = self._fixed_size
 
         elif self._mode == "risk_pct" and stop_loss_distance and stop_loss_distance > 0:
-            # 基于风险比例：风险金额 = equity * risk_pct%
+            # 基于风险比例：风险金额 = 权益 * risk_pct%
             # 仓位大小 = 风险金额 / 止损距离
             risk_amount = account_equity * Decimal(str(self._risk_pct / 100))
             size = risk_amount / stop_loss_distance

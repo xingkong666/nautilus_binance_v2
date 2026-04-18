@@ -15,7 +15,7 @@ from src.core.events import EventBus, EventType, RiskAlertEvent
 from src.live.supervisor import LiveSupervisor, SupervisorState
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# 测试夹具
 # ---------------------------------------------------------------------------
 
 
@@ -75,7 +75,7 @@ class TestSupervisorInitialState:
 
 
 # ---------------------------------------------------------------------------
-# start / stop 生命周期
+# 启动 / 停止 生命周期
 # ---------------------------------------------------------------------------
 
 
@@ -95,7 +95,7 @@ class TestSupervisorLifecycle:
         with patch("src.live.supervisor.LiveSupervisor._run_in_thread"):
             sup = make_supervisor()
             sup.start()
-            sup._state = SupervisorState.RUNNING  # 强制推进到 RUNNING
+            sup._state = SupervisorState.RUNNING  # 强制推进到 跑步
 
             with pytest.raises(RuntimeError):
                 sup.start()
@@ -105,7 +105,7 @@ class TestSupervisorLifecycle:
     def test_stop_sets_stopped_state(self):
         """stop() 调用后最终状态为 STOPPED。."""
         sup = make_supervisor()
-        # 不真正启动线程，直接测试 stop 逻辑
+        # 不真正启动线程，直接测试 停止 逻辑
         sup._state = SupervisorState.RUNNING
         sup._thread = None  # 无线程，直接停止
         sup.stop(timeout=1.0)
@@ -212,14 +212,14 @@ class TestSupervisorCircuitBreaker:
         )
 
         # CIRCUIT_BREAKER 与 RISK_ALERT 是不同事件类型；此处测试直接订阅路径
-        # supervisor 监听 CIRCUIT_BREAKER，而非 RISK_ALERT
+        # 导师 监听 CIRCUIT_BREAKER，而非 RISK_ALERT
         # 验证即使不发 CIRCUIT_BREAKER 直接调，逻辑也正确
         sup._on_circuit_breaker(MagicMock(payload={}))
         assert sup.state == SupervisorState.DEGRADED
 
 
 # ---------------------------------------------------------------------------
-# SupervisorState 枚举
+# 监管者状态 枚举
 # ---------------------------------------------------------------------------
 
 
@@ -242,7 +242,7 @@ class TestSupervisorStateEnum:
 
 
 # ---------------------------------------------------------------------------
-# 完整生命周期集成（使用真实线程，mock 子服务）
+# 完整生命周期集成（使用真实线程，模拟 子服务）
 # ---------------------------------------------------------------------------
 
 
@@ -264,7 +264,7 @@ class TestSupervisorFullLifecycle:
             sup = LiveSupervisor(container=container)
 
             sup.start()
-            time.sleep(0.1)  # 让线程推进到 RUNNING
+            time.sleep(0.1)  # 让线程推进到 跑步
             sup.stop(timeout=3.0)
 
             assert sup.state == SupervisorState.STOPPED
@@ -285,12 +285,12 @@ class TestSupervisorFullLifecycle:
             container = make_mock_container(event_bus)
             sup = LiveSupervisor(container=container)
 
-            states_seen.append(sup.state)  # IDLE
+            states_seen.append(sup.state)  # 闲置的
             sup.start()
             time.sleep(0.15)
-            states_seen.append(sup.state)  # RUNNING
+            states_seen.append(sup.state)  # 跑步
             sup.stop(timeout=3.0)
-            states_seen.append(sup.state)  # STOPPED
+            states_seen.append(sup.state)  # 停止
 
         assert states_seen[0] == SupervisorState.IDLE
         assert states_seen[1] == SupervisorState.RUNNING
