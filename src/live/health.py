@@ -119,7 +119,7 @@ class LiveHealthProbe:
         self._unhealthy_count = 0
 
     # ------------------------------------------------------------------
-    # Watchable 协议
+    # 可监控协议
     # ------------------------------------------------------------------
 
     @property
@@ -241,7 +241,7 @@ class LiveHealthProbe:
         checks: dict[str, Any] = {}
         all_ok = True
 
-        # 子检查 1: EventBus 可用性
+        # 子检查 1：事件总线可用性
         eb_ok, eb_msg = self._check_event_bus()
         checks["event_bus"] = {"ok": eb_ok, "detail": eb_msg}
         if not eb_ok:
@@ -272,10 +272,10 @@ class LiveHealthProbe:
             latency_ms=latency_ms,
         )
 
-        # 向 HealthServer 汇报（如果已启动）
+        # 向健康服务器汇报（如果已启动）
         self._report_to_health_server(status)
 
-        # 向 EventBus 发布
+        # 向事件总线发布
         self._publish_health_event(status)
 
         return status
@@ -293,7 +293,7 @@ class LiveHealthProbe:
         """
         try:
             bus = self._container.event_bus
-            _ = bus  # 触发 _ensure_built 检查
+            _ = bus  # 触发已构建检查
             return True, "ok"
         except (RuntimeError, AttributeError, ConnectionError) as exc:
             return False, str(exc)
@@ -346,7 +346,7 @@ class LiveHealthProbe:
                 return False, f"clock_drift={offset_ms:.0f}ms"
             return True, f"offset={offset_ms:.1f}ms"
         except ImportError:
-            # time_sync 模块未实现，跳过
+            # 时间同步模块未实现，跳过
             return True, "skipped(no time_sync)"
         except (OSError, RuntimeError) as exc:
             return False, str(exc)

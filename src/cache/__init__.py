@@ -1,3 +1,3 @@
 """Package for cache."""
 
-# cache 包
+# 缓存包

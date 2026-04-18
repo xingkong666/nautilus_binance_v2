@@ -141,7 +141,7 @@ class TelegramNotifier(BaseNotifier):
         import os
         from pathlib import Path
 
-        # 尝试加载项目根目录的 .env 文件
+        # 尝试加载项目根目录的环境变量文件
         try:
             from dotenv import load_dotenv
 

@@ -71,7 +71,7 @@ class Container:
         self._config = config
         self._built = False
 
-        # 服务实例（build 后可用）
+        # 服务实例（构建后可用）
         self._redis_client: RedisClient | None = None
         self._event_bus: EventBus | None = None
         self._persistence: TradePersistence | None = None
@@ -119,7 +119,7 @@ class Container:
         self._persistence = TradePersistence(database_url=cfg.data.database_url)
         self._snapshot_manager = SnapshotManager(snapshot_dir=cfg.data.catalog_dir.parent / "snapshots" / cfg.env)
 
-        # 初始化 Redis（失败时打 WARNING 不中断启动）
+        # 初始化 Redis（失败时记录警告，不中断启动）
         try:
             self._redis_client = RedisClient(cfg.redis)
             if not self._redis_client.is_available:
@@ -162,7 +162,7 @@ class Container:
         portfolio_cfg = cfg.strategies.get("portfolio", {})
         if portfolio_cfg:
             strategy_list = portfolio_cfg.get("strategies", [])
-            # 从 strategies 配置下收集所有策略的 allocation 配置
+            # 从策略配置中收集所有策略的分配配置
             alloc_strategies = []
             for sid, scfg in cfg.strategies.items():
                 if sid == "portfolio":
@@ -176,7 +176,7 @@ class Container:
                         "enabled": bool(alloc.get("enabled", True)),
                     }
                 )
-            # portfolio 块下的 strategies 列表优先级更高（可覆盖）
+            # 投资组合块下的策略列表优先级更高（可覆盖）
             if strategy_list:
                 alloc_strategies = strategy_list
 
@@ -196,12 +196,12 @@ class Container:
                     strategy_count=len(alloc_strategies),
                 )
 
-        # 5. 交易所适配器（仅实盘环境，dev/testnet 可跳过）
+        # 5. 交易所适配器（仅实盘环境，开发/测试网可跳过）
         exchange_cfg = cfg.exchange or cfg.strategies.get("exchange", {})
         if exchange_cfg or cfg.env in ("prod", "staging"):
             env_settings = self._get_env_settings()
-            # 优先读 YAML 中的 environment 字段，其次按 env 推断
-            # prod → LIVE，其余（dev/staging/testnet） → TESTNET
+            # 优先读取 YAML 中的环境字段，其次按运行环境推断
+            # 生产环境 → 实盘，其余（开发/预发/测试网） → 测试网
             env_str = exchange_cfg.get("environment", "TESTNET" if cfg.env != "prod" else "LIVE")
             try:
                 binance_env = BinanceEnvironment[env_str.upper()]
@@ -279,7 +279,7 @@ class Container:
         # 9. 日风控重置定时器
         self._schedule_daily_reset()
 
-        # 10. 周期快照调度器（仅当 state.snapshot_enabled 时启动）
+        # 10. 周期快照调度器（仅当状态快照已启用时启动）
         self._snapshot_scheduler = self._build_snapshot_scheduler()
         if self._snapshot_scheduler is not None:
             self._snapshot_scheduler.start()
@@ -326,8 +326,8 @@ class Container:
                 logger.exception("prometheus_server_stop_failed")
 
         if self._binance_adapter and self._binance_adapter.is_started:
-            # adapter.stop() 是 async；同步 teardown 中仅记录警告，
-            # 调用方应在事件循环中先 await adapter.stop() 再调用 teardown()。
+            # 适配器 stop() 是异步方法；同步清理中仅记录警告，
+            # 调用方应在事件循环中先等待适配器停止，再调用清理。
             logger.warning(
                 "binance_adapter_not_stopped",
                 hint="call `await container.binance_adapter.stop()` before teardown()",
@@ -391,7 +391,7 @@ class Container:
         if not self._built:
             raise RuntimeError("Container not built. Call container.build() first.")
 
-    # ------ EventBus 构建 ------
+    # ------ 事件总线构建 ------
 
     def _get_env_settings(self) -> dict[str, str]:
         """读取环境变量中的敏感配置（Token、密钥等）.

@@ -227,7 +227,7 @@ class AccountSync:
             balances, positions = self._fetch_from_exchange()
             self._mark_external_open_orders()
 
-            # 与本地 state 对账
+            # 与本地状态层对账
             reconciliation = self._reconcile_with_local(positions)
 
             duration_ms = (time.monotonic() - t0) * 1000
@@ -404,7 +404,7 @@ class AccountSync:
             "mismatch_count": result.mismatch_count,
         }
 
-        # 将余额汇总加入 payload
+        # 将余额汇总加入载荷
         usdt = next((b for b in result.balances if b.asset == "USDT"), None)
         if usdt:
             payload["usdt_wallet"] = float(usdt.wallet_balance)
@@ -421,7 +421,7 @@ class AccountSync:
         except Exception as exc:
             logger.error("reconciliation_event_publish_failed", error=str(exc), exc_info=True)
 
-        # 写入 Redis 缓存（TTL = interval + 5s 安全余量）
+        # 写入 Redis 缓存（过期时间 = 同步间隔 + 5 秒安全余量）
         self._cache_to_redis(result)
 
     def _update_real_time_risk(self, balances: list[AccountBalance]) -> None:

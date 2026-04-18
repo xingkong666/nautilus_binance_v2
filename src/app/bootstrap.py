@@ -106,7 +106,7 @@ def bootstrap(env: str | None = None, log_level: str | None = None) -> Container
 
     """
     config = load_app_config(env=env)
-    # 若命令行指定了 log_level，覆盖 config 中的值
+    # 若命令行指定了日志级别，则覆盖配置中的值
     effective_logging_cfg = config.logging
     if log_level is not None:
         from src.core.config import LoggingConfig

@@ -155,7 +155,7 @@ class AlertManager:
 
 
 # ---------------------------------------------------------------------------
-# 工厂函数：从配置自动构建 AlertManager
+# 工厂函数：从配置自动构建告警管理器
 # ---------------------------------------------------------------------------
 
 
@@ -196,7 +196,7 @@ def build_alert_manager(
         ch_type = ch.get("type", "")
         ch_enabled = ch.get("enabled", True)
         levels = ch.get("levels", ["CRITICAL", "ERROR"])
-        # 取 levels 中最低的作为 min_level
+        # 取级别列表中最低的作为最低告警级别
         min_level = min((AlertLevel.from_str(lv) for lv in levels), key=lambda x: x.value)
 
         try:

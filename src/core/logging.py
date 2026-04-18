@@ -34,7 +34,7 @@ import structlog
 if TYPE_CHECKING:
     from src.core.config import LoggingConfig
 
-# 防止重复配置 structlog（structlog.configure 是幂等的，但 stdlib handler 重置需保护）
+# 防止重复配置 structlog（structlog.configure 是幂等的，但标准库处理器重置需保护）
 _INITIALIZED: bool = False
 _INIT_LOCK: threading.Lock = threading.Lock()
 
@@ -65,7 +65,7 @@ def setup_logging(
     """
     global _INITIALIZED  # noqa: PLW0603
 
-    # 从 nautilus_cfg 中提取参数（优先级高于位置参数）
+    # 从 Nautilus 配置中提取参数（优先级高于位置参数）
     if nautilus_cfg is not None:
         level = nautilus_cfg.level
         json_format = nautilus_cfg.format.lower() != "console"
@@ -75,7 +75,7 @@ def setup_logging(
 
     with _INIT_LOCK:
         if _INITIALIZED:
-            # structlog 已配置，仅更新 stdlib logging 级别（允许动态调整）
+            # structlog 已配置，仅更新标准库日志级别（允许动态调整）
             logging.getLogger().setLevel(log_level)
             return
 

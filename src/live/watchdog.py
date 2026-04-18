@@ -323,7 +323,7 @@ class Watchdog:
 
         self._alert_count += 1
 
-        # 尝试通过 alert_manager 发送告警
+        # 尝试通过告警管理器发送告警
         try:
             msg = f"[Watchdog] 服务 {entry.name} 异常（连续失败 {entry.fail_count} 次）"
             self._container.alert_manager.send_direct(

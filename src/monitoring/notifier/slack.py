@@ -21,7 +21,7 @@ from src.monitoring.notifier.base import AlertLevel, AlertMessage, BaseNotifier
 
 logger = structlog.get_logger(__name__)
 
-# 告警级别对应的 Slack attachment color
+# 告警级别对应的 Slack 附件颜色
 _LEVEL_COLORS = {
     AlertLevel.WARNING: "#FFA500",  # 橙色
     AlertLevel.ERROR: "#FF0000",  # 红色

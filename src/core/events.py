@@ -65,7 +65,7 @@ class SignalDirection(Enum):
 class Event:
     """基础事件."""
 
-    event_type: EventType = EventType.MARKET_DATA  # 子类在 __post_init__ 中覆盖
+    event_type: EventType = EventType.MARKET_DATA  # 子类在初始化后处理中覆盖
     timestamp_ns: int = field(default_factory=lambda: time.time_ns())
     source: str = ""
     payload: dict[str, Any] = field(default_factory=dict)

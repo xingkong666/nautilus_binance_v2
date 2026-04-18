@@ -60,7 +60,7 @@ class BaseWatcher(ABC):
 
 
 # ---------------------------------------------------------------------------
-# 具体 Watcher
+# 具体监控器
 # ---------------------------------------------------------------------------
 
 
@@ -336,7 +336,7 @@ def build_watchers(
 
     rules = {r["name"] for r in alerting_config.get("rules", [])}
 
-    # RiskAlertWatcher 始终启用（对接熔断/风控模块）
+    # 风险告警监控器始终启用（对接熔断/风控模块）
     risk_alert_cooldown = float(alerting_config.get("risk_alert_cooldown_seconds", 60.0))
     watchers.append(RiskAlertWatcher(event_bus, alert_manager, cooldown_seconds=risk_alert_cooldown))
 

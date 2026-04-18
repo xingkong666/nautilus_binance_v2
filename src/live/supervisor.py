@@ -83,7 +83,7 @@ class LiveSupervisor:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
-        # 子服务引用（start 后填充）
+        # 子服务引用（启动后填充）
         self._account_sync: AccountSync | None = None
         self._watchdog: Watchdog | None = None
         self._health_probe: LiveHealthProbe | None = None
@@ -189,7 +189,7 @@ class LiveSupervisor:
         self._state = SupervisorState.RUNNING
         logger.info("supervisor_running")
 
-        # 订阅熔断事件，收到后进入 DEGRADED
+        # 订阅熔断事件，收到后进入降级状态
         self._container.event_bus.subscribe(EventType.CIRCUIT_BREAKER, self._on_circuit_breaker)
 
         # 主循环：等待停止信号

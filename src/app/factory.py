@@ -606,12 +606,12 @@ class AppFactory:
             未启动的 BinanceAdapter 实例（需调用 `await adapter.start()` 后使用）。
 
         """
-        # 优先复用 Container 内已按配置初始化的 adapter
+        # 优先复用容器内已按配置初始化的适配器
         if self._container.binance_adapter is not None:
             logger.info("binance_adapter_reused_from_container")
             return self._container.binance_adapter
 
-        # 回退：按参数临时构建（dev 调试 / 单元测试场景）
+        # 回退：按参数临时构建（开发调试 / 单元测试场景）
         if environment is None:
             environment = BinanceEnvironment.LIVE if self._config.env == "prod" else BinanceEnvironment.TESTNET
         cache_settings = build_nautilus_cache_settings(self._config, mode="live")

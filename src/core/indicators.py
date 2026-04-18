@@ -113,10 +113,10 @@ class WilderAdx(Indicator):
     def reset(self) -> None:
         """重置指标到初始状态（公开接口）."""
         self._reset()  # 清理本类状态
-        super().reset()  # NT 基类会清理 initialized / has_inputs 标志
+        super().reset()  # NT 基类会清理初始化状态 / 输入标志
 
     # ------------------------------------------------------------------
-    # 兼容旧 _AdxState.update() 调用方式
+    # 兼容旧版 ADX 状态更新调用方式
     # ------------------------------------------------------------------
 
     def update(self, high: float, low: float, close: float) -> None:
@@ -137,7 +137,7 @@ class WilderAdx(Indicator):
 
     def _update(self, high: float, low: float, close: float) -> None:
         """执行 Wilder ADX 更新逻辑."""
-        # 第一根 bar：仅记录前值，不计算
+        # 第一根 K 线：仅记录前值，不计算
         if self._prev_high is None or self._prev_low is None or self._prev_close is None:
             self._prev_high = high
             self._prev_low = low
@@ -157,7 +157,7 @@ class WilderAdx(Indicator):
             abs(low - self._prev_close),
         )
 
-        # ---- 阶段 1：初始化 smoothed 值 ----
+        # ---- 阶段 1：初始化平滑值 ----
         if self._smoothed_tr is None:
             self._tr_sum += tr
             self._plus_dm_sum += plus_dm
@@ -167,7 +167,7 @@ class WilderAdx(Indicator):
                 self._dx_buffer.append(0.0)
 
             if len(self._dx_buffer) == self.period - 1:
-                # 积累了 period-1 根 bar，建立初始 smoothed 值
+                # 累积到指定周期前一根 K 线时，建立初始平滑值
                 self._smoothed_tr = self._tr_sum
                 self._smoothed_plus_dm = self._plus_dm_sum
                 self._smoothed_minus_dm = self._minus_dm_sum
@@ -193,7 +193,7 @@ class WilderAdx(Indicator):
             self.plus_di = plus_di
             self.minus_di = minus_di
 
-            # ---- 阶段 3a：ADX 初始化（收集 period 个 DX 取均值）----
+            # ---- 阶段 3a：ADX 初始化（收集指定周期数量的 DX 并取均值）----
             if self.value is None:
                 self._dx_buffer.append(dx)
                 if len(self._dx_buffer) >= self.period:

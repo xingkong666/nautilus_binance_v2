@@ -20,7 +20,7 @@ from src.state.snapshot import PositionSnapshot, SnapshotManager, SystemSnapshot
 
 logger = structlog.get_logger(__name__)
 
-# mismatch 数量超过此阈值时 recommended_action = "halt"
+# 不匹配数量超过此阈值时，建议动作为停止
 _HALT_MISMATCH_THRESHOLD = 5
 
 
