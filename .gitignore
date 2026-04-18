@@ -47,3 +47,4 @@ backup/**/*.err
 Thumbs.db
 
 .omc/*
+.omx/
