@@ -585,9 +585,7 @@ class KlineCatalogLoader:
                     csv_path.unlink(missing_ok=True)
             except (OSError, ValueError, pd.errors.ParserError) as e:
                 logger.exception("catalog_load_error", csv=str(csv_path))
-                raise DataError(
-                    f"Failed to load CSV {csv_path}", context={"csv_path": str(csv_path), "error": str(e)}
-                ) from e
+                raise DataError(f"Failed to load CSV {csv_path}", context={"csv_path": str(csv_path), "error": str(e)}) from e
         logger.info("batch_catalog_load_done", total_bars=total, files=len(csv_paths))
         return total
 
@@ -607,10 +605,7 @@ class KlineCatalogLoader:
 
         """
         df_with_header = pd.read_csv(csv_path, header=0)
-        if "open_time" not in df_with_header.columns:
-            df = pd.read_csv(csv_path, header=None, names=self.KLINE_COLUMNS)
-        else:
-            df = df_with_header
+        df = pd.read_csv(csv_path, header=None, names=self.KLINE_COLUMNS) if "open_time" not in df_with_header.columns else df_with_header
 
         # 添加 Nautilus需要的 ts_event 列
         df["ts_event"] = pd.to_datetime(df["open_time"], unit="ms", utc=True).astype("int64")
@@ -697,9 +692,7 @@ class DataPipeline:
                 logger.warning("data_gaps_report", symbol=symbol, gap_count=len(gaps), gaps=gaps)
         except (ValueError, TypeError, KeyError) as e:
             logger.exception("data_gap_check_failed", symbol=symbol)
-            raise DataError(
-                f"Failed to check data gaps for {symbol}", symbol=symbol, context={"symbol": symbol, "error": str(e)}
-            ) from e
+            raise DataError(f"Failed to check data gaps for {symbol}", symbol=symbol, context={"symbol": symbol, "error": str(e)}) from e
 
         logger.info(
             "pipeline_done",

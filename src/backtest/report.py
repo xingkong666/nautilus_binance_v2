@@ -219,9 +219,7 @@ class BacktestReporter:
         # 浮点数四舍五入到 4 位
         if s["pnl"]:
             for currency in s["pnl"]:
-                s["pnl"][currency] = {
-                    k: round(v, 4) if isinstance(v, float) else v for k, v in s["pnl"][currency].items()
-                }
+                s["pnl"][currency] = {k: round(v, 4) if isinstance(v, float) else v for k, v in s["pnl"][currency].items()}
         if s["returns"]:
             s["returns"] = {k: round(v, 4) if isinstance(v, float) else v for k, v in s["returns"].items()}
         analysis = s.get("analysis", {})

@@ -202,9 +202,7 @@ class SignalProcessor:
 
         # 从多种来源获取当前价格
         if current_price is None:
-            current_price = (
-                self._parse_qty(metadata.get("bar_close")) or self._parse_qty(metadata.get("price")) or Decimal("0")
-            )
+            current_price = self._parse_qty(metadata.get("bar_close")) or self._parse_qty(metadata.get("price")) or Decimal("0")
 
         # 获取账户权益：equity_provider 优先于 metadata，不使用硬编码回退值
         account_equity: Decimal | None = None

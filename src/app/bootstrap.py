@@ -348,9 +348,7 @@ def _bootstrap_live_state(container: Container, adapter: Any) -> RecoveryReport:
         snapshot_age_sec=round(report.snapshot_age_sec, 1),
     )
     if report.recommended_action == "halt":
-        raise RuntimeError(
-            f"启动对账失败，建议人工介入: mismatches={report.mismatch_count}, orphan_orders={len(report.orphan_orders)}"
-        )
+        raise RuntimeError(f"启动对账失败，建议人工介入: mismatches={report.mismatch_count}, orphan_orders={len(report.orphan_orders)}")
     snapshot = report.snapshot
     if snapshot is not None:
         snapshot.open_orders = raw_open_orders

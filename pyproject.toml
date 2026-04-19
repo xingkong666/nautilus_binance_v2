@@ -37,7 +37,7 @@ alerting = [
 
 [tool.ruff]
 target-version = "py313"
-line-length = 120
+line-length = 140
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "N", "B", "A", "C4", "SIM", "D"]

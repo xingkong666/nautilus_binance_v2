@@ -115,9 +115,7 @@ class MicroScalpStrategy(BaseStrategy):
 
         self._adx.update(float(bar.high), float(bar.low), close)
         adx_value = self._adx.value
-        trend_mode = bool(
-            self._adx.initialized and adx_value is not None and adx_value >= self.config.trend_adx_threshold
-        )
+        trend_mode = bool(self._adx.initialized and adx_value is not None and adx_value >= self.config.trend_adx_threshold)
         self._last_mode = "trend" if trend_mode else "range"
 
         signal = self._trend_signal(bar) if trend_mode else self._range_signal()
@@ -142,13 +140,7 @@ class MicroScalpStrategy(BaseStrategy):
             self._short_pullback_armed = False
             if float(bar.low) <= fast - pullback_distance:
                 self._long_pullback_armed = True
-            if (
-                self._long_pullback_armed
-                and prev_close is not None
-                and prev_close < fast
-                and close >= fast
-                and self._cooldown_passed()
-            ):
+            if self._long_pullback_armed and prev_close is not None and prev_close < fast and close >= fast and self._cooldown_passed():
                 self._long_pullback_armed = False
                 self._last_order_side = "BUY"
                 return SignalDirection.LONG
@@ -157,13 +149,7 @@ class MicroScalpStrategy(BaseStrategy):
         self._long_pullback_armed = False
         if float(bar.high) >= fast + pullback_distance:
             self._short_pullback_armed = True
-        if (
-            self._short_pullback_armed
-            and prev_close is not None
-            and prev_close > fast
-            and close <= fast
-            and self._cooldown_passed()
-        ):
+        if self._short_pullback_armed and prev_close is not None and prev_close > fast and close <= fast and self._cooldown_passed():
             self._short_pullback_armed = False
             self._last_order_side = "SELL"
             return SignalDirection.SHORT

@@ -830,12 +830,8 @@ class WalkForwardEngine:
                 passed=False,
             )
 
-        is_pnls = [
-            float(w.train_summary.get("pnl", {}).get("USDT", {}).get("PnL% (total)", 0.0) or 0.0) for w in windows
-        ]
-        oos_pnls = [
-            float(w.test_summary.get("pnl", {}).get("USDT", {}).get("PnL% (total)", 0.0) or 0.0) for w in windows
-        ]
+        is_pnls = [float(w.train_summary.get("pnl", {}).get("USDT", {}).get("PnL% (total)", 0.0) or 0.0) for w in windows]
+        oos_pnls = [float(w.test_summary.get("pnl", {}).get("USDT", {}).get("PnL% (total)", 0.0) or 0.0) for w in windows]
 
         n = len(windows)
         mean_is = sum(is_pnls) / n
@@ -956,9 +952,7 @@ class WalkForwardEngine:
 
         if not result.stitched_test_equity.empty:
             result.stitched_test_equity.to_csv(output_dir / "walkforward_test_equity_curve.csv", index=False)
-            result.aggregate["test_final_stitched_equity"] = float(
-                result.stitched_test_equity["stitched_equity"].iloc[-1]
-            )
+            result.aggregate["test_final_stitched_equity"] = float(result.stitched_test_equity["stitched_equity"].iloc[-1])
 
         # 稳定性报告
         stability_dict = {
@@ -972,9 +966,7 @@ class WalkForwardEngine:
             "passed": result.stability.passed,
         }
         result.aggregate["stability"] = stability_dict
-        (output_dir / "walkforward_aggregate.json").write_text(
-            json.dumps(result.aggregate, ensure_ascii=False, indent=2)
-        )
+        (output_dir / "walkforward_aggregate.json").write_text(json.dumps(result.aggregate, ensure_ascii=False, indent=2))
         (output_dir / "walkforward_stability.json").write_text(json.dumps(stability_dict, ensure_ascii=False, indent=2))
 
 

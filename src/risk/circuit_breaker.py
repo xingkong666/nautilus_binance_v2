@@ -147,11 +147,7 @@ class CircuitBreaker:
                     if now_ns < cooldown_until_ns:
                         # 从 Redis读取等级，无效时回退到 停止
                         level_str = data.get("level", "halt")
-                        level = (
-                            CircuitLevel[level_str.upper()]
-                            if level_str.upper() in CircuitLevel.__members__
-                            else CircuitLevel.HALT
-                        )
+                        level = CircuitLevel[level_str.upper()] if level_str.upper() in CircuitLevel.__members__ else CircuitLevel.HALT
                         # 同步到内存（避免 Redis每次都查）
                         if not self._state.is_triggered:
                             self._state = CircuitBreakerState(
@@ -332,11 +328,7 @@ class CircuitBreaker:
             if now_ns < cooldown_until_ns:
                 # 从 Redis读取等级，无效时回退到 停止
                 level_str = data.get("level", "halt")
-                level = (
-                    CircuitLevel[level_str.upper()]
-                    if level_str.upper() in CircuitLevel.__members__
-                    else CircuitLevel.HALT
-                )
+                level = CircuitLevel[level_str.upper()] if level_str.upper() in CircuitLevel.__members__ else CircuitLevel.HALT
                 self._state = CircuitBreakerState(
                     level=level,
                     action=data.get("action", ""),

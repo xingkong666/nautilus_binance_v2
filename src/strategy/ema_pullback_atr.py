@@ -125,13 +125,7 @@ class EMAPullbackATRStrategy(BaseStrategy):
             if float(bar.low) <= fast - pullback_distance:
                 self._long_pullback_armed = True
 
-            if (
-                self._long_pullback_armed
-                and prev_close is not None
-                and prev_close < fast
-                and close >= fast
-                and self._cooldown_passed()
-            ):
+            if self._long_pullback_armed and prev_close is not None and prev_close < fast and close >= fast and self._cooldown_passed():
                 signal = SignalDirection.LONG
                 self._long_pullback_armed = False
 
@@ -141,13 +135,7 @@ class EMAPullbackATRStrategy(BaseStrategy):
             if float(bar.high) >= fast + pullback_distance:
                 self._short_pullback_armed = True
 
-            if (
-                self._short_pullback_armed
-                and prev_close is not None
-                and prev_close > fast
-                and close <= fast
-                and self._cooldown_passed()
-            ):
+            if self._short_pullback_armed and prev_close is not None and prev_close > fast and close <= fast and self._cooldown_passed():
                 signal = SignalDirection.SHORT
                 self._short_pullback_armed = False
 

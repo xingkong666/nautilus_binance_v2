@@ -15,12 +15,12 @@ strategy:
         fast_ema_period: 20
         slow_ema_period: 60
 
-        # 动态 价差
-        base_spread_ticks: 3
+        # 动态 价差（SOL tick=0.01, ATR≈4~10 ticks/min）
+        base_spread_ticks: 4
         min_spread_ticks: 2
-        max_spread_ticks: 10
-        spread_vol_multiplier: 2.0
-        spread_recovery_ratio: 0.9
+        max_spread_ticks: 30
+        spread_vol_multiplier: 1.0
+        spread_recovery_ratio: 0.85
 
         # 倾斜
         alpha_scale_ticks: 2.0
@@ -29,8 +29,8 @@ strategy:
         inv_tanh_scale: 2.0
         ask_inv_weight: 1.2
 
-        # 库存（3000U 账户中，本策略净库存预算约 100U）
-        max_position_usd: 100.0
+        # 库存（3000U 账户中，本策略净库存预算约 1000U）
+        max_position_usd: 300.0
         soft_inventory_limit: 0.30 # 约 30U 开始缩量/偏价
         hard_inventory_limit: 0.70 # 约 70U 停止同向加仓
         one_side_only_limit: 0.70 # 与 hard limit 对齐，只允许减仓方向
@@ -38,7 +38,7 @@ strategy:
         kill_switch_limit: 1.2 # 约 120U 触发 kill switch
 
         # 订单生命周期
-        limit_ttl_ms: 8000
+        limit_ttl_ms: 50000
         post_only: true
         refresh_every_bar: true
         drift_ticks: 2
@@ -48,12 +48,13 @@ strategy:
         # 不平衡死区
         dead_zone_threshold: 0.1
 
-        # sizing（3000U 账户 * 1% ≈ 每边报价 30U）
-        capital_pct_per_trade: 0.3
+        # sizing（1500U 账户 * 1% ≈ 每边报价 30U；兜底 trade_size 保证名义 > $5）
+        capital_pct_per_trade: 1
+        trade_size: "0.06"  # fallback: 0.06 SOL ≈ $5.3，满足 Binance 最低名义价值 $5
 
         # ATR（用于动态 spread）
         atr_period: 14
-        atr_sl_multiplier: 2.0
+        atr_sl_multiplier: null  # 做市商依靠库存控制(hard_limit/kill_switch)和PnL熔断管理风险，不用ATR止损
 
         # US-001：微价
         use_microprice: true
@@ -79,9 +80,9 @@ strategy:
         layer_size_decay: 0.7
 
         # US-007：PnL速度断路器
-        max_loss_usd: 50.0
+        max_loss_usd: 20.0
         loss_window_ms: 60000
-        pnl_cb_cooldown_ms: 300000
+        pnl_cb_cooldown_ms: 120000
 
         # US-008：Market质量过滤器
         max_book_spread_ticks: 20.0

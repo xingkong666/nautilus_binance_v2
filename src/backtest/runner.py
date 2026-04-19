@@ -261,9 +261,7 @@ class BacktestRunner:
         for symbol in symbols:
             inst = instrument_map.get(symbol)
             if inst is None:
-                raise ValueError(
-                    f"Instrument '{symbol}' not found in catalog. Available: {list(instrument_map.keys())}"
-                )
+                raise ValueError(f"Instrument '{symbol}' not found in catalog. Available: {list(instrument_map.keys())}")
             result.append(inst)
 
         return result
@@ -334,33 +332,25 @@ class BacktestRunner:
             reports["orders"] = trader.generate_orders_report()
         except (AttributeError, ValueError, TypeError) as e:
             logger.warning("report_orders_failed", error=str(e))
-            raise ExecutionError(
-                "Failed to generate orders report", context={"report_type": "orders", "error": str(e)}
-            ) from e
+            raise ExecutionError("Failed to generate orders report", context={"report_type": "orders", "error": str(e)}) from e
 
         try:
             reports["order_fills"] = trader.generate_order_fills_report()
         except (AttributeError, ValueError, TypeError) as e:
             logger.warning("report_order_fills_failed", error=str(e))
-            raise ExecutionError(
-                "Failed to generate order fills report", context={"report_type": "order_fills", "error": str(e)}
-            ) from e
+            raise ExecutionError("Failed to generate order fills report", context={"report_type": "order_fills", "error": str(e)}) from e
 
         try:
             reports["positions"] = trader.generate_positions_report()
         except (AttributeError, ValueError, TypeError) as e:
             logger.warning("report_positions_failed", error=str(e))
-            raise ExecutionError(
-                "Failed to generate positions report", context={"report_type": "positions", "error": str(e)}
-            ) from e
+            raise ExecutionError("Failed to generate positions report", context={"report_type": "positions", "error": str(e)}) from e
 
         try:
             reports["account"] = trader.generate_account_report(Venue(self.VENUE))
         except (AttributeError, ValueError, TypeError) as e:
             logger.warning("report_account_failed", error=str(e))
-            raise ExecutionError(
-                "Failed to generate account report", context={"report_type": "account", "error": str(e)}
-            ) from e
+            raise ExecutionError("Failed to generate account report", context={"report_type": "account", "error": str(e)}) from e
 
         return reports
 

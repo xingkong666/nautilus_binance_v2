@@ -574,9 +574,7 @@ class AppFactory:
                 tp_split_3=float(params.get("tp_split_3", 0.3)),
             )
 
-        raise ValueError(
-            f"Unsupported strategy: '{name}'. Available: ema_cross, ema_pullback_atr, turtle, micro_scalp, vegas_tunnel"
-        )
+        raise ValueError(f"Unsupported strategy: '{name}'. Available: ema_cross, ema_pullback_atr, turtle, micro_scalp, vegas_tunnel")
 
     # ------ 交易所适配器工厂 ------
 

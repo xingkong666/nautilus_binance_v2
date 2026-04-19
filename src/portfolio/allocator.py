@@ -358,9 +358,7 @@ class PortfolioAllocator:
                 continue
 
             delta_capital = target_capital - current_value
-            delta_qty = (delta_capital / snap.current_price).quantize(
-                Decimal(f"1e-{qty_precision}"), rounding=ROUND_DOWN
-            )
+            delta_qty = (delta_capital / snap.current_price).quantize(Decimal(f"1e-{qty_precision}"), rounding=ROUND_DOWN)
 
             if delta_qty == Decimal("0"):
                 continue

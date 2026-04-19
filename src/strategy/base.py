@@ -423,10 +423,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
             if qty is not None and qty.as_decimal() > 0:
                 return qty
 
-            self.log.warning(
-                "capital_pct_per_trade sizing failed, fallback to fixed trade_size "
-                f"(capital_pct_per_trade={capital_pct})"
-            )
+            self.log.warning(f"capital_pct_per_trade sizing failed, fallback to fixed trade_size (capital_pct_per_trade={capital_pct})")
 
         qty = self.instrument.make_qty(self.config.trade_size)
         if qty.as_decimal() <= 0:
@@ -754,12 +751,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
         cfg = self.config
 
         # 如果未设置任何止损止盈参数，则退出
-        if (
-            cfg.stop_loss_pct is None
-            and cfg.take_profit_pct is None
-            and cfg.atr_sl_multiplier is None
-            and cfg.atr_tp_multiplier is None
-        ):
+        if cfg.stop_loss_pct is None and cfg.take_profit_pct is None and cfg.atr_sl_multiplier is None and cfg.atr_tp_multiplier is None:
             return
 
         if self.instrument is None:
@@ -800,7 +792,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
                 reduce_only=True,
             )
             self._sl_orders[pos_id_str] = sl_order.client_order_id
-            self.submit_order(sl_order)
+            self.submit_order(sl_order, position_id=position.id)
             self.log.info(
                 f"SL placed: {close_side.name} {qty} @ stop {sl_price_obj} (pos={pos_id_str})",
                 color=LogColor.YELLOW,
@@ -827,7 +819,7 @@ class BaseStrategy(Strategy):  # type: ignore[misc]
                 post_only=False,
             )
             self._tp_orders[pos_id_str] = tp_order.client_order_id
-            self.submit_order(tp_order)
+            self.submit_order(tp_order, position_id=position.id)
             self.log.info(
                 f"TP placed: {close_side.name} {qty} @ limit {tp_price_obj} (pos={pos_id_str})",
                 color=LogColor.YELLOW,
