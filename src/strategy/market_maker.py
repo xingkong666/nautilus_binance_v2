@@ -1316,16 +1316,16 @@ class ActiveMarketMaker(BaseStrategy):
             if notional < 5.0:
                 self.log.debug(f"Skipping quote: notional {notional:.2f} < 5.0 min")
                 return None
-
-            expire_time = self._utc_now() + timedelta(milliseconds=self.config.limit_ttl_ms)
+            #  Binance Futures + post_only=True 时，adapter 会将 GTC 转为 GTX（Post-Only），订单正常显示在订单列表中，
+            # 不再被 GTX 强制覆盖导致 GTD 失效。订单生命周期管理完全由策略已有的 _refresh_quotes drift 刷新逻辑承担（每 limit_ttl_ms *
+            # order_refresh_ratio 触发一次检查）
             position_id = self._make_hedge_position_id(side)
             order = self.order_factory.limit(
                 instrument_id=self.config.instrument_id,
                 order_side=side,
                 quantity=qty_obj,
                 price=price_obj,
-                time_in_force=TimeInForce.GTD,
-                expire_time=expire_time,
+                time_in_force=TimeInForce.GTC,
                 post_only=self.config.post_only,
                 reduce_only=reduce_only,
             )
