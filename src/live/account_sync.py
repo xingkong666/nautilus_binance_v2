@@ -551,6 +551,16 @@ class AccountSync:
         ]
 
     def _load_local_positions(self) -> list[dict[str, str]]:
+        """读取本地当前仓位.
+
+        优先从 NautilusTrader 内存 cache 实时读取（精确），
+        cache 不可用时 fallback 到磁盘快照（最多 60s 延迟）。
+        """
+        cache_positions = self._load_positions_from_cache()
+        if cache_positions is not None:
+            return cache_positions
+
+        # fallback: 磁盘快照
         snapshot = self._load_latest_snapshot()
         if snapshot is None:
             return []
@@ -565,6 +575,45 @@ class AccountSync:
             }
             for position in snapshot.positions
         ]
+
+    def _load_positions_from_cache(self) -> list[dict[str, str]] | None:
+        """从 NautilusTrader node.cache 实时读取开仓位.
+
+        Returns:
+            仓位列表，cache 不可用时返回 None（触发 fallback）。
+        """
+        adapter = getattr(self._container, "binance_adapter", None)
+        if adapter is None:
+            return None
+        node = getattr(adapter, "node", None)
+        if node is None:
+            return None
+        cache = getattr(node, "cache", None)
+        if cache is None:
+            return None
+
+        positions_open = getattr(cache, "positions_open", None)
+        if not callable(positions_open):
+            return None
+
+        try:
+            result = []
+            for pos in cast(Callable[[], list[Any]], positions_open)():
+                side = "LONG" if getattr(pos, "is_long", False) else "SHORT"
+                result.append(
+                    {
+                        "instrument_id": str(pos.instrument_id),
+                        "side": side,
+                        "quantity": str(abs(float(pos.quantity))),
+                        "avg_entry_price": str(getattr(pos, "avg_px_open", 0)),
+                        "unrealized_pnl": str(getattr(pos, "unrealized_pnl", 0)),
+                        "realized_pnl": str(getattr(pos, "realized_pnl", 0)),
+                    }
+                )
+            return result
+        except Exception as exc:
+            logger.warning("account_sync_cache_positions_load_failed", error=str(exc))
+            return None
 
     def _load_latest_snapshot(self) -> SystemSnapshot | None:
         try:

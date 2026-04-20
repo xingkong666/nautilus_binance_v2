@@ -500,10 +500,32 @@ class Container:
             Callable[[], SystemSnapshot]，读取当前内存状态。
 
         """
-        from src.state.snapshot import SystemSnapshot
+        from src.state.snapshot import PositionSnapshot, SystemSnapshot
 
         def _state_provider() -> SystemSnapshot:
-            return SystemSnapshot()
+            adapter = getattr(self, "binance_adapter", None)
+            positions: list[PositionSnapshot] = []
+            if adapter is not None:
+                node = getattr(adapter, "node", None)
+                cache = getattr(node, "cache", None) if node is not None else None
+                if cache is not None:
+                    try:
+                        open_positions = cache.positions_open()
+                        for pos in open_positions:
+                            side = "LONG" if getattr(pos, "is_long", False) else "SHORT"
+                            positions.append(
+                                PositionSnapshot(
+                                    instrument_id=str(pos.instrument_id),
+                                    side=side,
+                                    quantity=str(abs(float(pos.quantity))),
+                                    avg_entry_price=str(getattr(pos, "avg_px_open", 0)),
+                                    unrealized_pnl=str(getattr(pos, "unrealized_pnl", 0)),
+                                    realized_pnl=str(getattr(pos, "realized_pnl", 0)),
+                                )
+                            )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("state_provider_positions_load_failed", error=str(exc))
+            return SystemSnapshot(positions=positions)
 
         return _state_provider
 
