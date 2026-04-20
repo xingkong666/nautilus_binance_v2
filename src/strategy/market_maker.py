@@ -41,7 +41,7 @@ from nautilus_trader.model.events import (
     PositionClosed,
     PositionOpened,
 )
-from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId, PositionId
+from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId
 
 from src.core.events import EventBus, SignalDirection
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
@@ -105,25 +105,13 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     alpha_tanh_k: float = 2.0
     inv_scale_ticks: float = 3.0
     inv_tanh_scale: float = 2.0
-    ask_inv_weight: float = 1.2
 
-    # 库存控制（双向持仓 / Hedge Mode）
-    hedge_mode: bool = True
+    # 仓位预算（USD notional）
+    max_position_usd: float = 1000.0
 
-    # 单边与总仓位预算（USD notional）
-    max_long_position_usd: float = 1000.0
-    max_short_position_usd: float = 1000.0
-    max_gross_position_usd: float = 1600.0
-
-    # 单边库存分级
-    long_soft_limit: float = 0.30
-    long_hard_limit: float = 0.70
-    short_soft_limit: float = 0.30
-    short_hard_limit: float = 0.70
-
-    # 总库存分级
-    gross_soft_limit: float = 0.50
-    gross_hard_limit: float = 0.85
+    # 库存分级（单向净仓比例）
+    soft_limit: float = 0.30
+    hard_limit: float = 0.70
 
     # 缩量下限
     soft_size_min_ratio: float = 0.30
@@ -192,7 +180,7 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     microprice_skew_scale: float = 1.0
 
     # V3-US-005: 库存分层控制
-    one_side_only_limit: float = 0.7
+    one_side_only_limit: float = 0.85
     deeper_layer_inv_threshold: float = 0.5
 
     # V4-US-001: 队列位置
@@ -253,13 +241,9 @@ class ActiveMarketMaker(BaseStrategy):
         self._quote_suspended: bool = False
         self._pending_requote_ts: datetime | None = None
 
-        # 库存跟踪（双向持仓）
-        self._long_position_usd: float = 0.0
-        self._short_position_usd: float = 0.0
-        self._gross_position_usd: float = 0.0
+        # 库存跟踪（单向持仓）
         self._net_position_usd: float = 0.0
-        self._long_qty: float = 0.0
-        self._short_qty: float = 0.0
+        self._position_qty: float = 0.0  # 正=多头, 负=空头
 
         # 活跃报价订单 ID — US-006 分层报价
         self._active_bid_ids: list[ClientOrderId | None] = []
@@ -823,16 +807,15 @@ class ActiveMarketMaker(BaseStrategy):
             dict[str, float]: 库存快照.
             "long_ratio": 多头仓位占比.
             "short_ratio": 空头仓位占比.
-            "gross_ratio": 总仓位占比.
-            "imbalance": 净敞口.
+            "gross_ratio": 总仓位占比（abs净仓/预算）.
+            "imbalance": 净敞口方向（正=多, 负=空）.
         """
-        long_ratio = self._long_position_usd / max(self.config.max_long_position_usd, 1.0)
-        short_ratio = self._short_position_usd / max(self.config.max_short_position_usd, 1.0)
-        gross_ratio = self._gross_position_usd / max(self.config.max_gross_position_usd, 1.0)
-        gross_total = self._gross_position_usd
-        imbalance = 0.0
-        if gross_total > 1e-9:
-            imbalance = (self._long_position_usd - self._short_position_usd) / gross_total
+        abs_usd = abs(self._net_position_usd)
+        ratio = abs_usd / max(self.config.max_position_usd, 1.0)
+        long_ratio = ratio if self._net_position_usd > 0 else 0.0
+        short_ratio = ratio if self._net_position_usd < 0 else 0.0
+        gross_ratio = ratio
+        imbalance = math.copysign(min(ratio, 1.0), self._net_position_usd) if abs_usd > 1e-9 else 0.0
         return {
             "long_ratio": long_ratio,
             "short_ratio": short_ratio,
@@ -911,18 +894,14 @@ class ActiveMarketMaker(BaseStrategy):
         base_qty: Decimal,
         adverse_side: str | None = None,
     ) -> tuple[Decimal, Decimal, bool, bool]:
-        """双向持仓下的 bid/ask 数量与 reduce_only 标志.
+        """单向持仓下的 bid/ask 数量与 reduce_only 标志.
 
         Args:
             base_qty: 基础下单数量.
             adverse_side: 若为 "BUY" 则将 bid 归零；若为 "SELL" 则将 ask 归零（US-002）.
 
         Returns:
-            tuple[Decimal, Decimal, bool, bool]: 报价数量与 reduce_only 标志.
-            bid_qty: 买一价.
-            ask_qty: 卖一数量.
-            bid_reduce_only: 买一数量是否为 reduce_only.
-            ask_reduce_only: 卖一数量是否为 reduce_only.
+            tuple[Decimal, Decimal, bool, bool]: (bid_qty, ask_qty, bid_reduce_only, ask_reduce_only).
         """
         if self.instrument is None:
             return base_qty, base_qty, False, False
@@ -936,55 +915,45 @@ class ActiveMarketMaker(BaseStrategy):
             return Decimal(str(max(rounded, 0.0)))
 
         inv = self._inventory_snapshot()
-        long_ratio = inv["long_ratio"]
-        short_ratio = inv["short_ratio"]
-        gross_ratio = inv["gross_ratio"]
+        ratio = inv["gross_ratio"]  # abs(net) / max_position_usd
         base_f = float(base_qty)
 
-        def smooth_scale(ratio: float, soft: float, hard: float, min_ratio: float) -> float:
-            if ratio <= soft:
+        def smooth_scale(r: float, soft: float, hard: float, min_ratio: float) -> float:
+            if r <= soft:
                 return 1.0
-            if ratio >= hard:
+            if r >= hard:
                 return min_ratio
-            t = (ratio - soft) / max(hard - soft, 1e-9)
+            t = (r - soft) / max(hard - soft, 1e-9)
             return 1.0 - (t**2) * (1.0 - min_ratio)
 
-        bid_scale = smooth_scale(
-            long_ratio,
-            self.config.long_soft_limit,
-            self.config.long_hard_limit,
-            self.config.soft_size_min_ratio,
-        )
-        ask_scale = smooth_scale(
-            short_ratio,
-            self.config.short_soft_limit,
-            self.config.short_hard_limit,
-            self.config.soft_size_min_ratio,
-        )
-        gross_scale = smooth_scale(
-            gross_ratio,
-            self.config.gross_soft_limit,
-            self.config.gross_hard_limit,
-            self.config.soft_size_min_ratio,
-        )
-        bid_scale *= gross_scale
-        ask_scale *= gross_scale
+        scale = smooth_scale(ratio, self.config.soft_limit, self.config.hard_limit, self.config.soft_size_min_ratio)
+
+        # 多头仓位 → 压缩 bid（不想继续加多），空头仓位 → 压缩 ask
+        if self._net_position_usd > 0:
+            bid_scale = scale
+            ask_scale = 1.0
+        else:
+            bid_scale = 1.0
+            ask_scale = scale
 
         bid_qty = round_to_step(base_f * bid_scale)
         ask_qty = round_to_step(base_f * ask_scale)
         bid_reduce_only = False
         ask_reduce_only = False
 
-        if long_ratio >= self.config.one_side_only_limit:
-            bid_qty = Decimal("0")
-        if short_ratio >= self.config.one_side_only_limit:
-            ask_qty = Decimal("0")
+        # one_side_only：仓位过重时只挂平仓方向
+        if ratio >= self.config.one_side_only_limit:
+            if self._net_position_usd > 0:
+                bid_qty = Decimal("0")
+            else:
+                ask_qty = Decimal("0")
 
-        if getattr(self.config, "allow_reduce_only_rebalance", True):
-            if long_ratio >= self.config.long_hard_limit and self._long_qty > 0:
+        # hard limit：强制挂 reduce_only 平仓单
+        if getattr(self.config, "allow_reduce_only_rebalance", True) and ratio >= self.config.hard_limit:
+            if self._net_position_usd > 0 and self._position_qty > 0:
                 ask_qty = round_to_step(base_f)
                 ask_reduce_only = True
-            if short_ratio >= self.config.short_hard_limit and self._short_qty > 0:
+            elif self._net_position_usd < 0 and self._position_qty < 0:
                 bid_qty = round_to_step(base_f)
                 bid_reduce_only = True
 
@@ -1182,19 +1151,19 @@ class ActiveMarketMaker(BaseStrategy):
         return any(self._has_open_order(oid) for oid in itertools.chain(self._active_bid_ids, self._active_ask_ids))
 
     def _prune_inactive_quote_ids(self) -> None:
-        """将已不存在或已非 open 的订单 ID 置为 None，避免脏状态累积."""
+        """将已不存在、已非 open 或正在撤销中的订单 ID 置为 None，避免脏状态累积."""
         for i, oid in enumerate(self._active_bid_ids):
             if oid is None:
                 continue
             order = self.cache.order(oid)
-            if order is None or not order.is_open:
+            if order is None or not order.is_open or order.is_pending_cancel:
                 self._active_bid_ids[i] = None
 
         for i, oid in enumerate(self._active_ask_ids):
             if oid is None:
                 continue
             order = self.cache.order(oid)
-            if order is None or not order.is_open:
+            if order is None or not order.is_open or order.is_pending_cancel:
                 self._active_ask_ids[i] = None
 
     def _update_top_quote_state(self, bid_price: float, ask_price: float) -> None:
@@ -1278,21 +1247,6 @@ class ActiveMarketMaker(BaseStrategy):
         if total > 0:
             self.log.info(f"Requested cancel for {total} active quotes", color=LogColor.YELLOW)
 
-    def _make_hedge_position_id(self, side: OrderSide) -> PositionId | None:
-        """生成对冲仓位 ID.
-
-        Args:
-            side: 订单方向.
-
-        Returns:
-            PositionId | None: 对冲仓位 ID.
-        """
-        if not self.config.hedge_mode:
-            return None
-        instrument = str(self.config.instrument_id)
-        suffix = "LONG" if side == OrderSide.BUY else "SHORT"
-        return PositionId(f"{instrument}-{suffix}")
-
     def _submit_quote(self, side: OrderSide, price: float, qty: Decimal, *, reduce_only: bool = False) -> ClientOrderId | None:
         """提交报价,只返回 client_order_id,不修改 active 列表.
 
@@ -1319,7 +1273,6 @@ class ActiveMarketMaker(BaseStrategy):
             #  Binance Futures + post_only=True 时，adapter 会将 GTC 转为 GTX（Post-Only），订单正常显示在订单列表中，
             # 不再被 GTX 强制覆盖导致 GTD 失效。订单生命周期管理完全由策略已有的 _refresh_quotes drift 刷新逻辑承担（每 limit_ttl_ms *
             # order_refresh_ratio 触发一次检查）
-            position_id = self._make_hedge_position_id(side)
             order = self.order_factory.limit(
                 instrument_id=self.config.instrument_id,
                 order_side=side,
@@ -1329,7 +1282,7 @@ class ActiveMarketMaker(BaseStrategy):
                 post_only=self.config.post_only,
                 reduce_only=reduce_only,
             )
-            self.submit_order(order, position_id=position_id)
+            self.submit_order(order)
             return order.client_order_id
         except Exception as e:
             self.log.error(f"Failed to submit quote: {e}", color=LogColor.RED)
@@ -1536,12 +1489,10 @@ class ActiveMarketMaker(BaseStrategy):
             # 开了多 -> 挂平多 SELL reduce_only
             exit_price = fill_price + exit_ticks * tick
             side = OrderSide.SELL
-            position_id = PositionId(f"{self.config.instrument_id}-LONG")
         else:
             # 开了空 -> 挂平空 BUY reduce_only
             exit_price = fill_price - exit_ticks * tick
             side = OrderSide.BUY
-            position_id = PositionId(f"{self.config.instrument_id}-SHORT")
 
         try:
             price_obj = self.instrument.make_price(exit_price)
@@ -1556,7 +1507,7 @@ class ActiveMarketMaker(BaseStrategy):
                 reduce_only=True,
             )
 
-            self.submit_order(order, position_id=position_id)
+            self.submit_order(order)
 
             if side == OrderSide.BUY:
                 # 平空单：记到独立字段，不占做市报价槽
@@ -1947,12 +1898,8 @@ class ActiveMarketMaker(BaseStrategy):
     # 库存跟踪
     # ------------------------------------------------------------------
 
-    def _close_all_hedge_positions(self) -> None:
-        """关闭所有对冲仓位.
-
-        Args:
-            positions: 当前持有的仓位列表.
-        """
+    def _close_all_positions(self) -> None:
+        """市价单平掉所有持仓（单向持仓模式）."""
         positions = self.cache.positions_open(instrument_id=self.config.instrument_id)
         if self.instrument is None:
             return
@@ -1963,68 +1910,51 @@ class ActiveMarketMaker(BaseStrategy):
                     continue
                 qty_obj = self.instrument.make_qty(qty)
                 is_long = bool(getattr(pos, "is_long", False))
-
                 order_side = OrderSide.SELL if is_long else OrderSide.BUY
                 order = self.order_factory.market(
                     instrument_id=self.config.instrument_id,
                     order_side=order_side,
                     quantity=qty_obj,
                     reduce_only=True,
-                    position_id=pos.position_id,
                 )
                 self.submit_order(order)
             except Exception as e:
-                self.log.error(f"Failed to close hedge position {pos}: {e}", color=LogColor.RED)
+                self.log.error(f"Failed to close position {pos}: {e}", color=LogColor.RED)
 
     def _update_position_state(self) -> None:
-        """更新双向持仓 USD 状态."""
+        """更新持仓 USD 状态（单向净仓）."""
         positions = self.cache.positions_open(instrument_id=self.config.instrument_id)
-        long_usd = 0.0
-        short_usd = 0.0
-        long_qty = 0.0
-        short_qty = 0.0
+        net_usd = 0.0
+        net_qty = 0.0
 
         for pos in positions:
-            qty = abs(float(pos.quantity))
+            qty = float(pos.quantity)  # 正=多, 负=空
             price = float(pos.avg_px_open)
-            notional = qty * price
             if pos.is_long:
-                long_usd += notional
-                long_qty += qty
-
+                net_usd += abs(qty) * price
+                net_qty += qty
             elif pos.is_short:
-                short_usd += notional
-                short_qty += qty
+                net_usd -= abs(qty) * price
+                net_qty -= abs(qty)  # short qty 为负
 
-        self._long_position_usd = long_usd
-        self._short_position_usd = short_usd
-        self._gross_position_usd = long_usd + short_usd
-        self._net_position_usd = long_usd - short_usd
-        self._long_qty = long_qty
-        self._short_qty = short_qty
+        self._net_position_usd = net_usd
+        self._position_qty = net_qty
 
-        long_ratio = long_usd / max(self.config.max_long_position_usd, 1.0)
-        short_ratio = short_usd / max(self.config.max_short_position_usd, 1.0)
-        gross_ratio = self._gross_position_usd / max(self.config.max_gross_position_usd, 1.0)
-
+        ratio = abs(net_usd) / max(self.config.max_position_usd, 1.0)
         self.log.info(
-            "position_state "
-            f"long_usd={long_usd:.4f} short_usd={short_usd:.4f} "
-            f"gross_usd={self._gross_position_usd:.4f} net_usd={self._net_position_usd:.4f} "
-            f"long_ratio={long_ratio:.4f} short_ratio={short_ratio:.4f} gross_ratio={gross_ratio:.4f} "
-            f"open_positions={len(positions)}",
+            f"position_state net_usd={net_usd:.4f} net_qty={net_qty:.8f} ratio={ratio:.4f} open_positions={len(positions)}",
             color=LogColor.YELLOW,
         )
 
-        if gross_ratio >= self.config.kill_switch_limit and not self._kill_switch:
+        if ratio >= self.config.kill_switch_limit and not self._kill_switch:
             self._kill_switch = True
             self._cancel_all_quotes()
             self.log.error(
-                f"Kill switch activated: gross_ratio={gross_ratio:.2f} >= {self.config.kill_switch_limit}",
+                f"Kill switch activated: ratio={ratio:.2f} >= {self.config.kill_switch_limit}",
                 color=LogColor.RED,
             )
-            self._close_all_hedge_positions()
-        elif gross_ratio < self.config.gross_hard_limit and self._kill_switch:
+            self._close_all_positions()
+        elif ratio < self.config.hard_limit and self._kill_switch:
             self._kill_switch = False
             self.log.info("Kill switch reset", color=LogColor.GREEN)
 
@@ -2125,9 +2055,5 @@ class ActiveMarketMaker(BaseStrategy):
         self._prev_microprice = None
         # V5-US-005: 重置上一方向值
         self._last_dir_val = 0.0
-        self._long_position_usd = 0.0
-        self._short_position_usd = 0.0
-        self._gross_position_usd = 0.0
         self._net_position_usd = 0.0
-        self._long_qty = 0.0
-        self._short_qty = 0.0
+        self._position_qty = 0.0
