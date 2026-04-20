@@ -23,6 +23,7 @@ import itertools
 import math
 import statistics
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
@@ -46,6 +47,34 @@ from src.core.events import EventBus, SignalDirection
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class QuoteState:
+    """当前报价快照状态（以第一层 quote 为主）."""
+
+    quoted_mid: float | None = None
+    quoted_skew: float | None = None
+
+    bid_price: float | None = None
+    ask_price: float | None = None
+
+    bid_submit_time: datetime | None = None
+    ask_submit_time: datetime | None = None
+
+    bid_queue_on_submit: float | None = None
+    ask_queue_on_submit: float | None = None
+
+    def reset(self) -> None:
+        """重置为初始状态."""
+        self.quoted_mid = None
+        self.quoted_skew = None
+        self.bid_price = None
+        self.ask_price = None
+        self.bid_submit_time = None
+        self.ask_submit_time = None
+        self.bid_queue_on_submit = None
+        self.ask_queue_on_submit = None
 
 
 class MarketMakerConfig(BaseStrategyConfig, frozen=True):
@@ -80,20 +109,27 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
 
     # 库存控制（双向持仓 / Hedge Mode）
     hedge_mode: bool = True
-    max_position_usd: float = 1000.0  # 兼容旧逻辑 / 日志
+
+    # 单边与总仓位预算（USD notional）
     max_long_position_usd: float = 1000.0
     max_short_position_usd: float = 1000.0
     max_gross_position_usd: float = 1600.0
-    soft_inventory_limit: float = 0.30  # 兼容旧逻辑
-    hard_inventory_limit: float = 0.70  # 兼容旧逻辑
+
+    # 单边库存分级
     long_soft_limit: float = 0.30
     long_hard_limit: float = 0.70
     short_soft_limit: float = 0.30
     short_hard_limit: float = 0.70
+
+    # 总库存分级
     gross_soft_limit: float = 0.50
     gross_hard_limit: float = 0.85
-    soft_size_min_ratio: float = 0.3
-    kill_switch_limit: float = 1.2
+
+    # 缩量下限
+    soft_size_min_ratio: float = 0.30
+
+    # 熔断阈值（gross_ratio >= kill_switch_limit）
+    kill_switch_limit: float = 1.20
 
     # 订单生命周期
     limit_ttl_ms: int = 8000
@@ -187,6 +223,8 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     # V5-US-005: 非对称分层报价
     asymmetric_layers: bool = True
 
+    allow_reduce_only_rebalance: bool = True
+
 
 class ActiveMarketMaker(BaseStrategy):
     """主动做市商策略."""
@@ -205,6 +243,8 @@ class ActiveMarketMaker(BaseStrategy):
         # 确保 ATR已创建，用于动态价差
         self._ensure_atr_indicator()
 
+        # 报价状态
+        self._quote_state = QuoteState()
         # L2 不平衡状态
         self._smooth_imbalance: float = 0.0  # 范围 [-1, 1]
 
@@ -225,9 +265,9 @@ class ActiveMarketMaker(BaseStrategy):
         self._active_bid_ids: list[ClientOrderId | None] = []
         self._active_ask_ids: list[ClientOrderId | None] = []
 
-        # 漂移阈值状态
-        self._quoted_mid: float | None = None
-        self._quoted_skew: float | None = None
+        # 平仓单 ID — 独立于做市报价，停止时才撤销
+        self._close_long_order_ids: list[ClientOrderId | None] = []  # SELL reduce_only 平多
+        self._close_short_order_ids: list[ClientOrderId | None] = []  # BUY  reduce_only 平空
 
         # 成交冷却状态
         self._last_fill_ts: datetime | None = None
@@ -239,10 +279,6 @@ class ActiveMarketMaker(BaseStrategy):
         self._last_fill_price: float | None = None
         self._last_fill_side: str | None = None  # "BUY" 或 "SELL"
         self._adverse_cooldown_until: datetime | None = None
-
-        # US-003: 订单队列感知
-        self._bid_submit_time: datetime | None = None
-        self._ask_submit_time: datetime | None = None
 
         # US-004: 三角洲驱动报价
         self._last_delta_quote_ts: datetime | None = None
@@ -268,17 +304,11 @@ class ActiveMarketMaker(BaseStrategy):
         self._agg_buy_vol: float = 0.0
         self._agg_sell_vol: float = 0.0
 
-        # V3-US-003: 交易前逆向撤单
-        self._quoted_bid_price: float | None = None
-        self._quoted_ask_price: float | None = None
-
         # V4-US-001: 队列位置
         self._last_best_bid_size: float | None = None
         self._last_best_ask_size: float | None = None
 
         # V4-US-001: 队列位置快照
-        self._bid_queue_on_submit: float | None = None
-        self._ask_queue_on_submit: float | None = None
         self._queue_traded_volume: float = 0.0
 
         # V4-US-002: 有毒流
@@ -370,7 +400,8 @@ class ActiveMarketMaker(BaseStrategy):
 
     def _calc_queue_fill_prob(self, side: str) -> float:
         """下单后的队列消耗估算成交概率：traded_volume / initial_queue."""
-        initial = self._bid_queue_on_submit if side == "BUY" else self._ask_queue_on_submit
+        qs = self._quote_state
+        initial = qs.bid_queue_on_submit if side == "BUY" else qs.ask_queue_on_submit
         if initial is None or initial <= 0:
             return 1.0
         return min(self._queue_traded_volume / initial, 1.0)
@@ -451,24 +482,25 @@ class ActiveMarketMaker(BaseStrategy):
             return
 
         # 最优卖价接近我方买价 → 价格即将向下穿越 → 撤买单
-        if self._quoted_bid_price is not None and ba <= self._quoted_bid_price + threshold and self._active_bid_ids:
+        qs = self._quote_state
+        if qs.bid_price is not None and ba <= qs.bid_price + threshold and self._active_bid_ids:
             bid_id = self._active_bid_ids[0]
             if bid_id is not None:
                 order = self.cache.order(bid_id)
                 if order is not None and order.is_open:
                     self.cancel_order(order)
                 self._active_bid_ids[0] = None
-                self._quoted_bid_price = None
+                self._clear_bid_quote_state()
 
         # 最优买价接近我方卖价 → 价格即将向上穿越 → 撤卖单
-        if self._quoted_ask_price is not None and bb >= self._quoted_ask_price - threshold and self._active_ask_ids:
+        if qs.ask_price is not None and bb >= qs.ask_price - threshold and self._active_ask_ids:
             ask_id = self._active_ask_ids[0]
             if ask_id is not None:
                 order = self.cache.order(ask_id)
                 if order is not None and order.is_open:
                     self.cancel_order(order)
                 self._active_ask_ids[0] = None
-                self._quoted_ask_price = None
+                self._clear_ask_quote_state()
 
     # ------------------------------------------------------------------
     # L2 不平衡
@@ -1091,7 +1123,9 @@ class ActiveMarketMaker(BaseStrategy):
         """
         if not self._active_bid_ids and not self._active_ask_ids:
             return
-        if self._active_bid_id is None and self._active_ask_id is None:
+        has_top_bid = bool(self._active_bid_ids and self._active_bid_ids[0] is not None)
+        has_top_ask = bool(self._active_ask_ids and self._active_ask_ids[0] is not None)
+        if not has_top_bid and not has_top_ask:
             return
 
         now = self._utc_now()
@@ -1102,24 +1136,35 @@ class ActiveMarketMaker(BaseStrategy):
         optimal_bid, optimal_ask, _ = self._calc_quote_prices(mid, dir_val)
 
         # 检查买单
-        if self._bid_submit_time is not None and self._active_bid_id is not None and (now - self._bid_submit_time) > refresh_threshold:
-            order = self.cache.order(self._active_bid_id)
+        qs = self._quote_state
+        if (
+            qs.bid_submit_time is not None
+            and self._active_bid_ids
+            and self._active_bid_ids[0] is not None
+            and (now - qs.bid_submit_time) > refresh_threshold
+        ):
+            order = self.cache.order(self._active_bid_ids[0])
             if order is not None and order.is_open:
                 current_price = float(order.price)
                 if current_price < optimal_bid:
                     self.cancel_order(order)
-                    self._active_bid_id = None
-                    self._bid_submit_time = None
+                    self._active_bid_ids[0] = None
+                    self._clear_bid_quote_state()
 
         # 检查卖单
-        if self._ask_submit_time is not None and self._active_ask_id is not None and (now - self._ask_submit_time) > refresh_threshold:
-            order = self.cache.order(self._active_ask_id)
+        if (
+            qs.ask_submit_time is not None
+            and self._active_ask_ids
+            and self._active_ask_ids[0] is not None
+            and (now - qs.ask_submit_time) > refresh_threshold
+        ):
+            order = self.cache.order(self._active_ask_ids[0])
             if order is not None and order.is_open:
                 current_price = float(order.price)
                 if current_price > optimal_ask:
                     self.cancel_order(order)
-                    self._active_ask_id = None
-                    self._ask_submit_time = None
+                    self._active_ask_ids[0] = None
+                    self._clear_ask_quote_state()
 
     # ------------------------------------------------------------------
     # 订单生命周期
@@ -1152,6 +1197,42 @@ class ActiveMarketMaker(BaseStrategy):
             if order is None or not order.is_open:
                 self._active_ask_ids[i] = None
 
+    def _update_top_quote_state(self, bid_price: float, ask_price: float) -> None:
+        """根据当前 active ids 更新第一层报价状态.
+
+        Args:
+            bid_price: 最新的 bid 价格
+            ask_price: 最新的 ask 价格
+        """
+        qs = self._quote_state
+        if self._active_bid_ids and self._active_bid_ids[0] is not None:
+            qs.bid_queue_on_submit = self._estimate_queue_ahead("BUY")
+            qs.bid_submit_time = self._utc_now()
+            qs.bid_price = bid_price
+        else:
+            self._clear_bid_quote_state()
+
+        if self._active_ask_ids and self._active_ask_ids[0] is not None:
+            qs.ask_queue_on_submit = self._estimate_queue_ahead("SELL")
+            qs.ask_submit_time = self._utc_now()
+            qs.ask_price = ask_price
+        else:
+            self._clear_ask_quote_state()
+
+    def _clear_bid_quote_state(self) -> None:
+        """清除 bid 报价状态."""
+        qs = self._quote_state
+        qs.bid_price = None
+        qs.bid_submit_time = None
+        qs.bid_queue_on_submit = None
+
+    def _clear_ask_quote_state(self) -> None:
+        """清除 ask 报价状态."""
+        qs = self._quote_state
+        qs.ask_price = None
+        qs.ask_submit_time = None
+        qs.ask_queue_on_submit = None
+
     def _cancel_all_quotes(self) -> None:
         """请求撤销当前所有双边挂单.
 
@@ -1159,34 +1240,40 @@ class ActiveMarketMaker(BaseStrategy):
         - 撤单是异步的，不能在这里立刻清空 _active_bid_ids/_active_ask_ids
         - 真正的状态收敛依赖 on_order_canceled / prune
         """
+        self._cancel_quotes(OrderSide.BUY)
+        self._cancel_quotes(OrderSide.SELL)
+        # 重置状态
+        self._quote_state.quoted_mid = None
+        self._quote_state.quoted_skew = None
+
+    def _cancel_quotes(self, side: OrderSide) -> None:
+        """撤销所有 bid 或 ask 报价.
+
+        Args:
+            side: 要撤销的订单方向（bid 或 ask）
+        """
         self._prune_inactive_quote_ids()
-
         total = 0
-
-        for oid in self._active_bid_ids + self._active_ask_ids:
+        active_ids = self._active_bid_ids if side == OrderSide.BUY else self._active_ask_ids
+        side_str = "bid" if side == OrderSide.BUY else "ask"
+        for _i, oid in enumerate(active_ids):
             if oid is None:
                 continue
-
             order = self.cache.order(oid)
             if order is None:
                 continue
-
             if order.is_open:
                 try:
                     self.cancel_order(order)
                     total += 1
-                    self.log.info(f"Cancel quote requested: client_order_id={oid}", color=LogColor.YELLOW)
+                    self.log.info(f"Cancel {side_str} quote requested: client_order_id={oid}", color=LogColor.YELLOW)
                 except Exception as e:
-                    self.log.error(f"Failed to cancel quote {oid}: {e}", color=LogColor.RED)
+                    self.log.error(f"Failed to cancel {side_str} quote {oid}: {e}", color=LogColor.RED)
 
-        self._quoted_mid = None
-        self._quoted_skew = None
-        # US-003: 重置提交时间
-        self._bid_submit_time = None
-        self._ask_submit_time = None
-        # V3-US-003: 重置报价价格
-        self._quoted_bid_price = None
-        self._quoted_ask_price = None
+        if side == OrderSide.BUY:
+            self._clear_bid_quote_state()
+        else:
+            self._clear_ask_quote_state()
 
         if total > 0:
             self.log.info(f"Requested cancel for {total} active quotes", color=LogColor.YELLOW)
@@ -1207,7 +1294,7 @@ class ActiveMarketMaker(BaseStrategy):
         return PositionId(f"{instrument}-{suffix}")
 
     def _submit_quote(self, side: OrderSide, price: float, qty: Decimal, *, reduce_only: bool = False) -> ClientOrderId | None:
-        """提交报价.
+        """提交报价,只返回 client_order_id,不修改 active 列表.
 
         Args:
             side: 订单方向.
@@ -1242,16 +1329,28 @@ class ActiveMarketMaker(BaseStrategy):
                 post_only=self.config.post_only,
                 reduce_only=reduce_only,
             )
-
             self.submit_order(order, position_id=position_id)
-            if side == OrderSide.BUY:
-                self._bid_queue_on_submit = self._estimate_queue_ahead("BUY")
-            elif side == OrderSide.SELL:
-                self._ask_queue_on_submit = self._estimate_queue_ahead("SELL")
             return order.client_order_id
         except Exception as e:
-            self.log.error(f"Failed to submit quote: {e}")
+            self.log.error(f"Failed to submit quote: {e}", color=LogColor.RED)
             return None
+
+    def _submit_single_level_quotes(
+        self,
+        bid_price: float,
+        ask_price: float,
+        bid_qty: Decimal,
+        ask_qty: Decimal,
+        *,
+        bid_reduce_only: bool = False,
+        ask_reduce_only: bool = False,
+    ) -> None:
+        """提交单层双边报价."""
+        bid_id = self._submit_quote(OrderSide.BUY, bid_price, bid_qty, reduce_only=bid_reduce_only)
+        ask_id = self._submit_quote(OrderSide.SELL, ask_price, ask_qty, reduce_only=ask_reduce_only)
+        self._active_bid_ids = [bid_id]
+        self._active_ask_ids = [ask_id]
+        self._update_top_quote_state(bid_price, ask_price)
 
     def _submit_layered_quotes(
         self,
@@ -1263,7 +1362,7 @@ class ActiveMarketMaker(BaseStrategy):
         bid_reduce_only: bool = False,
         ask_reduce_only: bool = False,
     ) -> None:
-        """在多个价格档位提交分层报价（US-006）.
+        """提供分层报价，在多个价格档位提交分层报价.
 
         Args:
             bid_price: 第 0 层 bid 价格.
@@ -1277,13 +1376,14 @@ class ActiveMarketMaker(BaseStrategy):
         if self.instrument is not None:
             tick = float(self.instrument.price_increment)
 
-        self._active_bid_ids = []
-        self._active_ask_ids = []
-
-        inv = self._inventory_snapshot()
+        inv = self._inventory_snapshot()  # 库存快照
         long_ratio = inv["long_ratio"]
         short_ratio = inv["short_ratio"]
 
+        bid_ids: list[ClientOrderId | None] = []
+        ask_ids: list[ClientOrderId | None] = []
+
+        # 分层报价
         for i in range(self.config.quote_layers):
             decay = Decimal(str(self.config.layer_size_decay**i))
             step_offset = i * self.config.layer_spread_step_ticks * tick
@@ -1293,34 +1393,27 @@ class ActiveMarketMaker(BaseStrategy):
             layer_bid_qty = Decimal(str(float(bid_qty) * float(decay)))
             layer_ask_qty = Decimal(str(float(ask_qty) * float(decay)))
 
-            # V3-US-005: 深层报价库存过滤——高库存时跳过同向深层
+            # 深层报价库存过滤——高库存时跳过同向深层
             if i > 0:
                 if long_ratio > self.config.deeper_layer_inv_threshold:
                     layer_bid_qty = Decimal("0")
                 if short_ratio > self.config.deeper_layer_inv_threshold:
                     layer_ask_qty = Decimal("0")
-
-            # V5-US-005: 非对称分层——逆方向只铺 1 层
+            # 非对称分层——逆方向只铺 1 层
             if self.config.asymmetric_layers and i > 0:
                 if self._last_dir_val > 0:
                     layer_ask_qty = Decimal("0")
                 elif self._last_dir_val < 0:
                     layer_bid_qty = Decimal("0")
+            bid_id = self._submit_quote(OrderSide.BUY, layer_bid_price, layer_bid_qty, reduce_only=bid_reduce_only)
+            ask_id = self._submit_quote(OrderSide.SELL, layer_ask_price, layer_ask_qty, reduce_only=ask_reduce_only)
+            bid_ids.append(bid_id)
+            ask_ids.append(ask_id)
 
-            bid_id = self._submit_quote(
-                OrderSide.BUY,
-                layer_bid_price,
-                layer_bid_qty,
-                reduce_only=bid_reduce_only,
-            )
-            ask_id = self._submit_quote(
-                OrderSide.SELL,
-                layer_ask_price,
-                layer_ask_qty,
-                reduce_only=ask_reduce_only,
-            )
-            self._active_bid_ids.append(bid_id)
-            self._active_ask_ids.append(ask_id)
+        self._active_bid_ids = bid_ids
+        self._active_ask_ids = ask_ids
+        # 第一层提交时记录队列快照和提交时间
+        self._update_top_quote_state(bid_price, ask_price)
 
     def _refresh_quotes(
         self,
@@ -1347,61 +1440,40 @@ class ActiveMarketMaker(BaseStrategy):
             ask_reduce_only: 卖一数量是否为 reduce_only.
         """
         self._prune_inactive_quote_ids()
-
-        if self._quoted_mid is not None and self._quoted_skew is not None:
+        qs = self._quote_state
+        # 1) 若当前报价仍有效且漂移不足，则不刷新
+        if qs.quoted_mid is not None and qs.quoted_skew is not None:
             tick = 1.0
             if self.instrument is not None:
                 tick = float(self.instrument.price_increment)
 
-            mid_drift = abs(mid - self._quoted_mid)
-            skew_drift = abs(current_skew - self._quoted_skew)
+            mid_drift = abs(mid - qs.quoted_mid)
+            skew_drift = abs(current_skew - qs.quoted_skew)
 
             has_missing = any(x is None for x in self._active_bid_ids) or any(x is None for x in self._active_ask_ids)
 
             if not has_missing and mid_drift <= self.config.drift_ticks * tick and skew_drift <= self.config.skew_drift_ticks * tick:
                 return
 
-        # 如果还有旧挂单活着，先请求撤单，等下一轮再挂新单
+        # 如果还有旧挂单活着，先撤旧单，不在同一轮立刻重挂
         if self._has_active_quotes():
             self._cancel_all_quotes()
             return
 
         if self._quote_suspended:
             return
-
-        if self.config.quote_layers > 1:
+        # 4) 提交新报价
+        if self.config.quote_layers > 1:  # 使用分层报价
             self._submit_layered_quotes(
-                bid_price,
-                ask_price,
-                bid_qty,
-                ask_qty,
-                bid_reduce_only=bid_reduce_only,
-                ask_reduce_only=ask_reduce_only,
+                bid_price, ask_price, bid_qty, ask_qty, bid_reduce_only=bid_reduce_only, ask_reduce_only=ask_reduce_only
             )
-        else:
-            self._active_bid_id = self._submit_quote(
-                OrderSide.BUY,
-                bid_price,
-                bid_qty,
-                reduce_only=bid_reduce_only,
-            )
-            self._active_ask_id = self._submit_quote(
-                OrderSide.SELL,
-                ask_price,
-                ask_qty,
-                reduce_only=ask_reduce_only,
+        else:  # 单层报价
+            self._submit_single_level_quotes(
+                bid_price, ask_price, bid_qty, ask_qty, bid_reduce_only=bid_reduce_only, ask_reduce_only=ask_reduce_only
             )
 
-        self._quoted_mid = mid
-        self._quoted_skew = current_skew
-
-        self._bid_submit_time = self._utc_now() if self._active_bid_id else None
-        self._ask_submit_time = self._utc_now() if self._active_ask_id else None
-
-        if self._active_bid_ids and self._active_bid_ids[0]:
-            self._quoted_bid_price = bid_price
-        if self._active_ask_ids and self._active_ask_ids[0]:
-            self._quoted_ask_price = ask_price
+        qs.quoted_mid = mid
+        qs.quoted_skew = current_skew
 
     def on_order_canceled(self, event: OrderCanceled) -> None:
         """订单撤销事件处理.
@@ -1411,15 +1483,32 @@ class ActiveMarketMaker(BaseStrategy):
         """
         oid = event.client_order_id
 
+        # 平仓单撤销
+        for i, close_long_id in enumerate(self._close_long_order_ids):
+            if oid == close_long_id:
+                self._close_long_order_ids[i] = None
+                self.log.info(f"Close-long order canceled: client_order_id={oid}", color=LogColor.YELLOW)
+                return
+        # 平仓单撤销
+        for i, close_short_id in enumerate(self._close_short_order_ids):
+            if oid == close_short_id:
+                self._close_short_order_ids[i] = None
+                self.log.info(f"Close-short order canceled: client_order_id={oid}", color=LogColor.YELLOW)
+                return
+        # 做市报价单撤销
         for i, bid_id in enumerate(self._active_bid_ids):
             if oid == bid_id:
                 self._active_bid_ids[i] = None
+                if i == 0:
+                    self._clear_bid_quote_state()
                 self.log.info(f"Bid quote canceled: client_order_id={oid}", color=LogColor.YELLOW)
                 return
-
+        # 做市报价单撤销
         for i, ask_id in enumerate(self._active_ask_ids):
             if oid == ask_id:
                 self._active_ask_ids[i] = None
+                if i == 0:
+                    self._clear_ask_quote_state()
                 self.log.info(f"Ask quote canceled: client_order_id={oid}", color=LogColor.YELLOW)
                 return
 
@@ -1436,7 +1525,7 @@ class ActiveMarketMaker(BaseStrategy):
         if tick <= 0:
             tick = 1.0
 
-        qty = self.instrument.make_qty(fill_qty)
+        qty = self.instrument.make_qty(fill_qty)  # 成交数量
         if qty.as_decimal() <= 0:
             return
 
@@ -1457,15 +1546,12 @@ class ActiveMarketMaker(BaseStrategy):
         try:
             price_obj = self.instrument.make_price(exit_price)
 
-            expire_time = self._utc_now() + timedelta(milliseconds=self.config.limit_ttl_ms)
-
             order = self.order_factory.limit(
                 instrument_id=self.config.instrument_id,
                 order_side=side,
                 quantity=qty,
                 price=price_obj,
-                time_in_force=TimeInForce.GTD,
-                expire_time=expire_time,
+                time_in_force=TimeInForce.GTC,
                 post_only=self.config.post_only,
                 reduce_only=True,
             )
@@ -1473,13 +1559,11 @@ class ActiveMarketMaker(BaseStrategy):
             self.submit_order(order, position_id=position_id)
 
             if side == OrderSide.BUY:
-                self._active_bid_id = order.client_order_id
-                self._quoted_bid_price = exit_price
-                self._bid_submit_time = self._utc_now()
+                # 平空单：记到独立字段，不占做市报价槽
+                self._close_short_order_ids.append(order.client_order_id)
             else:
-                self._active_ask_id = order.client_order_id
-                self._quoted_ask_price = exit_price
-                self._ask_submit_time = self._utc_now()
+                # 平多单：记到独立字段，不占做市报价槽
+                self._close_long_order_ids.append(order.client_order_id)
 
             self.log.info(
                 f"Submitted reduce-only rebalance quote: side={side} px={exit_price:.8f} qty={fill_qty:.8f}",
@@ -1502,13 +1586,25 @@ class ActiveMarketMaker(BaseStrategy):
         self._last_fill_price = fill_price  # 最近成交价格
         self._last_fill_side = fill_side  # 最近成交方向
 
-        self.log.info(
-            f"Order filled: side={fill_side} qty={fill_qty:.8f} px={fill_price:.8f}, canceling all quotes",
-            color=LogColor.YELLOW,
-        )
-        # 成交后立即挂 reduce-only 平仓单
+        # 平仓单成交,清理对应字段
+        for i, close_long_id in enumerate(self._close_long_order_ids):
+            if event.client_order_id == close_long_id:
+                del self._close_long_order_ids[i]
+                self.log.info(f"Close-long order filled: client_order_id={event.client_order_id}", color=LogColor.YELLOW)
+                return
+        for i, close_short_id in enumerate(self._close_short_order_ids):
+            if event.client_order_id == close_short_id:
+                del self._close_short_order_ids[i]
+                self.log.info(f"Close-short order filled: client_order_id={event.client_order_id}", color=LogColor.YELLOW)
+                return
+        # 取消同方向订单
+        self.log.info(f"Order filled: side={fill_side} qty={fill_qty:.8f} px={fill_price:.8f}", color=LogColor.YELLOW)
+        self._cancel_quotes(event.order_side)
+        msg = "Bid" if event.order_side == OrderSide.BUY else "Ask"
+        self.log.info(f"{msg} quotes canceled after {fill_side} fill", color=LogColor.YELLOW)
+
         self._submit_take_profit_rebalance_quote(
-            filled_side=fill_side,
+            filled_side=event.order_side,
             fill_price=fill_price,
             fill_qty=fill_qty,
         )
@@ -1622,14 +1718,15 @@ class ActiveMarketMaker(BaseStrategy):
             if order is not None and order.is_open:
                 self.cancel_order(order)
             self._active_bid_ids[0] = None
-            self._quoted_bid_price = None
+            self._clear_bid_quote_state()
+
         if self._active_ask_ids and self._active_ask_ids[0] is not None and self._calc_queue_fill_prob("SELL") < threshold:
             ask_id = self._active_ask_ids[0]
             order = self.cache.order(ask_id)
             if order is not None and order.is_open:
                 self.cancel_order(order)
             self._active_ask_ids[0] = None
-            self._quoted_ask_price = None
+            self._clear_ask_quote_state()
 
     # ------------------------------------------------------------------
     # V5-US-004: 有毒流预防性撤单
@@ -1652,7 +1749,7 @@ class ActiveMarketMaker(BaseStrategy):
             if order is not None and order.is_open:
                 self.cancel_order(order)
             self._active_bid_ids[0] = None
-            self._quoted_bid_price = None
+            self._clear_bid_quote_state()
 
         # 微价格急涨 → 撤卖单
         if instant_drift > threshold and self._active_ask_ids and self._active_ask_ids[0] is not None:
@@ -1661,7 +1758,7 @@ class ActiveMarketMaker(BaseStrategy):
             if order is not None and order.is_open:
                 self.cancel_order(order)
             self._active_ask_ids[0] = None
-            self._quoted_ask_price = None
+            self._clear_ask_quote_state()
 
     # ------------------------------------------------------------------
     # 主循环
@@ -1867,7 +1964,7 @@ class ActiveMarketMaker(BaseStrategy):
                 qty_obj = self.instrument.make_qty(qty)
                 is_long = bool(getattr(pos, "is_long", False))
 
-                order_side = OrderSide.SELL if is_long else OrderSide.BUY  #! 做空或平多,未确定是否正确
+                order_side = OrderSide.SELL if is_long else OrderSide.BUY
                 order = self.order_factory.market(
                     instrument_id=self.config.instrument_id,
                     order_side=order_side,
@@ -1965,6 +2062,12 @@ class ActiveMarketMaker(BaseStrategy):
     def on_stop(self) -> None:
         """停止策略时撤销所有挂单."""
         self._cancel_all_quotes()
+        # 停止时撤销平仓单
+        for close_oid in itertools.chain(self._close_long_order_ids, self._close_short_order_ids):
+            if close_oid is not None:
+                order = self.cache.order(close_oid)
+                if order is not None and order.is_open:
+                    self.cancel_order(order)
         super().on_stop()
 
     def on_reset(self) -> None:
@@ -1972,6 +2075,7 @@ class ActiveMarketMaker(BaseStrategy):
         super().on_reset()
         self._fast_ema.reset()
         self._slow_ema.reset()
+        self._quote_state.reset()
         if self._atr_indicator is not None:
             self._atr_indicator.reset()
         self._smooth_imbalance = 0.0
@@ -1980,17 +2084,14 @@ class ActiveMarketMaker(BaseStrategy):
         self._pending_requote_ts = None
         self._active_bid_ids = []
         self._active_ask_ids = []
-        self._quoted_mid = None
-        self._quoted_skew = None
+        self._close_long_order_ids = []
+        self._close_short_order_ids = []
         self._last_fill_ts = None
         self._kill_switch = False
         # US-002: 重置逆向选择状态
         self._last_fill_price = None
         self._last_fill_side = None
         self._adverse_cooldown_until = None
-        # US-003: 重置提交时间
-        self._bid_submit_time = None
-        self._ask_submit_time = None
         # US-004: 重置 三角洲报价状态
         self._last_base_qty = None
         self._last_delta_quote_ts = None
@@ -2009,14 +2110,11 @@ class ActiveMarketMaker(BaseStrategy):
         # V3-US-002: 重置成交流
         self._agg_buy_vol = 0.0
         self._agg_sell_vol = 0.0
-        # V3-US-003: 重置报价价格
-        self._quoted_bid_price = None
-        self._quoted_ask_price = None
+
         # V4-US-001: 重置队列位置
         self._last_best_bid_size = None
         self._last_best_ask_size = None
-        self._bid_queue_on_submit = None
-        self._ask_queue_on_submit = None
+
         self._queue_traded_volume = 0.0
         # V4-US-002: 重置有毒流
         self._toxic_flow_score = 0.0
