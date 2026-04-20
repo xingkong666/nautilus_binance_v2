@@ -29,16 +29,25 @@ strategy:
         inv_tanh_scale: 2.0
         ask_inv_weight: 1.2
 
-        # 库存（3000U 账户中，本策略净库存预算约 1000U）
-        max_position_usd: 300.0
-        soft_inventory_limit: 0.30 # 约 30U 开始缩量/偏价
-        hard_inventory_limit: 0.70 # 约 70U 停止同向加仓
-        one_side_only_limit: 0.70 # 与 hard limit 对齐，只允许减仓方向
-        soft_size_min_ratio: 0.3
-        kill_switch_limit: 1.2 # 约 120U 触发 kill switch
+        # 库存 管理
+        max_long_position_usd: 1000.0
+        max_short_position_usd: 1000.0
+        max_gross_position_usd: 1600.0
+
+        long_soft_limit: 0.30
+        long_hard_limit: 0.70
+        short_soft_limit: 0.30
+        short_hard_limit: 0.70
+
+        gross_soft_limit: 0.50
+        gross_hard_limit: 0.85
+
+        one_side_only_limit: 0.70
+        soft_size_min_ratio: 0.30
+        kill_switch_limit: 1.20
 
         # 订单生命周期
-        limit_ttl_ms: 50000
+        limit_ttl_ms: 120000
         post_only: true
         refresh_every_bar: true
         drift_ticks: 2
@@ -48,13 +57,13 @@ strategy:
         # 不平衡死区
         dead_zone_threshold: 0.1
 
-        # sizing（1500U 账户 * 1% ≈ 每边报价 30U；兜底 trade_size 保证名义 > $5）
-        capital_pct_per_trade: 1
-        trade_size: "0.06"  # fallback: 0.06 SOL ≈ $5.3，满足 Binance 最低名义价值 $5
+        # sizing （3100U 账户 * 1.5% ≈ 每边报价 45U；兜底 trade_size 保证名义 > $5）
+        capital_pct_per_trade: 1.5
+        trade_size: "0.06" # fallback: 0.06 SOL ≈ $5.3，满足 Binance 最低名义价值 $5
 
         # ATR（用于动态 spread）
         atr_period: 14
-        atr_sl_multiplier: null  # 做市商依靠库存控制(hard_limit/kill_switch)和PnL熔断管理风险，不用ATR止损
+        atr_sl_multiplier: null # 做市商依靠库存控制(hard_limit/kill_switch)和PnL熔断管理风险，不用ATR止损
 
         # US-001：微价
         use_microprice: true
