@@ -1458,6 +1458,34 @@ class ActiveMarketMaker(BaseStrategy):
                 self.log.info(f"Ask quote canceled: client_order_id={oid}", color=LogColor.YELLOW)
                 return
 
+    def _resolve_tp_ref_price(self, abs_qty: float, net_qty: float) -> float:
+        """解析 TP 单参考价：microprice > orderbook mid > 开仓均价（成本价）.
+
+        Args:
+            abs_qty: 净仓位绝对值（合约数量）.
+            net_qty: 净仓位（正=多头, 负=空头），用于 warning 日志.
+
+        Returns:
+            参考价；无法获取时返回 0.0.
+        """
+        if self._last_microprice is not None and self._last_microprice > 0:
+            return self._last_microprice
+        try:
+            ob = self.cache.order_book(self.config.instrument_id)
+            if ob is not None:
+                bb = ob.best_bid_price()
+                ba = ob.best_ask_price()
+                if bb is not None and ba is not None:
+                    return (float(bb) + float(ba)) / 2.0
+        except Exception:
+            pass
+        cost_price = (abs(self._net_position_usd) / abs_qty) if abs_qty > 0 else 0.0
+        self.log.warning(
+            f"Net TP using cost-basis price as ref (microprice/orderbook unavailable): cost_px={cost_price:.8f} net_qty={net_qty:.8f}",
+            color=LogColor.YELLOW,
+        )
+        return cost_price
+
     def _sync_net_tp_order(self) -> None:
         """根据当前净仓位重新计算并挂聚合 reduce_only TP 单.
 
@@ -1465,10 +1493,12 @@ class ActiveMarketMaker(BaseStrategy):
         BUY 净多头 → SELL reduce_only（平多）
         SELL 净空头 → BUY reduce_only（平空）
         """
-        # 撤旧 TP
+        # 撤旧 TP（cancel 是异步的，旧单可能尚未确认撤销就提交新单；
+        # 交易所在单向持仓下会自动拒绝超额 reduce_only，风险可控）
         if self._net_tp_order_id is not None:
             old_order = self.cache.order(self._net_tp_order_id)
             if old_order is not None and old_order.is_open:
+                self.log.debug(f"Canceling stale net TP before sync: client_order_id={self._net_tp_order_id}")
                 self.cancel_order(old_order)
             self._net_tp_order_id = None
 
@@ -1486,14 +1516,17 @@ class ActiveMarketMaker(BaseStrategy):
 
         exit_ticks = max(float(self.config.min_spread_ticks), float(self.config.base_spread_ticks))
 
+        ref_price = self._resolve_tp_ref_price(abs_qty, net_qty)
+        if ref_price <= 0:
+            self.log.warning("Net TP skipped: ref_price is zero or negative", color=LogColor.YELLOW)
+            return
+
         if net_qty > 0:
             # 净多头 → SELL reduce_only
-            ref_price = self._last_microprice or (self._net_position_usd / abs_qty if abs_qty > 0 else 0.0)
             exit_price = ref_price + exit_ticks * tick
             side = OrderSide.SELL
         else:
             # 净空头 → BUY reduce_only
-            ref_price = self._last_microprice or (abs(self._net_position_usd) / abs_qty if abs_qty > 0 else 0.0)
             exit_price = ref_price - exit_ticks * tick
             side = OrderSide.BUY
 
@@ -1536,6 +1569,14 @@ class ActiveMarketMaker(BaseStrategy):
         fill_side = "BUY" if event.order_side == OrderSide.BUY else "SELL"
         self._last_fill_price = fill_price  # 最近成交价格
         self._last_fill_side = fill_side  # 最近成交方向
+
+        # 聚合 TP 单成交 → 清字段并返回（仓位事件会触发 _sync_net_tp_order 重建）
+        # 注意：依赖 NautilusTrader 保证 OrderFilled 先于 PositionChanged 触发，
+        # 使得此处清空 _net_tp_order_id 后，后续 _sync_net_tp_order 不会重复撤单。
+        if event.client_order_id == self._net_tp_order_id:
+            self._net_tp_order_id = None
+            self.log.info(f"Net TP filled: client_order_id={event.client_order_id}", color=LogColor.GREEN)
+            return
 
         # 取消同方向订单
         self.log.info(f"Order filled: side={fill_side} qty={fill_qty:.8f} px={fill_price:.8f}", color=LogColor.YELLOW)
