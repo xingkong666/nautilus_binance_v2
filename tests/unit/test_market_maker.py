@@ -12,7 +12,7 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
 from src.core.events import SignalDirection
-from src.strategy.market_maker import ActiveMarketMaker, MarketMakerConfig
+from src.strategy.market import ActiveMarketMaker, MarketMakerConfig
 
 INSTRUMENT_ID = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
 BAR_TYPE = BarType.from_str("BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")

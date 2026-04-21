@@ -1,8 +1,4 @@
-"""主动做市商策略兼容导入模块.
-
-实际实现已迁移到 :mod:`src.strategy.market.market_maker`。
-保留此模块以兼容旧的导入路径和外部配置。
-"""
+"""市场微结构策略包."""
 
 from __future__ import annotations
 
