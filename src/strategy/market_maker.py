@@ -249,15 +249,14 @@ class ActiveMarketMaker(BaseStrategy):
         self._active_bid_ids: list[ClientOrderId | None] = []
         self._active_ask_ids: list[ClientOrderId | None] = []
 
-        # 平仓单 ID — 独立于做市报价，停止时才撤销
-        self._close_long_order_ids: list[ClientOrderId | None] = []  # SELL reduce_only 平多
-        self._close_short_order_ids: list[ClientOrderId | None] = []  # BUY  reduce_only 平空
-
         # 成交冷却状态
         self._last_fill_ts: datetime | None = None
 
         # 熔断开关状态
         self._kill_switch: bool = False
+
+        # 净仓聚合 TP 单
+        self._net_tp_order_id: ClientOrderId | None = None
 
         # US-002: 逆向选择
         self._last_fill_price: float | None = None
@@ -1436,18 +1435,12 @@ class ActiveMarketMaker(BaseStrategy):
         """
         oid = event.client_order_id
 
-        # 平仓单撤销
-        for i, close_long_id in enumerate(self._close_long_order_ids):
-            if oid == close_long_id:
-                self._close_long_order_ids[i] = None
-                self.log.info(f"Close-long order canceled: client_order_id={oid}", color=LogColor.YELLOW)
-                return
-        # 平仓单撤销
-        for i, close_short_id in enumerate(self._close_short_order_ids):
-            if oid == close_short_id:
-                self._close_short_order_ids[i] = None
-                self.log.info(f"Close-short order canceled: client_order_id={oid}", color=LogColor.YELLOW)
-                return
+        # 聚合 TP 单撤销
+        if oid == self._net_tp_order_id:
+            self._net_tp_order_id = None
+            self.log.info(f"Net TP order canceled: client_order_id={oid}", color=LogColor.YELLOW)
+            return
+
         # 做市报价单撤销
         for i, bid_id in enumerate(self._active_bid_ids):
             if oid == bid_id:
@@ -1465,63 +1458,70 @@ class ActiveMarketMaker(BaseStrategy):
                 self.log.info(f"Ask quote canceled: client_order_id={oid}", color=LogColor.YELLOW)
                 return
 
-    def _submit_take_profit_rebalance_quote(self, filled_side: OrderSide, fill_price: float, fill_qty: float) -> None:
-        """成交后立即挂 reduce-only 平仓单.
+    def _sync_net_tp_order(self) -> None:
+        """根据当前净仓位重新计算并挂聚合 reduce_only TP 单.
 
-        BUY 成交 -> 新增 LONG -> 挂 SELL reduce_only (平多)
-        SELL 成交 -> 新增 SHORT -> 挂 BUY reduce_only (平空)
+        先撤旧 TP，若净仓位为 0 则不挂新单.
+        BUY 净多头 → SELL reduce_only（平多）
+        SELL 净空头 → BUY reduce_only（平空）
         """
+        # 撤旧 TP
+        if self._net_tp_order_id is not None:
+            old_order = self.cache.order(self._net_tp_order_id)
+            if old_order is not None and old_order.is_open:
+                self.cancel_order(old_order)
+            self._net_tp_order_id = None
+
         if self.instrument is None:
             return
+
+        net_qty = self._position_qty  # 正=多头, 负=空头
+        abs_qty = abs(net_qty)
+        if abs_qty < float(self.instrument.size_increment):
+            return  # 无持仓，不挂 TP
 
         tick = float(self.instrument.price_increment)
         if tick <= 0:
             tick = 1.0
 
-        qty = self.instrument.make_qty(fill_qty)  # 成交数量
-        if qty.as_decimal() <= 0:
-            return
-
-        # 你可以按固定 ticks，也可以按当前 spread
         exit_ticks = max(float(self.config.min_spread_ticks), float(self.config.base_spread_ticks))
 
-        if filled_side == OrderSide.BUY:
-            # 开了多 -> 挂平多 SELL reduce_only
-            exit_price = fill_price + exit_ticks * tick
+        if net_qty > 0:
+            # 净多头 → SELL reduce_only
+            ref_price = self._last_microprice or (self._net_position_usd / abs_qty if abs_qty > 0 else 0.0)
+            exit_price = ref_price + exit_ticks * tick
             side = OrderSide.SELL
         else:
-            # 开了空 -> 挂平空 BUY reduce_only
-            exit_price = fill_price - exit_ticks * tick
+            # 净空头 → BUY reduce_only
+            ref_price = self._last_microprice or (abs(self._net_position_usd) / abs_qty if abs_qty > 0 else 0.0)
+            exit_price = ref_price - exit_ticks * tick
             side = OrderSide.BUY
 
-        try:
-            price_obj = self.instrument.make_price(exit_price)
+        if exit_price <= 0:
+            return
 
+        try:
+            qty_obj = self.instrument.make_qty(abs_qty)
+            if qty_obj.as_decimal() <= 0:
+                return
+            price_obj = self.instrument.make_price(exit_price)
             order = self.order_factory.limit(
                 instrument_id=self.config.instrument_id,
                 order_side=side,
-                quantity=qty,
+                quantity=qty_obj,
                 price=price_obj,
                 time_in_force=TimeInForce.GTC,
                 post_only=self.config.post_only,
                 reduce_only=True,
             )
-
             self.submit_order(order)
-
-            if side == OrderSide.BUY:
-                # 平空单：记到独立字段，不占做市报价槽
-                self._close_short_order_ids.append(order.client_order_id)
-            else:
-                # 平多单：记到独立字段，不占做市报价槽
-                self._close_long_order_ids.append(order.client_order_id)
-
+            self._net_tp_order_id = order.client_order_id
             self.log.info(
-                f"Submitted reduce-only rebalance quote: side={side} px={exit_price:.8f} qty={fill_qty:.8f}",
+                f"Net TP synced: side={side} px={exit_price:.8f} qty={abs_qty:.8f} net_pos={net_qty:.8f}",
                 color=LogColor.GREEN,
             )
         except Exception as e:
-            self.log.error(f"Failed to submit reduce-only rebalance quote: {e}", color=LogColor.RED)
+            self.log.error(f"Failed to sync net TP order: {e}", color=LogColor.RED)
 
     def on_order_filled(self, event: OrderFilled) -> None:
         """订单成交事件处理.
@@ -1537,28 +1537,11 @@ class ActiveMarketMaker(BaseStrategy):
         self._last_fill_price = fill_price  # 最近成交价格
         self._last_fill_side = fill_side  # 最近成交方向
 
-        # 平仓单成交,清理对应字段
-        for i, close_long_id in enumerate(self._close_long_order_ids):
-            if event.client_order_id == close_long_id:
-                del self._close_long_order_ids[i]
-                self.log.info(f"Close-long order filled: client_order_id={event.client_order_id}", color=LogColor.YELLOW)
-                return
-        for i, close_short_id in enumerate(self._close_short_order_ids):
-            if event.client_order_id == close_short_id:
-                del self._close_short_order_ids[i]
-                self.log.info(f"Close-short order filled: client_order_id={event.client_order_id}", color=LogColor.YELLOW)
-                return
         # 取消同方向订单
         self.log.info(f"Order filled: side={fill_side} qty={fill_qty:.8f} px={fill_price:.8f}", color=LogColor.YELLOW)
         self._cancel_quotes(event.order_side)
         msg = "Bid" if event.order_side == OrderSide.BUY else "Ask"
         self.log.info(f"{msg} quotes canceled after {fill_side} fill", color=LogColor.YELLOW)
-
-        self._submit_take_profit_rebalance_quote(
-            filled_side=event.order_side,
-            fill_price=fill_price,
-            fill_qty=fill_qty,
-        )
 
         # 匹配对手方未平成交（先进先出）
         realized = 0.0
@@ -1966,6 +1949,7 @@ class ActiveMarketMaker(BaseStrategy):
         """
         super().on_position_opened(event)
         self._update_position_state()
+        self._sync_net_tp_order()
 
     def on_position_changed(self, event: PositionChanged) -> None:
         """仓位变化时更新持仓状态.
@@ -1975,6 +1959,7 @@ class ActiveMarketMaker(BaseStrategy):
         """
         super().on_position_changed(event)
         self._update_position_state()
+        self._sync_net_tp_order()
 
     def on_position_closed(self, event: PositionClosed) -> None:
         """仓位关闭时更新持仓状态.
@@ -1984,6 +1969,7 @@ class ActiveMarketMaker(BaseStrategy):
         """
         super().on_position_closed(event)
         self._update_position_state()
+        self._sync_net_tp_order()
 
     # ------------------------------------------------------------------
     # 生命周期
@@ -1992,12 +1978,11 @@ class ActiveMarketMaker(BaseStrategy):
     def on_stop(self) -> None:
         """停止策略时撤销所有挂单."""
         self._cancel_all_quotes()
-        # 停止时撤销平仓单
-        for close_oid in itertools.chain(self._close_long_order_ids, self._close_short_order_ids):
-            if close_oid is not None:
-                order = self.cache.order(close_oid)
-                if order is not None and order.is_open:
-                    self.cancel_order(order)
+        if self._net_tp_order_id is not None:
+            order = self.cache.order(self._net_tp_order_id)
+            if order is not None and order.is_open:
+                self.cancel_order(order)
+            self._net_tp_order_id = None
         super().on_stop()
 
     def on_reset(self) -> None:
@@ -2014,8 +1999,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._pending_requote_ts = None
         self._active_bid_ids = []
         self._active_ask_ids = []
-        self._close_long_order_ids = []
-        self._close_short_order_ids = []
+        self._net_tp_order_id = None
         self._last_fill_ts = None
         self._kill_switch = False
         # US-002: 重置逆向选择状态
