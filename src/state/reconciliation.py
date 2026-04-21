@@ -33,6 +33,7 @@ class ReconciliationResult:
     exchange_positions: list[dict[str, Any]]
     mismatches: list[dict[str, Any]]
     orphan_orders: list[dict[str, Any]] = field(default_factory=list)
+    pending_cancel_orders: list[dict[str, Any]] = field(default_factory=list)
 
 
 class ReconciliationEngine:
@@ -52,6 +53,7 @@ class ReconciliationEngine:
         exchange_positions: list[dict[str, Any]],
         exchange_open_orders: list[dict[str, Any]] | None = None,
         known_client_order_ids: set[str] | None = None,
+        pending_cancel_orders: list[dict[str, Any]] | None = None,
         publish_alerts: bool = True,
     ) -> ReconciliationResult:
         """执行对账.
@@ -62,6 +64,7 @@ class ReconciliationEngine:
             exchange_open_orders: 交易所当前挂单列表（可选）。传入后会检测孤立订单。
             known_client_order_ids: 本系统已知的客户端订单 ID 集合（可选）。
                 未在此集合中的交易所挂单视为孤立订单。
+            pending_cancel_orders: PENDING_CANCEL 状态的订单列表（可选）。
             publish_alerts: 出现不一致时是否向 EventBus 发布风控告警。
 
         Returns:
@@ -117,12 +120,27 @@ class ReconciliationEngine:
             known_client_order_ids=known_client_order_ids or set(),
         )
 
+        # 处理 PENDING_CANCEL 残留订单
+        pending_cancel_orders = pending_cancel_orders or []
+        if pending_cancel_orders:
+            logger.warning("pending_cancel_residual_detected", count=len(pending_cancel_orders), orders=pending_cancel_orders)
+            if publish_alerts:
+                self._event_bus.publish(
+                    RiskAlertEvent(
+                        level="WARNING",
+                        rule_name="pending_cancel_residual",
+                        message=f"发现 {len(pending_cancel_orders)} 笔 PENDING_CANCEL 残留订单",
+                        details={"orders": pending_cancel_orders},
+                    )
+                )
+
         result = ReconciliationResult(
             matched=len(mismatches) == 0,
             local_positions=local_positions,
             exchange_positions=exchange_positions,
             mismatches=mismatches,
             orphan_orders=orphan_orders,
+            pending_cancel_orders=pending_cancel_orders,
         )
 
         if not result.matched or orphan_orders:

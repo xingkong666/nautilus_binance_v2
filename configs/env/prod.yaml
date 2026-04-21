@@ -20,7 +20,7 @@ cache:
     enabled: true
     database: redis
     live:
-        flush_on_start: false
+        flush_on_start: true
     backtest:
         use_instance_id: true
         flush_on_start: false

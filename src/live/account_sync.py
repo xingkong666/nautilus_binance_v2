@@ -225,10 +225,10 @@ class AccountSync:
         t0 = time.monotonic()
         try:
             balances, positions = self._fetch_from_exchange()
-            self._mark_external_open_orders()
+            exchange_open_orders = self._mark_external_open_orders()
 
             # 与本地状态层对账
-            reconciliation = self._reconcile_with_local(positions)
+            reconciliation = self._reconcile_with_local(positions, exchange_open_orders)
 
             duration_ms = (time.monotonic() - t0) * 1000
             result = SyncResult(
@@ -253,29 +253,40 @@ class AccountSync:
                 duration_ms=duration_ms,
             )
 
-    def _mark_external_open_orders(self) -> None:
+    def _mark_external_open_orders(self) -> list[dict[str, Any]]:
         adapter = getattr(self._container, "binance_adapter", None)
         ignored_registry = getattr(self._container, "ignored_instruments", None)
         if adapter is None or ignored_registry is None:
-            return
+            return []
 
         fetch_open_orders = getattr(adapter, "fetch_open_orders", None)
         if not callable(fetch_open_orders):
-            return
+            return []
 
         try:
             exchange_open_orders = cast(Callable[[], list[dict[str, Any]]], fetch_open_orders)()
         except (ConnectionError, TimeoutError, OSError) as exc:
             logger.warning("account_sync_open_orders_fetch_connection_error", error=str(exc))
-            return
+            return []
         except Exception as exc:
             logger.error("account_sync_open_orders_fetch_failed", error=str(exc), exc_info=True)
-            return
+            return []
 
         known_client_order_ids = self._known_open_client_order_ids()
         for order in exchange_open_orders:
             client_order_id = str(order.get("clientOrderId", "")).strip()
             if client_order_id and client_order_id in known_client_order_ids:
+                continue
+
+            # 缓存延迟保护：若交易所侧订单已处于取消流程中（PENDING_CANCEL / CANCELED），
+            # 说明本地 cache 可能尚未同步，不应误判为孤立单。
+            exchange_status = str(order.get("status", "")).upper()
+            if exchange_status in {"PENDING_CANCEL", "CANCELED", "EXPIRED", "REJECTED"}:
+                logger.debug(
+                    "account_sync_skip_non_active_order",
+                    client_order_id=client_order_id,
+                    exchange_status=exchange_status,
+                )
                 continue
 
             symbol = str(order.get("symbol", "")).strip()
@@ -285,8 +296,10 @@ class AccountSync:
                 instrument_id=f"{symbol}-PERP.BINANCE",
                 reason="external_open_order_detected_during_sync",
                 source="account_sync",
-                details={"client_order_id": client_order_id},
+                details={"client_order_id": client_order_id, "exchange_status": exchange_status},
             )
+
+        return exchange_open_orders
 
     def _known_open_client_order_ids(self) -> set[str]:
         adapter = getattr(self._container, "binance_adapter", None)
@@ -305,15 +318,39 @@ class AccountSync:
         if cache is None:
             return set()
 
+        # 获取常规开仓订单 ID
         client_order_ids_open = getattr(cache, "client_order_ids_open", None)
-        if not callable(client_order_ids_open):
-            return set()
+        known_ids = set()
+        if callable(client_order_ids_open):
+            try:
+                known_ids.update(str(client_order_id) for client_order_id in cast(Callable[[], list[Any]], client_order_ids_open)())
+            except Exception as exc:
+                logger.error("account_sync_known_open_orders_load_failed", error=str(exc), exc_info=True)
 
+        # 尝试获取 PENDING_CANCEL 状态的订单 ID
         try:
-            return {str(client_order_id) for client_order_id in cast(Callable[[], list[Any]], client_order_ids_open)()}
+            # 方法1：尝试使用 client_order_ids_inflight (如果存在)
+            client_order_ids_inflight = getattr(cache, "client_order_ids_inflight", None)
+            if callable(client_order_ids_inflight):
+                logger.debug("account_sync_using_inflight_orders")
+                inflight_ids = cast(Callable[[], list[Any]], client_order_ids_inflight)()
+                known_ids.update(str(client_order_id) for client_order_id in inflight_ids)
+            else:
+                # 方法2：从 cache.orders() 过滤 PENDING_CANCEL 状态
+                orders = getattr(cache, "orders", None)
+                if callable(orders):
+                    logger.debug("account_sync_filtering_pending_cancel_orders")
+                    all_orders = cast(Callable[[], list[Any]], orders)()
+                    for order in all_orders:
+                        status = str(getattr(order, "status", "")).upper()
+                        if status == "PENDING_CANCEL":
+                            client_order_id = str(getattr(order, "client_order_id", ""))
+                            if client_order_id:
+                                known_ids.add(client_order_id)
         except Exception as exc:
-            logger.error("account_sync_known_open_orders_load_failed", error=str(exc), exc_info=True)
-            return set()
+            logger.debug("account_sync_pending_cancel_orders_load_failed", error=str(exc))
+
+        return known_ids
 
     def _fetch_from_exchange(
         self,
@@ -335,19 +372,24 @@ class AccountSync:
     def _reconcile_with_local(
         self,
         positions: list[PositionSnapshot],
+        exchange_open_orders: list[dict[str, Any]] | None = None,
     ) -> ReconciliationResult | None:
         """将交易所快照与本地 state 进行对账.
 
         Args:
             positions: 从交易所拉取的持仓列表。
+            exchange_open_orders: 从交易所拉取的挂单列表（可选）。
 
         """
         local_positions = self._load_local_positions()
         exchange_positions = self._to_reconciliation_positions(positions)
+        known_client_order_ids = self._known_open_client_order_ids()
 
         result = self._reconciler.reconcile(
             local_positions=local_positions,
             exchange_positions=exchange_positions,
+            exchange_open_orders=exchange_open_orders or [],
+            known_client_order_ids=known_client_order_ids,
         )
         self._mark_ignored_instruments(result)
         logger.info(

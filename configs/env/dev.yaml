@@ -20,7 +20,7 @@ cache:
     enabled: true
     database: redis
     live:
-        flush_on_start: false
+        flush_on_start: true  # 重启时清空旧 cache，避免 PENDING_CANCEL 残留订单产生 Residual WARN
     backtest:
         use_instance_id: true
         flush_on_start: false
