@@ -48,7 +48,7 @@ strategy:
         dead_zone_threshold: 0.1
 
         # sizing （3100U 账户 * 1.5% ≈ 每边报价 45U；兜底 trade_size 保证名义 > $5）
-        capital_pct_per_trade: 2.0
+        capital_pct_per_trade: 0.5
         trade_size: "0.06" # fallback: 0.06 SOL ≈ $5.3，满足 Binance 最低名义价值 $5
 
         # ATR（用于动态 spread）

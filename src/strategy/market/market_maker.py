@@ -202,7 +202,6 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         # 动态价差 状态
         self._current_spread_ticks: float = float(config.base_spread_ticks)
         self._quote_suspended: bool = False
-        self._pending_requote_ts: datetime | None = None
 
         # 库存跟踪（单向持仓）
         self._net_position_usd: float = 0.0
@@ -511,7 +510,6 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         self._smooth_imbalance = 0.0
         self._current_spread_ticks = float(self.config.base_spread_ticks)
         self._quote_suspended = False
-        self._pending_requote_ts = None
         self._active_bid_ids = []
         self._active_ask_ids = []
         self._net_tp_order_id = None

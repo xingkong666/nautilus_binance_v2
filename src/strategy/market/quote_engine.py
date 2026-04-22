@@ -45,7 +45,11 @@ class QuoteEngineMixin:
     """封装报价定价、撤挂单、分层报价和 delta 驱动刷新逻辑."""
 
     def _check_pretrade_cancel(self: Any) -> None:
-        """检测价格即将穿越报价时主动撤单（pre-trade adverse cancel）."""
+        """检测价格即将穿越报价时主动撤单（pre-trade adverse cancel）.
+
+        只发送撤单请求，由 on_order_canceled 回调清理 ID 和状态，
+        避免异步撤单确认前 ID 被置空导致 _refresh_quotes 提交重复订单。
+        """
         if self.instrument is None:
             return
         tick = float(self.instrument.price_increment)
@@ -63,26 +67,20 @@ class QuoteEngineMixin:
         except Exception:
             return
 
-        # 最优卖价接近我方买价 → 价格即将向下穿越 → 撤买单
         qs = self._quote_state
         if qs.bid_price is not None and ba <= qs.bid_price + threshold and self._active_bid_ids:
             bid_id = self._active_bid_ids[0]
             if bid_id is not None:
                 order = self.cache.order(bid_id)
-                if order is not None and order.is_open:
+                if order is not None and order.is_open and not order.is_pending_cancel:
                     self.cancel_order(order)
-                self._active_bid_ids[0] = None
-                self._clear_bid_quote_state()
 
-        # 最优买价接近我方卖价 → 价格即将向上穿越 → 撤卖单
         if qs.ask_price is not None and bb >= qs.ask_price - threshold and self._active_ask_ids:
             ask_id = self._active_ask_ids[0]
             if ask_id is not None:
                 order = self.cache.order(ask_id)
-                if order is not None and order.is_open:
+                if order is not None and order.is_open and not order.is_pending_cancel:
                     self.cancel_order(order)
-                self._active_ask_ids[0] = None
-                self._clear_ask_quote_state()
 
     def _update_dynamic_spread(self: Any) -> None:
         if self.config.use_realized_vol:
@@ -240,7 +238,6 @@ class QuoteEngineMixin:
         dir_val = self._compute_dir_val()
         optimal_bid, optimal_ask, _ = self._calc_quote_prices(mid, dir_val)
 
-        # 检查买单
         qs = self._quote_state
         if (
             qs.bid_submit_time is not None
@@ -249,14 +246,11 @@ class QuoteEngineMixin:
             and (now - qs.bid_submit_time) > refresh_threshold
         ):
             order = self.cache.order(self._active_bid_ids[0])
-            if order is not None and order.is_open:
+            if order is not None and order.is_open and not order.is_pending_cancel:
                 current_price = float(order.price)
                 if current_price < optimal_bid:
                     self.cancel_order(order)
-                    self._active_bid_ids[0] = None
-                    self._clear_bid_quote_state()
 
-        # 检查卖单
         if (
             qs.ask_submit_time is not None
             and self._active_ask_ids
@@ -264,12 +258,10 @@ class QuoteEngineMixin:
             and (now - qs.ask_submit_time) > refresh_threshold
         ):
             order = self.cache.order(self._active_ask_ids[0])
-            if order is not None and order.is_open:
+            if order is not None and order.is_open and not order.is_pending_cancel:
                 current_price = float(order.price)
                 if current_price > optimal_ask:
                     self.cancel_order(order)
-                    self._active_ask_ids[0] = None
-                    self._clear_ask_quote_state()
 
     def _has_open_order(self: Any, oid: ClientOrderId | None) -> bool:
         """判断某个 client order id 是否仍然是 open 状态."""
@@ -363,7 +355,7 @@ class QuoteEngineMixin:
             order = self.cache.order(oid)
             if order is None:
                 continue
-            if order.is_open:
+            if order.is_open and not order.is_pending_cancel:
                 try:
                     self.cancel_order(order)
                     total += 1
@@ -526,7 +518,6 @@ class QuoteEngineMixin:
         """
         self._prune_inactive_quote_ids()
         qs = self._quote_state
-        # 1) 若当前报价仍有效且漂移不足，则不刷新
         if qs.quoted_mid is not None and qs.quoted_skew is not None:
             tick = 1.0
             if self.instrument is not None:
@@ -540,19 +531,17 @@ class QuoteEngineMixin:
             if not has_missing and mid_drift <= self.config.drift_ticks * tick and skew_drift <= self.config.skew_drift_ticks * tick:
                 return
 
-        # 如果还有旧挂单活着，先撤旧单，不在同一轮立刻重挂
         if self._has_active_quotes():
             self._cancel_all_quotes()
-            return
 
         if self._quote_suspended:
             return
-        # 4) 提交新报价
-        if self.config.quote_layers > 1:  # 使用分层报价
+
+        if self.config.quote_layers > 1:
             self._submit_layered_quotes(
                 bid_price, ask_price, bid_qty, ask_qty, bid_reduce_only=bid_reduce_only, ask_reduce_only=ask_reduce_only
             )
-        else:  # 单层报价
+        else:
             self._submit_single_level_quotes(
                 bid_price, ask_price, bid_qty, ask_qty, bid_reduce_only=bid_reduce_only, ask_reduce_only=ask_reduce_only
             )
@@ -602,12 +591,6 @@ class QuoteEngineMixin:
 
         now = self._utc_now()
 
-        # 有 pending requote（来自 on_order_expired）时，等 100ms 让两个 Expired 事件都处理完再重挂
-        if self._pending_requote_ts is not None:
-            if (now - self._pending_requote_ts).total_seconds() * 1000 < 100:
-                return
-            self._pending_requote_ts = None
-
         if self._last_delta_quote_ts is not None:
             elapsed_ms = (now - self._last_delta_quote_ts).total_seconds() * 1000
             if elapsed_ms < self.config.delta_quote_min_interval_ms:
@@ -647,18 +630,14 @@ class QuoteEngineMixin:
         if self._active_bid_ids and self._active_bid_ids[0] is not None and self._calc_queue_fill_prob("BUY") < threshold:
             bid_id = self._active_bid_ids[0]
             order = self.cache.order(bid_id)
-            if order is not None and order.is_open:
+            if order is not None and order.is_open and not order.is_pending_cancel:
                 self.cancel_order(order)
-            self._active_bid_ids[0] = None
-            self._clear_bid_quote_state()
 
         if self._active_ask_ids and self._active_ask_ids[0] is not None and self._calc_queue_fill_prob("SELL") < threshold:
             ask_id = self._active_ask_ids[0]
             order = self.cache.order(ask_id)
-            if order is not None and order.is_open:
+            if order is not None and order.is_open and not order.is_pending_cancel:
                 self.cancel_order(order)
-            self._active_ask_ids[0] = None
-            self._clear_ask_quote_state()
 
     def _check_toxic_preemptive(self: Any) -> None:
         """Microprice 急速漂移时预防性撤单（toxic 前置防御）."""
@@ -670,20 +649,14 @@ class QuoteEngineMixin:
         threshold = self.config.toxic_mp_drift_ticks * tick
         instant_drift = self._last_microprice - self._prev_microprice
 
-        # 微价格急跌 → 撤买单
         if instant_drift < -threshold and self._active_bid_ids and self._active_bid_ids[0] is not None:
             bid_id = self._active_bid_ids[0]
             order = self.cache.order(bid_id)
-            if order is not None and order.is_open:
+            if order is not None and order.is_open and not order.is_pending_cancel:
                 self.cancel_order(order)
-            self._active_bid_ids[0] = None
-            self._clear_bid_quote_state()
 
-        # 微价格急涨 → 撤卖单
         if instant_drift > threshold and self._active_ask_ids and self._active_ask_ids[0] is not None:
             ask_id = self._active_ask_ids[0]
             order = self.cache.order(ask_id)
-            if order is not None and order.is_open:
+            if order is not None and order.is_open and not order.is_pending_cancel:
                 self.cancel_order(order)
-            self._active_ask_ids[0] = None
-            self._clear_ask_quote_state()

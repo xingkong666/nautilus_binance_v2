@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from nautilus_trader.common.enums import LogColor
-from nautilus_trader.model.enums import OrderSide, TimeInForce
+from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.events import OrderFilled, PositionChanged, PositionClosed, PositionOpened
 
 from src.strategy.base import BaseStrategy
@@ -163,66 +163,68 @@ class InventoryMixin:
         """
         # 撤旧 TP（cancel 是异步的，旧单可能尚未确认撤销就提交新单；
         # 交易所在单向持仓下会自动拒绝超额 reduce_only，风险可控）
-        if self._net_tp_order_id is not None:
-            old_order = self.cache.order(self._net_tp_order_id)
-            if old_order is not None and old_order.is_open:
-                self.log.debug(f"Canceling stale net TP before sync: client_order_id={self._net_tp_order_id}")
-                self.cancel_order(old_order)
-            self._net_tp_order_id = None
+        # if self._net_tp_order_id is not None:
+        #     old_order = self.cache.order(self._net_tp_order_id)
+        #     if old_order is not None and old_order.is_open:
+        #         self.log.debug(f"Canceling stale net TP before sync: client_order_id={self._net_tp_order_id}")
+        #         self.cancel_order(old_order)
+        #     self._net_tp_order_id = None
 
-        if self.instrument is None:
-            return
+        # if self.instrument is None:
+        #     return
 
-        net_qty = self._position_qty  # 正=多头, 负=空头
-        abs_qty = abs(net_qty)
-        if abs_qty < float(self.instrument.size_increment):
-            return  # 无持仓，不挂 TP
+        # net_qty = self._position_qty  # 正=多头, 负=空头
+        # abs_qty = abs(net_qty)
+        # if abs_qty < float(self.instrument.size_increment):
+        #     return  # 无持仓，不挂 TP
 
-        tick = float(self.instrument.price_increment)
-        if tick <= 0:
-            tick = 1.0
+        # tick = float(self.instrument.price_increment)
+        # if tick <= 0:
+        #     tick = 1.0
 
-        exit_ticks = max(float(self.config.min_spread_ticks), float(self.config.base_spread_ticks))
+        # exit_ticks = max(float(self.config.min_spread_ticks), float(self.config.base_spread_ticks))
 
-        ref_price = self._resolve_tp_ref_price(abs_qty, net_qty)
-        if ref_price <= 0:
-            self.log.warning("Net TP skipped: ref_price is zero or negative", color=LogColor.YELLOW)
-            return
+        # ref_price = self._resolve_tp_ref_price(abs_qty, net_qty)
+        # if ref_price <= 0:
+        #     self.log.warning("Net TP skipped: ref_price is zero or negative", color=LogColor.YELLOW)
+        #     return
 
-        if net_qty > 0:
-            # 净多头 → SELL reduce_only
-            exit_price = ref_price + exit_ticks * tick
-            side = OrderSide.SELL
-        else:
-            # 净空头 → BUY reduce_only
-            exit_price = ref_price - exit_ticks * tick
-            side = OrderSide.BUY
+        # if net_qty > 0:
+        #     # 净多头 → SELL reduce_only
+        #     exit_price = ref_price + exit_ticks * tick
+        #     side = OrderSide.SELL
+        # else:
+        #     # 净空头 → BUY reduce_only
+        #     exit_price = ref_price - exit_ticks * tick
+        #     side = OrderSide.BUY
 
-        if exit_price <= 0:
-            return
+        # if exit_price <= 0:
+        #     return
 
-        try:
-            qty_obj = self.instrument.make_qty(abs_qty)
-            if qty_obj.as_decimal() <= 0:
-                return
-            price_obj = self.instrument.make_price(exit_price)
-            order = self.order_factory.limit(
-                instrument_id=self.config.instrument_id,
-                order_side=side,
-                quantity=qty_obj,
-                price=price_obj,
-                time_in_force=TimeInForce.GTC,
-                post_only=self.config.post_only,
-                reduce_only=True,
-            )
-            self.submit_order(order)
-            self._net_tp_order_id = order.client_order_id
-            self.log.info(
-                f"Net TP synced: side={side} px={exit_price:.8f} qty={abs_qty:.8f} net_pos={net_qty:.8f}",
-                color=LogColor.GREEN,
-            )
-        except Exception as e:
-            self.log.error(f"Failed to sync net TP order: {e}", color=LogColor.RED)
+        # try:
+        #     qty_obj = self.instrument.make_qty(abs_qty)
+        #     if qty_obj.as_decimal() <= 0:
+        #         return
+        #     price_obj = self.instrument.make_price(exit_price)
+        #     order = self.order_factory.limit(
+        #         instrument_id=self.config.instrument_id,
+        #         order_side=side,
+        #         quantity=qty_obj,
+        #         price=price_obj,
+        #         time_in_force=TimeInForce.GTC,
+        #         post_only=self.config.post_only,
+        #         reduce_only=True,
+        #     )
+        #     self.submit_order(order)
+        #     self._net_tp_order_id = order.client_order_id
+        #     self.log.info(
+        #         f"Net TP synced: side={side} px={exit_price:.8f} qty={abs_qty:.8f} net_pos={net_qty:.8f}",
+        #         color=LogColor.GREEN,
+        #     )
+        # except Exception as e:
+        #     self.log.error(f"Failed to sync net TP order: {e}", color=LogColor.RED)
+        # 先不做聚合 TP 单，先做单向持仓的聚合 TP 单
+        pass
 
     def on_order_filled(self: Any, event: OrderFilled) -> None:
         """订单成交事件处理.
@@ -247,11 +249,10 @@ class InventoryMixin:
             self.log.info(f"Net TP filled: client_order_id={client_order_id}", color=LogColor.GREEN)
             return
 
-        # 取消同方向订单
+        # 成交后撤销所有报价（双边），重置报价状态，
+        # 使下一个 bar 的 _refresh_quotes 能立即提交新报价，避免两 bar 空窗
         self.log.info(f"Order filled: side={fill_side} qty={fill_qty:.8f} px={fill_price:.8f}", color=LogColor.YELLOW)
-        self._cancel_quotes(event.order_side)
-        msg = "Bid" if event.order_side == OrderSide.BUY else "Ask"
-        self.log.info(f"{msg} quotes canceled after {fill_side} fill", color=LogColor.YELLOW)
+        self._cancel_all_quotes()
 
         # 匹配对手方未平成交（先进先出）
         realized = 0.0
