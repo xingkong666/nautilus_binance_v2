@@ -12,7 +12,7 @@ from typing import Any
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.events import OrderCanceled
-from nautilus_trader.model.identifiers import ClientOrderId
+from nautilus_trader.model.identifiers import ClientOrderId, PositionId
 
 
 class CancelReason(StrEnum):
@@ -440,7 +440,6 @@ class QuoteEngineMixin:
                 price=price_obj,
                 time_in_force=TimeInForce.GTC,
                 post_only=self.config.post_only,
-                reduce_only=False,
             )
             self.submit_order(order)
 

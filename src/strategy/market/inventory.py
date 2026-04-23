@@ -1,4 +1,4 @@
-"""Inventory management mixin for the market maker strategy."""
+"""做市商策略的双向持仓库存管理 mixin（基于 lot 聚合）."""
 
 from __future__ import annotations
 

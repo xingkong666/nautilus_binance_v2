@@ -3,7 +3,7 @@
 主动做市商策略：
 - 加权 L2 imbalance 信号（前 N 档，linear/exp 加权，EWM 平滑）
 - 完整报价模型：bid/ask = mid ± spread/2 ± skew
-- skew = alpha_skew（imbalance 方向）+ inventory_skew（净敞口）
+- skew = alpha_skew（imbalance 方向）+ inventory_skew（long/short lot 聚合库存）
 - 动态 spread（基于 ATR/tick_size 波动率）
 - 三层库存控制：正常 → 软限制（偏价+缩 size）→ 硬限制（停单）
 - 超过 120% max_position 触发 kill switch
@@ -74,7 +74,7 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     # 仓位预算（USD notional）
     max_position_usd: float = 1000.0
 
-    # 库存分级（单向净仓比例）
+    # 库存分级（基于 long/short/gross lot 聚合库存）
     soft_limit: float = 0.30
     hard_limit: float = 0.70
 
