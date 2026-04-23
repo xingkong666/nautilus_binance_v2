@@ -79,7 +79,7 @@ class InventoryMixin:
             "short_qty": short_qty,
         }
 
-    def _calc_quote_sizes(self: Any, base_qty: Decimal, adverse_side: str | None = None) -> tuple[Decimal, Decimal, bool, bool]:
+    def _calc_quote_sizes(self: Any, base_qty: Decimal, adverse_side: str | None = None) -> tuple[Decimal, Decimal]:
         """双向持仓下的 bid/ask 数量控制.
 
         规则：
@@ -87,18 +87,17 @@ class InventoryMixin:
         - 空仓越大，越压缩 ask（避免继续加空）
         - gross 越大，双边都缩量
         - 某一侧库存过重时，仅关闭该侧开仓能力
-        - quote 池不承担 reduce_only 语义，因此始终返回 False/False
 
         Args:
             base_qty: 基础下单数量.
             adverse_side: 若为 "BUY" 则禁 bid；若为 "SELL" 则禁 ask.
 
         Returns:
-            tuple[Decimal, Decimal, bool, bool]:
-                (bid_qty, ask_qty, bid_reduce_only, ask_reduce_only)
+            tuple[Decimal, Decimal]:
+                (bid_qty, ask_qty)
         """
         if self.instrument is None:
-            return base_qty, base_qty, False, False
+            return base_qty, base_qty
 
         step = float(self.instrument.size_increment)
         if step <= 0:
@@ -168,7 +167,7 @@ class InventoryMixin:
         elif adverse_side == "SELL":
             ask_qty = Decimal("0")
 
-        return bid_qty, ask_qty, False, False
+        return bid_qty, ask_qty
 
     def on_order_filled(self: Any, event: OrderFilled) -> None:
         """处理订单成交事件."""

@@ -408,14 +408,13 @@ class QuoteEngineMixin:
         if total > 0:
             self.log.info(f"Requested cancel for {total} active quotes reason={reason.value}", color=LogColor.YELLOW)
 
-    def _submit_quote(self: Any, side: OrderSide, price: float, qty: Decimal, *, reduce_only: bool = False) -> ClientOrderId | None:
+    def _submit_quote(self: Any, side: OrderSide, price: float, qty: Decimal) -> ClientOrderId | None:
         """提交报价,只返回 client_order_id,不修改 active 列表.
 
         Args:
             side: 订单方向.
             price: 报价价格.
             qty: 报价数量.
-            reduce_only: 是否为 reduce_only.
         """
         if self.instrument is None:
             return None
@@ -441,7 +440,7 @@ class QuoteEngineMixin:
                 price=price_obj,
                 time_in_force=TimeInForce.GTC,
                 post_only=self.config.post_only,
-                reduce_only=reduce_only,
+                reduce_only=False,
             )
             self.submit_order(order)
 
@@ -458,13 +457,10 @@ class QuoteEngineMixin:
         ask_price: float,
         bid_qty: Decimal,
         ask_qty: Decimal,
-        *,
-        bid_reduce_only: bool = False,
-        ask_reduce_only: bool = False,
     ) -> None:
         """提交单层双边报价."""
-        bid_id = self._submit_quote(OrderSide.BUY, bid_price, bid_qty, reduce_only=bid_reduce_only)
-        ask_id = self._submit_quote(OrderSide.SELL, ask_price, ask_qty, reduce_only=ask_reduce_only)
+        bid_id = self._submit_quote(OrderSide.BUY, bid_price, bid_qty)
+        ask_id = self._submit_quote(OrderSide.SELL, ask_price, ask_qty)
         self._active_bid_ids = [bid_id]
         self._active_ask_ids = [ask_id]
         self._update_top_quote_state(bid_price, ask_price)
@@ -475,9 +471,6 @@ class QuoteEngineMixin:
         ask_price: float,
         bid_qty: Decimal,
         ask_qty: Decimal,
-        *,
-        bid_reduce_only: bool = False,
-        ask_reduce_only: bool = False,
     ) -> None:
         """提供分层报价，在多个价格档位提交分层报价.
 
@@ -486,8 +479,6 @@ class QuoteEngineMixin:
             ask_price: 第 0 层 ask 价格.
             bid_qty: 第 0 层 bid 数量.
             ask_qty: 第 0 层 ask 数量.
-            bid_reduce_only: 买一数量是否为 reduce_only.
-            ask_reduce_only: 卖一数量是否为 reduce_only.
         """
         tick = 1.0
         if self.instrument is not None:
@@ -522,8 +513,8 @@ class QuoteEngineMixin:
                     layer_ask_qty = Decimal("0")
                 elif self._last_dir_val < 0:
                     layer_bid_qty = Decimal("0")
-            bid_id = self._submit_quote(OrderSide.BUY, layer_bid_price, layer_bid_qty, reduce_only=bid_reduce_only)
-            ask_id = self._submit_quote(OrderSide.SELL, layer_ask_price, layer_ask_qty, reduce_only=ask_reduce_only)
+            bid_id = self._submit_quote(OrderSide.BUY, layer_bid_price, layer_bid_qty)
+            ask_id = self._submit_quote(OrderSide.SELL, layer_ask_price, layer_ask_qty)
             bid_ids.append(bid_id)
             ask_ids.append(ask_id)
 
@@ -540,9 +531,6 @@ class QuoteEngineMixin:
         ask_qty: Decimal,
         mid: float,
         current_skew: float,
-        *,
-        bid_reduce_only: bool = False,
-        ask_reduce_only: bool = False,
     ) -> None:
         """当 mid 或 skew 漂移超过阈值时，撤销并重新提交报价.
 
@@ -552,9 +540,7 @@ class QuoteEngineMixin:
             bid_qty: 第 0 层 bid 数量.
             ask_qty: 第 0 层 ask 数量.
             mid: 当前 mid price.
-            current_skew: 当前 skew.
-            bid_reduce_only: 买一数量是否为 reduce_only.
-            ask_reduce_only: 卖一数量是否为 reduce_only.
+            current_skew: 当前 skew
         """
         self._prune_inactive_quote_ids()
         qs = self._quote_state
@@ -578,13 +564,9 @@ class QuoteEngineMixin:
             return
 
         if self.config.quote_layers > 1:
-            self._submit_layered_quotes(
-                bid_price, ask_price, bid_qty, ask_qty, bid_reduce_only=bid_reduce_only, ask_reduce_only=ask_reduce_only
-            )
+            self._submit_layered_quotes(bid_price, ask_price, bid_qty, ask_qty)
         else:
-            self._submit_single_level_quotes(
-                bid_price, ask_price, bid_qty, ask_qty, bid_reduce_only=bid_reduce_only, ask_reduce_only=ask_reduce_only
-            )
+            self._submit_single_level_quotes(bid_price, ask_price, bid_qty, ask_qty)
 
         qs.quoted_mid = mid
         qs.quoted_skew = current_skew
@@ -655,17 +637,8 @@ class QuoteEngineMixin:
             return
         bid_price, ask_price = clamped
 
-        bid_qty, ask_qty, bid_reduce_only, ask_reduce_only = self._calc_quote_sizes(self._last_base_qty)
-        self._refresh_quotes(
-            bid_price,
-            ask_price,
-            bid_qty,
-            ask_qty,
-            mid,
-            current_skew,
-            bid_reduce_only=bid_reduce_only,
-            ask_reduce_only=ask_reduce_only,
-        )
+        bid_qty, ask_qty = self._calc_quote_sizes(self._last_base_qty)
+        self._refresh_quotes(bid_price, ask_price, bid_qty, ask_qty, mid, current_skew)
         self._last_delta_quote_ts = now
 
     def _maybe_withdraw_stale_quotes(self: Any) -> None:

@@ -181,8 +181,7 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     reduce_post_only: bool = False  # reduce 单是否 post_only（默认否，允许吃单）
 
 
-class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModelMixin, ReduceManagerMixin,
-                        BaseStrategy):
+class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModelMixin, ReduceManagerMixin, BaseStrategy):
     """主动做市商策略."""
 
     def __init__(self, config: MarketMakerConfig, event_bus: EventBus | None = None) -> None:
@@ -452,10 +451,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
 
         # 若处于冷却期则将 adverse_side 传给数量计算
         effective_adverse = adverse_side if in_adverse_cooldown else None
-        bid_qty, ask_qty, bid_reduce_only, ask_reduce_only = self._calc_quote_sizes(
-            base_qty.as_decimal(),
-            adverse_side=effective_adverse,
-        )
+        bid_qty, ask_qty = self._calc_quote_sizes(base_qty.as_decimal(), adverse_side=effective_adverse)
 
         # V4+: 有毒且排不到队列 → 直接撤单
         fill_prob_bid = self._calc_queue_fill_prob("BUY")
@@ -476,10 +472,9 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         # 有毒流单边控制
         if self._toxic_flow_score > self.config.toxic_one_side_threshold:
             ask_qty = Decimal("0")
-            ask_reduce_only = False
+
         elif self._toxic_flow_score < -self.config.toxic_one_side_threshold:
             bid_qty = Decimal("0")
-            bid_reduce_only = False
 
         # 低分时扩大价差（不超过 max_spread_ticks）
         if score < 0:
@@ -494,8 +489,6 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
                 ask_qty,
                 mid,
                 avg_shift,
-                bid_reduce_only=bid_reduce_only,
-                ask_reduce_only=ask_reduce_only,
             )
 
         # V3-US-002: 每根 K 线结束后重置成交流累计量
