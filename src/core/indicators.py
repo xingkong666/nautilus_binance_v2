@@ -175,6 +175,9 @@ class WilderAdx(Indicator):
 
         # ---- 阶段 2：维尔德平滑更新 ----
         else:
+            if self._smoothed_plus_dm is None or self._smoothed_minus_dm is None:
+                raise RuntimeError("WilderAdx smoothing state is inconsistent")
+
             n = float(self.period)
             self._smoothed_tr = self._smoothed_tr - (self._smoothed_tr / n) + tr
             self._smoothed_plus_dm = self._smoothed_plus_dm - (self._smoothed_plus_dm / n) + plus_dm

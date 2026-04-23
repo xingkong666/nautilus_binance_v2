@@ -132,6 +132,10 @@ strategy:
         # V5：非对称分层报价
         asymmetric_layers: true
 
+        # Reduce/TP 池
+        tp_pct: 0.001
+        reduce_post_only: false
+
     instruments:
         - PNUTUSDC-PERP.BINANCE
 

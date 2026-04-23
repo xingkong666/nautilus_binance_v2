@@ -5,14 +5,19 @@ from __future__ import annotations
 import math
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId
 
 from src.core.events import SignalDirection
+from src.strategy.base import BaseStrategyConfig
 from src.strategy.market import ActiveMarketMaker, MarketMakerConfig
+from src.strategy.market.inventory_lot import InventoryLot
 
 INSTRUMENT_ID = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
 BAR_TYPE = BarType.from_str("BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")
@@ -69,6 +74,50 @@ def make_bar(open_: float = 100.0, high: float = 101.0, low: float = 99.0, close
     ns = SimpleNamespace(open=open_, high=high, low=low, close=close)
     ns.is_single_price = lambda: False
     return ns
+
+
+def add_inventory_lot(
+    strategy: ActiveMarketMaker,
+    side: OrderSide,
+    notional_usd: float,
+    entry_price: float = 100.0,
+) -> InventoryLot:
+    """Add an open lot matching the current lot-based inventory model."""
+    qty = Decimal(str(notional_usd / entry_price))
+    lot_id = f"lot-test-{len(strategy._inventory_lots) + 1}"
+    lot = InventoryLot(
+        lot_id=lot_id,
+        quote_order_id=ClientOrderId(f"quote-{lot_id}"),
+        side=side,
+        entry_price=entry_price,
+        filled_qty=qty,
+        remaining_qty=qty,
+    )
+    strategy._inventory_lots[lot_id] = lot
+    return lot
+
+
+def test_yaml_params_stay_synced_with_market_maker_config() -> None:
+    """YAML 参数面与 MarketMakerConfig 保持同步."""
+    raw = yaml.safe_load(Path("configs/strategies/market_maker.yaml").read_text())
+    params = raw["strategy"]["params"]
+
+    config_fields = set(BaseStrategyConfig.__annotations__) | set(MarketMakerConfig.__annotations__)
+    assert set(params) <= config_fields
+
+    config = MarketMakerConfig(
+        instrument_id=INSTRUMENT_ID,
+        bar_type=BAR_TYPE,
+    )
+    market_maker_params = set(MarketMakerConfig.__annotations__) - {"instrument_id", "bar_type"}
+    assert market_maker_params <= set(params)
+
+    for name in market_maker_params:
+        expected = getattr(config, name)
+        actual = params[name]
+        if isinstance(expected, Decimal):
+            actual = Decimal(str(actual))
+        assert actual == expected
 
 
 # ── 测试 1: 线性加权失衡 ─────────────────────────────────────────
@@ -188,11 +237,10 @@ def test_quote_price_inventory_skew() -> None:
 
     mid = 100.0
 
-    strategy._net_position_usd = 0.0
     _, ask_neutral, _ = strategy._calc_quote_prices(mid, 0.0)
 
     # Set up a short position to affect ask pricing
-    strategy._net_position_usd = -500.0  # Short position
+    add_inventory_lot(strategy, OrderSide.SELL, notional_usd=500.0)
     _, ask_short, _ = strategy._calc_quote_prices(mid, 0.0)
 
     # When short, ask should be higher (pushed away from mid) due to inventory skew
@@ -209,13 +257,13 @@ def test_quote_size_soft_limit_reduces_same_side() -> None:
         make_price=lambda p: p,
         make_qty=lambda q: q,
     )
-    strategy._net_position_usd = 500.0  # Long position
+    add_inventory_lot(strategy, OrderSide.BUY, notional_usd=500.0)
 
     base = Decimal("1.0")
     bid_qty, ask_qty, *_ = strategy._calc_quote_sizes(base)
 
     assert bid_qty < base
-    assert ask_qty == base
+    assert float(ask_qty) == pytest.approx(0.825, abs=0.002)
 
 
 # ── 测试 9: 硬限制下的数量下限 ──────────────────────────────────────────
@@ -228,13 +276,13 @@ def test_quote_size_hard_limit_floor() -> None:
         make_price=lambda p: p,
         make_qty=lambda q: q,
     )
-    strategy._net_position_usd = 900.0  # Long position
+    add_inventory_lot(strategy, OrderSide.BUY, notional_usd=900.0)
 
     base = Decimal("1.0")
     bid_qty, ask_qty, *_ = strategy._calc_quote_sizes(base)
 
     assert bid_qty == Decimal("0")
-    assert ask_qty == base
+    assert ask_qty == Decimal("0.3")
 
 
 # ── 测试 10：当EMA 和盘口对齐时发出LONG 信号 ───────────────────────────
@@ -382,7 +430,7 @@ def test_tanh_inventory_skew() -> None:
     tick = 0.1
 
     # 净多头 = 500 → long_ratio = 0.5, short_ratio = 0.0
-    strategy._net_position_usd = 500.0
+    add_inventory_lot(strategy, OrderSide.BUY, notional_usd=500.0)
     _, ask_tanh, _ = strategy._calc_quote_prices(mid, 0.0)
 
     # Based on actual logic: ask_inv_skew = tanh(short_ratio * inv_tanh_scale) = tanh(0.0 * 2.0) = 0.0
@@ -449,12 +497,12 @@ def test_nonlinear_size_scaling() -> None:
     )
 
     # inv_ratio = 0.5 → t = (0.5 - 0.3) / (0.7 - 0.3) = 0.5
-    strategy._net_position_usd = 500.0
+    add_inventory_lot(strategy, OrderSide.BUY, notional_usd=500.0)
     base = Decimal("1.0")
     bid_qty, _, *_ = strategy._calc_quote_sizes(base)
 
-    # 比例 = 1.0 - (0.5^2) * (1.0 - 0.3) = 1.0 - 0.25 * 0.7 = 1.0 - 0.175 = 0.825
-    expected_scale = 1.0 - (0.5**2) * (1.0 - 0.3)
+    # gross 和同向 long 两层缩放都会生效：0.825 * 0.825 = 0.680625
+    expected_scale = (1.0 - (0.5**2) * (1.0 - 0.3)) ** 2
     expected_qty = round(1.0 * expected_scale / 0.001) * 0.001
     assert float(bid_qty) == pytest.approx(expected_qty, abs=0.002)
 
@@ -520,7 +568,7 @@ def test_alpha_weight_decay() -> None:
         size_increment=Decimal("0.001"),
     )
     strategy._current_spread_ticks = 3.0
-    strategy._net_position_usd = 800.0  # long_ratio = 0.8
+    add_inventory_lot(strategy, OrderSide.BUY, notional_usd=800.0)
 
     mid = 100.0
     tick = 0.1
@@ -528,10 +576,10 @@ def test_alpha_weight_decay() -> None:
 
     # The actual calculation includes gross_widen and inv_skew effects too
     # Just verify that alpha_weight decay is working by comparing with no position
-    strategy._net_position_usd = 0.0
+    strategy._inventory_lots.clear()
     bid_no_pos, _, _ = strategy._calc_quote_prices(mid, 1.0)
 
-    strategy._net_position_usd = 800.0
+    add_inventory_lot(strategy, OrderSide.BUY, notional_usd=800.0)
     bid_with_pos, _, _ = strategy._calc_quote_prices(mid, 1.0)
 
     # With high inventory, alpha effect should be reduced
@@ -616,15 +664,16 @@ def test_inventory_skew_symmetry() -> None:
     mid = 100.0
 
     # Test long position affects bid skew
-    strategy._net_position_usd = 500.0  # 净多头
+    add_inventory_lot(strategy, OrderSide.BUY, notional_usd=500.0)
     bid_long, ask_long, _ = strategy._calc_quote_prices(mid, 0.0)
 
     # Test short position affects ask skew
-    strategy._net_position_usd = -500.0  # 净空头
+    strategy._inventory_lots.clear()
+    add_inventory_lot(strategy, OrderSide.SELL, notional_usd=500.0)
     bid_short, ask_short, _ = strategy._calc_quote_prices(mid, 0.0)
 
     # Long position should push bid down (negative skew), short position should push ask up
-    strategy._net_position_usd = 0.0
+    strategy._inventory_lots.clear()
     bid_neutral, ask_neutral, _ = strategy._calc_quote_prices(mid, 0.0)
 
     assert bid_long < bid_neutral  # Long position pushes bid down
@@ -1025,8 +1074,13 @@ def test_pnl_circuit_realized_pnl() -> None:
     strategy = make_strategy(max_loss_usd=5.0, loss_window_ms=60000)
     strategy._last_microprice = 98.0
     _patch_utc_now(strategy)
+    strategy._cancel_all_quotes = lambda *_: None  # type: ignore[method-assign]
+    strategy._place_reduce_order = lambda lot: None  # type: ignore[method-assign]
     # 在 100 处模拟BUY fill，没有匹配的SELL→mark 至 mid 损失
+    quote_id = ClientOrderId("quote-pnl-proxy")
+    strategy._quote_order_ids.add(quote_id)
     event = SimpleNamespace(
+        client_order_id=quote_id,
         last_px=100.0,
         last_qty=3.0,
         order_side=OrderSide.BUY,
@@ -1156,7 +1210,7 @@ def test_one_side_only_limit() -> None:
         make_price=lambda p: p,
         make_qty=lambda q: q,
     )
-    strategy._net_position_usd = 750.0  # 1000 的 75% → >= one_side_only_limit=0.7
+    add_inventory_lot(strategy, OrderSide.BUY, notional_usd=750.0)
 
     base = Decimal("1.0")
     bid_qty, ask_qty, *_ = strategy._calc_quote_sizes(base)
@@ -1241,13 +1295,13 @@ def test_toxic_flow_decay() -> None:
 def test_quote_score_calculation() -> None:
     """验证 _calc_quote_score 新公式：alpha + fill_prob*1.2 - inv*0.8 - toxic*1.5 - queue_penalty."""
     strategy = make_strategy()
-    strategy._net_position_usd = 500.0  # long_ratio = 0.5
+    add_inventory_lot(strategy, OrderSide.BUY, notional_usd=500.0)
     strategy._toxic_flow_score = 0.3
     # fill_prob 默认为 1.0（无队列 快照）→ queue_penalty = 0.0
     score = strategy._calc_quote_score(dir_val=0.6)
     fill_prob = 1.0
-    # inv_ratio = max(gross_ratio, abs(imbalance)) = max(0.5, 0.5) = 0.5
-    expected = 0.6 + fill_prob * 1.2 - 0.5 * 0.8 - 0.3 * 1.5 - (1.0 - fill_prob) * 1.0
+    # 单侧 long lot 的 imbalance 为 1.0，因此库存惩罚取 max(gross_ratio, abs(imbalance)) = 1.0
+    expected = 0.6 + fill_prob * 1.2 - 1.0 * 0.8 - 0.3 * 1.5 - (1.0 - fill_prob) * 1.0
     assert score == pytest.approx(expected)
 
 
@@ -1255,7 +1309,7 @@ def test_quote_score_blocks_quoting() -> None:
     """Score < quote_score_threshold → cancel_all 被调用，不提交报价."""
     strategy = make_strategy(quote_score_threshold=-0.5)
     strategy._toxic_flow_score = 0.9  # high有毒 → 评分非常负面
-    strategy._net_position_usd = 800.0  # 高 投资
+    add_inventory_lot(strategy, OrderSide.BUY, notional_usd=800.0)
 
     cancel_called = []
     strategy._cancel_all_quotes = lambda *_: cancel_called.append(True)  # type: ignore[method-assign]
@@ -1335,15 +1389,15 @@ def test_toxic_uses_microprice_drift() -> None:
 def test_quote_score_new_formula() -> None:
     """验证新公式：alpha + fill_prob*1.2 - inv*0.8 - toxic*1.5 - queue_penalty."""
     strategy = make_strategy()
-    strategy._net_position_usd = 400.0  # long_ratio=0.4
+    add_inventory_lot(strategy, OrderSide.BUY, notional_usd=400.0)
     strategy._toxic_flow_score = 0.2
     strategy._quote_state = SimpleNamespace(bid_queue_on_submit=10000.0, ask_queue_on_submit=10000.0)
     strategy._queue_traded_volume = 6000.0  # fill_prob = 0.6，queue_penalty = 0.4
 
     score = strategy._calc_quote_score(dir_val=0.5)
     fill_prob = 0.6
-    # inv_ratio = max(gross_ratio, abs(imbalance)) = max(0.4, 0.4) = 0.4
-    expected = 0.5 + fill_prob * 1.2 - 0.4 * 0.8 - 0.2 * 1.5 - (1.0 - fill_prob) * 1.0
+    # 单侧 long lot 的 imbalance 为 1.0，因此库存惩罚取 max(gross_ratio, abs(imbalance)) = 1.0
+    expected = 0.5 + fill_prob * 1.2 - 1.0 * 0.8 - 0.2 * 1.5 - (1.0 - fill_prob) * 1.0
     assert score == pytest.approx(expected)
 
 
@@ -1569,13 +1623,15 @@ def test_quote_fill_creates_lot() -> None:
     strategy._place_reduce_order = lambda lot: None  # type: ignore[method-assign]
 
     quote_id = ClientOrderId("quote-001")
+    strategy._quote_order_ids.add(quote_id)
     event = _make_order_filled_event(quote_id, OrderSide.BUY, last_px=100.0, last_qty=0.5)
     strategy.on_order_filled(event)
 
     assert len(strategy._inventory_lots) == 1
     lot = list(strategy._inventory_lots.values())[0]
     assert lot.side == OrderSide.BUY
-    assert float(lot.qty) == pytest.approx(0.5)
+    assert float(lot.filled_qty) == pytest.approx(0.5)
+    assert float(lot.remaining_qty) == pytest.approx(0.5)
     assert lot.entry_price == pytest.approx(100.0)
     assert lot.status == LotStatus.OPEN
 
@@ -1593,6 +1649,7 @@ def test_quote_fill_places_reduce() -> None:
     strategy._place_reduce_order = lambda lot: reduce_calls.append(lot)  # type: ignore[method-assign]
 
     quote_id = ClientOrderId("quote-002")
+    strategy._quote_order_ids.add(quote_id)
     event = _make_order_filled_event(quote_id, OrderSide.SELL, last_px=50000.0, last_qty=0.01)
     strategy.on_order_filled(event)
 
@@ -1616,9 +1673,11 @@ def test_reduce_fill_closes_lot() -> None:
 
     lot = InventoryLot(
         lot_id="lot-001",
+        quote_order_id=None,
         side=OrderSide.BUY,
-        qty=Decimal("0.5"),
         entry_price=100.0,
+        filled_qty=Decimal("0.5"),
+        remaining_qty=Decimal("0.5"),
         reduce_order_id=ClientOrderId("reduce-001"),
         status=LotStatus.CLOSING,
     )
@@ -1647,9 +1706,11 @@ def test_reduce_fill_tracks_realized_pnl() -> None:
 
     lot = InventoryLot(
         lot_id="lot-pnl",
+        quote_order_id=None,
         side=OrderSide.BUY,
-        qty=Decimal("1.0"),
         entry_price=100.0,
+        filled_qty=Decimal("1.0"),
+        remaining_qty=Decimal("1.0"),
         reduce_order_id=ClientOrderId("reduce-pnl"),
         status=LotStatus.CLOSING,
     )
@@ -1746,9 +1807,11 @@ def test_on_order_canceled_reduce_resets_lot() -> None:
     reduce_id = ClientOrderId("reduce-cancel")
     lot = InventoryLot(
         lot_id="lot-cancel",
+        quote_order_id=None,
         side=OrderSide.BUY,
-        qty=Decimal("1.0"),
         entry_price=100.0,
+        filled_qty=Decimal("1.0"),
+        remaining_qty=Decimal("1.0"),
         reduce_order_id=reduce_id,
         status=LotStatus.CLOSING,
     )
@@ -1777,7 +1840,9 @@ def test_quote_fill_only_cancels_quote_pool() -> None:
     strategy._cancel_reduce_orders = lambda reason: cancel_reduce_called.append(reason)  # type: ignore[method-assign]
     strategy._place_reduce_order = lambda lot: None  # type: ignore[method-assign]
 
-    event = _make_order_filled_event(ClientOrderId("quote-003"), OrderSide.BUY, last_px=100.0, last_qty=0.1)
+    quote_id = ClientOrderId("quote-003")
+    strategy._quote_order_ids.add(quote_id)
+    event = _make_order_filled_event(quote_id, OrderSide.BUY, last_px=100.0, last_qty=0.1)
     strategy.on_order_filled(event)
 
     assert len(cancel_all_quotes_called) == 1

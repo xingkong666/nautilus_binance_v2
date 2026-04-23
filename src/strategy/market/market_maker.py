@@ -48,6 +48,10 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
 
+    # sizing
+    capital_pct_per_trade: float | None = 0.5
+    trade_size: Decimal = Decimal("0.06")
+
     # L2 订单簿
     order_book_depth: int = 10
     imbalance_decay: float = 0.3
@@ -59,11 +63,11 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     slow_ema_period: PositiveInt = 60
 
     # 动态价差
-    base_spread_ticks: int = 3
+    base_spread_ticks: int = 4
     min_spread_ticks: int = 2
-    max_spread_ticks: int = 10
-    spread_vol_multiplier: float = 2.0
-    spread_recovery_ratio: float = 0.9  # 迟滞恢复阈值
+    max_spread_ticks: int = 30
+    spread_vol_multiplier: float = 1.0
+    spread_recovery_ratio: float = 0.85  # 迟滞恢复阈值
 
     # 偏斜参数
     alpha_scale_ticks: float = 2.0
@@ -85,7 +89,7 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     kill_switch_limit: float = 1.20
 
     # 订单生命周期
-    limit_ttl_ms: int = 8000
+    limit_ttl_ms: int = 120000
     post_only: bool = True
     refresh_every_bar: bool = True
     drift_ticks: int = 2
@@ -122,9 +126,9 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     layer_size_decay: float = 0.7
 
     # US-007: PNL速度熔断器
-    max_loss_usd: float = 50.0
+    max_loss_usd: float = 20.0
     loss_window_ms: int = 60000
-    pnl_cb_cooldown_ms: int = 300000
+    pnl_cb_cooldown_ms: int = 120000
 
     # US-008: 市场质量过滤
     max_book_spread_ticks: float = 20.0

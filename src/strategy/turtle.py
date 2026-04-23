@@ -113,11 +113,17 @@ class TurtleStrategy(BaseStrategy):
 
         # exclude_current 为 True 时，将收盘价与前一根 K 线的
         # 通道值比较，避免当前 K 线价格抬高通道。
-        if self.config.breakout_lookback_exclude_current and self._prev_entry_high is not None:
+        if (
+            self.config.breakout_lookback_exclude_current
+            and self._prev_entry_high is not None
+            and self._prev_entry_low is not None
+            and self._prev_exit_high is not None
+            and self._prev_exit_low is not None
+        ):
             entry_high = self._prev_entry_high
-            entry_low = self._prev_entry_low  # type: ignore[assignment]
-            exit_high = self._prev_exit_high  # type: ignore[assignment]
-            exit_low = self._prev_exit_low  # type: ignore[assignment]
+            entry_low = self._prev_entry_low
+            exit_high = self._prev_exit_high
+            exit_low = self._prev_exit_low
         else:
             entry_high = cur_entry_high
             entry_low = cur_entry_low

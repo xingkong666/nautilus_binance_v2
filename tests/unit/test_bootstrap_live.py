@@ -10,12 +10,14 @@ from src.core.events import EventBus
 from src.execution.ignored_instruments import IgnoredInstrumentRegistry
 from src.state.snapshot import SystemSnapshot
 
+STRATEGY_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "strategies" / "vegas_tunnel.yaml"
+
 
 def test_build_live_strategy_uses_event_bus_and_symbol_override() -> None:
     """Verify that build live strategy uses event bus and symbol override."""
     container = SimpleNamespace(event_bus=EventBus())
     strategy = _build_live_strategy(
-        Path("/root/workSpace/nautilus_binance_v2/configs/strategies/vegas_tunnel.yaml"),
+        STRATEGY_CONFIG,
         container,
         symbol="ETHUSDT",
     )
@@ -29,7 +31,7 @@ def test_build_live_strategies_creates_one_instance_per_symbol() -> None:
     container = SimpleNamespace(event_bus=EventBus())
 
     strategies = _build_live_strategies(
-        Path("/root/workSpace/nautilus_binance_v2/configs/strategies/vegas_tunnel.yaml"),
+        STRATEGY_CONFIG,
         container,
         symbols=["BTCUSDT", "ETHUSDT", "BTCUSDT"],
     )

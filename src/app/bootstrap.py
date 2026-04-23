@@ -109,9 +109,7 @@ def bootstrap(env: str | None = None, log_level: str | None = None) -> Container
     # 若命令行指定了日志级别，则覆盖配置中的值
     effective_logging_cfg = config.logging
     if log_level is not None:
-        from src.core.config import LoggingConfig
-
-        effective_logging_cfg = LoggingConfig(**{**config.logging.model_dump(), "level": log_level})
+        effective_logging_cfg = config.logging.model_copy(update={"level": log_level})
     setup_logging(nautilus_cfg=effective_logging_cfg)
 
     logger.info("app_bootstrap", env=config.env)
