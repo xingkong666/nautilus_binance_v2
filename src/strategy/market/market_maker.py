@@ -181,7 +181,8 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     reduce_post_only: bool = False  # reduce 单是否 post_only（默认否，允许吃单）
 
 
-class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModelMixin, ReduceManagerMixin, BaseStrategy):
+class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModelMixin, ReduceManagerMixin,
+                        BaseStrategy):
     """主动做市商策略."""
 
     def __init__(self, config: MarketMakerConfig, event_bus: EventBus | None = None) -> None:
@@ -206,10 +207,6 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         # 动态价差 状态
         self._current_spread_ticks: float = float(config.base_spread_ticks)
         self._quote_suspended: bool = False
-
-        # 库存跟踪（单向持仓）
-        self._net_position_usd: float = 0.0
-        self._position_qty: float = 0.0  # 正=多头, 负=空头
 
         # 活跃报价订单 ID — US-006 分层报价
         self._active_bid_ids: list[ClientOrderId | None] = []
@@ -566,5 +563,3 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         self._prev_microprice = None
         # V5-US-005: 重置上一方向值
         self._last_dir_val = 0.0
-        self._net_position_usd = 0.0
-        self._position_qty = 0.0

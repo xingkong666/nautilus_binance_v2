@@ -8,42 +8,94 @@ from typing import Any
 
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.events import OrderFilled, PositionChanged, PositionClosed, PositionOpened
-
-from src.strategy.base import BaseStrategy
+from nautilus_trader.model.events import OrderFilled
 from src.strategy.market.quote_engine import CancelReason
 
 
 class InventoryMixin:
-    """持仓管理类."""
+    """双向持仓库存管理类（基于 lot 聚合，而非净仓）."""
 
     _last_fill_price: float | None
     _last_fill_side: str | None
 
     def _inventory_snapshot(self: Any) -> dict[str, float]:
-        """获取持仓快照."""
-        abs_usd = abs(self._net_position_usd)
-        ratio = abs_usd / max(self.config.max_position_usd, 1.0)
-        long_ratio = ratio if self._net_position_usd > 0 else 0.0
-        short_ratio = ratio if self._net_position_usd < 0 else 0.0
-        gross_ratio = ratio
-        imbalance = math.copysign(min(ratio, 1.0), self._net_position_usd) if abs_usd > 1e-9 else 0.0
+        """基于 open lots 计算库存快照.
+
+        Returns:
+            dict[str, float]:
+                long_ratio: 多头总名义价值 / max_position_usd
+                short_ratio: 空头总名义价值 / max_position_usd
+                gross_ratio: (long + short) / max_position_usd
+                imbalance: (long - short) / gross, 范围约 [-1, 1]
+                long_usd: 多头总名义价值
+                short_usd: 空头总名义价值
+                gross_usd: 多空总名义价值
+                net_usd: 多头 - 空头（仅观测用途，不作为风控主驱动）
+        """
+        long_usd = 0.0
+        short_usd = 0.0
+        long_qty = 0.0
+        short_qty = 0.0
+
+        for lot in self._inventory_lots.values():
+            if not lot.is_open():
+                continue
+
+            qty = float(lot.remaining_qty)
+            if qty <= 0:
+                continue
+
+            notional = qty * float(lot.entry_price)
+            if lot.side == OrderSide.BUY:
+                long_usd += notional
+                long_qty += qty
+            else:
+                short_usd += notional
+                short_qty += qty
+
+        gross_usd = long_usd + short_usd
+        net_usd = long_usd - short_usd
+        max_pos = max(float(self.config.max_position_usd), 1.0)
+
+        long_ratio = long_usd / max_pos
+        short_ratio = short_usd / max_pos
+        gross_ratio = gross_usd / max_pos
+
+        if gross_usd > 1e-9:
+            imbalance = (long_usd - short_usd) / gross_usd
+        else:
+            imbalance = 0.0
+
         return {
             "long_ratio": long_ratio,
             "short_ratio": short_ratio,
             "gross_ratio": gross_ratio,
             "imbalance": imbalance,
+            "long_usd": long_usd,
+            "short_usd": short_usd,
+            "gross_usd": gross_usd,
+            "net_usd": net_usd,
+            "long_qty": long_qty,
+            "short_qty": short_qty,
         }
 
     def _calc_quote_sizes(self: Any, base_qty: Decimal, adverse_side: str | None = None) -> tuple[Decimal, Decimal, bool, bool]:
-        """单向持仓下的 bid/ask 数量与 reduce_only 标志.
+        """双向持仓下的 bid/ask 数量控制.
+
+        规则：
+        - 多仓越大，越压缩 bid（避免继续加多）
+        - 空仓越大，越压缩 ask（避免继续加空）
+        - gross 越大，双边都缩量
+        - 某一侧库存过重时，仅关闭该侧开仓能力
+        - quote 池不承担 reduce_only 语义，因此始终返回 False/False
 
         Args:
             base_qty: 基础下单数量.
-            adverse_side: 若为 "BUY" 则将 bid 归零；若为 "SELL" 则将 ask 归零（US-002）.
+            adverse_side: 若为 "BUY" 则禁 bid；若为 "SELL" 则禁 ask.
 
         Returns:
-            tuple[Decimal, Decimal, bool, bool]: (bid_qty, ask_qty, bid_reduce_only, ask_reduce_only).
+            tuple[Decimal, Decimal, bool, bool]:
+                (bid_qty, ask_qty, bid_reduce_only, ask_reduce_only)
         """
         if self.instrument is None:
             return base_qty, base_qty, False, False
@@ -53,12 +105,8 @@ class InventoryMixin:
             step = 1e-8
 
         def round_to_step(val: float) -> Decimal:
-            rounded = round(val / step) * step
-            return Decimal(str(max(rounded, 0.0)))
-
-        inv = self._inventory_snapshot()
-        ratio = inv["gross_ratio"]  # abs(net) / max_position_usd
-        base_f = float(base_qty)
+            floored = math.floor(max(val, 0.0) / step) * step
+            return Decimal(str(max(floored, 0.0)))
 
         def smooth_scale(r: float, soft: float, hard: float, min_ratio: float) -> float:
             if r <= soft:
@@ -68,27 +116,45 @@ class InventoryMixin:
             t = (r - soft) / max(hard - soft, 1e-9)
             return 1.0 - (t**2) * (1.0 - min_ratio)
 
-        scale = smooth_scale(ratio, self.config.soft_limit, self.config.hard_limit, self.config.soft_size_min_ratio)
+        inv = self._inventory_snapshot()
+        long_ratio = inv["long_ratio"]
+        short_ratio = inv["short_ratio"]
+        gross_ratio = inv["gross_ratio"]
 
-        # 多头仓位 → 压缩 bid（不想继续加多），空头仓位 → 压缩 ask
-        if self._net_position_usd > 0:
-            bid_scale = scale
-            ask_scale = 1.0
-        else:
-            bid_scale = 1.0
-            ask_scale = scale
+        base_f = float(base_qty)
+
+        # 总风险越高，双边都缩
+        gross_scale = smooth_scale(
+            gross_ratio,
+            self.config.soft_limit,
+            self.config.hard_limit,
+            self.config.soft_size_min_ratio,
+        )
+
+        # 单边库存越重，压缩该边继续开仓能力
+        bid_scale = gross_scale * smooth_scale(
+            long_ratio,
+            self.config.soft_limit,
+            self.config.hard_limit,
+            self.config.soft_size_min_ratio,
+        )
+        ask_scale = gross_scale * smooth_scale(
+            short_ratio,
+            self.config.soft_limit,
+            self.config.hard_limit,
+            self.config.soft_size_min_ratio,
+        )
 
         bid_qty = round_to_step(base_f * bid_scale)
         ask_qty = round_to_step(base_f * ask_scale)
-        bid_reduce_only = False
-        ask_reduce_only = False
 
-        # one_side_only：仓位过重时只挂平仓方向
-        if ratio >= self.config.one_side_only_limit:
-            if self._net_position_usd > 0:
-                bid_qty = Decimal("0")
-            else:
-                ask_qty = Decimal("0")
+        # 单边过重：只禁止继续朝该方向加仓
+        if long_ratio >= self.config.one_side_only_limit:
+            bid_qty = Decimal("0")
+        if short_ratio >= self.config.one_side_only_limit:
+            ask_qty = Decimal("0")
+
+        # alpha 轻度倾斜
         if self._last_dir_val > self.config.dead_zone_threshold:
             bid_qty = round_to_step(float(bid_qty) * 1.15)
             ask_qty = round_to_step(float(ask_qty) * 0.85)
@@ -96,14 +162,13 @@ class InventoryMixin:
             bid_qty = round_to_step(float(bid_qty) * 0.85)
             ask_qty = round_to_step(float(ask_qty) * 1.15)
 
+        # 逆向选择侧禁开
         if adverse_side == "BUY":
             bid_qty = Decimal("0")
-            bid_reduce_only = False
         elif adverse_side == "SELL":
             ask_qty = Decimal("0")
-            ask_reduce_only = False
 
-        return bid_qty, ask_qty, bid_reduce_only, ask_reduce_only
+        return bid_qty, ask_qty, False, False
 
     def on_order_filled(self: Any, event: OrderFilled) -> None:
         """处理订单成交事件."""
@@ -123,6 +188,9 @@ class InventoryMixin:
             lot = self._inventory_lots.get(lot_id)
             if lot is not None:
                 self._handle_reduce_fill(event, lot)
+
+            # reduce 成交后重新检查 lot 聚合风险
+            self._check_lot_risk()
             return
 
         # 2) 只有 quote 池订单的 fill 才创建 lot
@@ -141,6 +209,7 @@ class InventoryMixin:
         )
 
         # quote 成交后，可撤 quote 池避免继续被动吃货；reduce 池绝不跟着撤
+
         self._cancel_all_quotes(CancelReason.ORDER_FILLED)
 
         # 当前 oid 已成交，移出 quote 来源集合
@@ -165,22 +234,61 @@ class InventoryMixin:
             elif fill_side == "SELL" and drift > 0:
                 self._toxic_flow_score = min(1.0, self._toxic_flow_score + 0.3)
 
-    def _close_all_positions(self: Any) -> None:
-        """关闭所有持仓.
+        self._check_lot_risk()
 
-        注意：这里不清理 lot，由 reduce fill 驱动。
+    def _check_lot_risk(self: Any) -> None:
+        """基于 lot 聚合风险检查 kill switch."""
+        inv = self._inventory_snapshot()
+
+        self.log.info(
+            "inventory_state "
+            f"long_usd={inv['long_usd']:.4f} "
+            f"short_usd={inv['short_usd']:.4f} "
+            f"gross_usd={inv['gross_usd']:.4f} "
+            f"net_usd={inv['net_usd']:.4f} "
+            f"long_ratio={inv['long_ratio']:.4f} "
+            f"short_ratio={inv['short_ratio']:.4f} "
+            f"gross_ratio={inv['gross_ratio']:.4f} "
+            f"open_lots={sum(1 for lot in self._inventory_lots.values() if lot.is_open())}",
+            color=LogColor.YELLOW,
+        )
+
+        if inv["gross_ratio"] >= self.config.kill_switch_limit and not self._kill_switch:
+            self._kill_switch = True
+            self._cancel_all_orders(CancelReason.KILL_SWITCH)
+            self.log.error(
+                f"Kill switch activated: gross_ratio={inv['gross_ratio']:.2f} >= {self.config.kill_switch_limit}",
+                color=LogColor.RED,
+            )
+            self._flatten_all_lots()
+        elif inv["gross_ratio"] < self.config.hard_limit and self._kill_switch:
+            self._kill_switch = False
+            self.log.info("Kill switch reset", color=LogColor.GREEN)
+
+    def _flatten_all_lots(self: Any) -> None:
+        """按 open lots 逐笔反向市价平仓.
+
+        说明：
+        - 先撤 quote + reduce，避免与主动平仓打架
+        - 再逐个 open lot 发 reduce_only 市价单
+        - 不直接删除 lot，仍由成交回报驱动 lot 收敛
         """
-        positions = self.cache.positions_open(instrument_id=self.config.instrument_id)
         if self.instrument is None:
             return
-        for pos in positions:
+
+        flattened = 0
+        for lot in list(self._inventory_lots.values()):
+            if not lot.is_open():
+                continue
+
+            qty = float(lot.remaining_qty)
+            if qty <= 0:
+                continue
+
             try:
-                qty = abs(float(pos.quantity))
-                if qty <= 0:
-                    continue
                 qty_obj = self.instrument.make_qty(qty)
-                is_long = bool(getattr(pos, "is_long", False))
-                order_side = OrderSide.SELL if is_long else OrderSide.BUY
+                order_side = OrderSide.SELL if lot.side == OrderSide.BUY else OrderSide.BUY
+
                 order = self.order_factory.market(
                     instrument_id=self.config.instrument_id,
                     order_side=order_side,
@@ -188,74 +296,9 @@ class InventoryMixin:
                     reduce_only=True,
                 )
                 self.submit_order(order)
+                flattened += 1
             except Exception as e:
-                self.log.error(f"Failed to close position {pos}: {e}", color=LogColor.RED)
+                self.log.error(f"Failed to flatten lot {lot.lot_id}: {e}", color=LogColor.RED)
 
-    def _update_position_state(self: Any) -> None:
-        """更新持仓状态.
-
-        注意：这里不清理 lot，由 reduce fill 驱动。
-        """
-        positions = self.cache.positions_open(instrument_id=self.config.instrument_id)
-        net_usd = 0.0
-        net_qty = 0.0
-
-        for pos in positions:
-            qty = float(pos.quantity)
-            price = float(pos.avg_px_open)
-            if pos.is_long:
-                net_usd += abs(qty) * price
-                net_qty += qty
-            elif pos.is_short:
-                net_usd -= abs(qty) * price
-                net_qty -= abs(qty)
-
-        self._net_position_usd = net_usd
-        self._position_qty = net_qty
-
-        ratio = abs(net_usd) / max(self.config.max_position_usd, 1.0)
-        self.log.info(
-            f"position_state net_usd={net_usd:.4f} net_qty={net_qty:.8f} ratio={ratio:.4f} open_positions={len(positions)}",
-            color=LogColor.YELLOW,
-        )
-
-        if ratio >= self.config.kill_switch_limit and not self._kill_switch:
-            self._kill_switch = True
-            self._cancel_all_orders(CancelReason.KILL_SWITCH)
-            self.log.error(
-                f"Kill switch activated: ratio={ratio:.2f} >= {self.config.kill_switch_limit}",
-                color=LogColor.RED,
-            )
-            self._close_all_positions()
-        elif ratio < self.config.hard_limit and self._kill_switch:
-            self._kill_switch = False
-            self.log.info("Kill switch reset", color=LogColor.GREEN)
-
-    def on_position_opened(self: Any, event: PositionOpened) -> None:
-        """处理持仓开仓事件.
-
-        Args:
-            event: 持仓开仓事件
-        """
-        BaseStrategy.on_position_opened(self, event)
-        self._update_position_state()
-
-    def on_position_changed(self: Any, event: PositionChanged) -> None:
-        """处理持仓变更事件.
-
-        Args:
-            event: 持仓变更事件
-        """
-        BaseStrategy.on_position_changed(self, event)
-        self._update_position_state()
-
-    def on_position_closed(self: Any, event: PositionClosed) -> None:
-        """处理持仓关闭事件.
-
-        这里只更新持仓；lot 是否关闭由 reduce fill 驱动。
-        """
-        BaseStrategy.on_position_closed(self, event)
-        self._update_position_state()
-
-        # 防止 reduce 丢失
-        self._ensure_all_open_lots_protected()
+        if flattened > 0:
+            self.log.warning(f"Flatten requested for {flattened} open lots", color=LogColor.YELLOW)
