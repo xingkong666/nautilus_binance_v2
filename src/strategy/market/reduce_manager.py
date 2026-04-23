@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any
 
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.model.enums import OrderSide, TimeInForce
@@ -40,33 +39,37 @@ class ReduceManagerMixin:
         )
         self._inventory_lots[lot.lot_id] = lot
         self.log.info(
-            f"Lot created: id={lot.lot_id} side={event.order_side.name} qty={lot.filled_qty} entry={lot.entry_price:.8f}",
+            f"Lot created: id={lot.lot_id} side={event.order_side.name} qty={lot.filled_qty} "
+            f"entry={lot.entry_price:.8f} position_id={lot.position_id}",
             color=LogColor.GREEN,
         )
         return lot
 
     def _resolve_lot_position_id(self: Any, lot: InventoryLot) -> PositionId | None:
-        """解析 lot 对应的持仓 ID，供 reduce_only 订单绑定使用."""
+        """解析 lot 对应的持仓 ID，供 reduce 订单绑定使用."""
         if lot.position_id is not None:
             return lot.position_id
 
         positions_open = getattr(self.cache, "positions_open", None)
         if not callable(positions_open):
-            self.log.error(f"Cannot resolve position_id for lot={lot.lot_id}: cache.positions_open unavailable", color=LogColor.RED)
+            self.log.error(
+                f"Cannot resolve position_id for lot={lot.lot_id}: cache.positions_open unavailable",
+                color=LogColor.RED,
+            )
             return None
 
         try:
-            candidates = []
-            for position in cast(Callable[[], list[Any]], positions_open)():
-                if getattr(position, "instrument_id", None) != self.config.instrument_id:
-                    continue
-
-                if lot.side == OrderSide.BUY and not getattr(position, "is_long", False):
-                    continue
-                if lot.side == OrderSide.SELL and getattr(position, "is_long", False):
-                    continue
-
-                candidates.append(position)
+            positions = positions_open(instrument_id=self.config.instrument_id)
+        except TypeError:
+            # 某些测试桩/兼容实现可能不支持 instrument_id 参数
+            try:
+                positions = positions_open()
+            except Exception as exc:
+                self.log.error(
+                    f"Failed to resolve position_id for lot={lot.lot_id}: {exc}",
+                    color=LogColor.RED,
+                )
+                return None
         except Exception as exc:
             self.log.error(
                 f"Failed to resolve position_id for lot={lot.lot_id}: {exc}",
@@ -74,20 +77,79 @@ class ReduceManagerMixin:
             )
             return None
 
-        if len(candidates) != 1:
+        candidates: list[Any] = []
+        for position in positions:
+            if getattr(position, "instrument_id", None) != self.config.instrument_id:
+                continue
+
+            is_long = bool(getattr(position, "is_long", False))
+            if lot.side == OrderSide.BUY and not is_long:
+                continue
+            if lot.side == OrderSide.SELL and is_long:
+                continue
+
+            candidates.append(position)
+
+        if not candidates:
             self.log.error(
-                f"Cannot resolve position_id for lot={lot.lot_id}: matched_positions={len(candidates)} side={lot.side.name}",
+                f"Cannot resolve position_id for lot={lot.lot_id}: no matching open position side={lot.side.name}",
                 color=LogColor.RED,
             )
             return None
 
-        position_id = getattr(candidates[0], "id", None)
+        if len(candidates) == 1:
+            position = candidates[0]
+            position_id = getattr(position, "id", None) or getattr(position, "position_id", None)
+            if position_id is None:
+                self.log.error(
+                    f"Resolved position missing id for lot={lot.lot_id}",
+                    color=LogColor.RED,
+                )
+                return None
+
+            lot.position_id = position_id
+            self.log.info(
+                f"Resolved position_id for lot={lot.lot_id}: {position_id}",
+                color=LogColor.BLUE,
+            )
+            return position_id
+
+        # 多候选时，按 qty/entry_price 近似匹配
+        lot_qty = float(lot.remaining_qty)
+        lot_px = float(lot.entry_price)
+
+        def score(position: Any) -> tuple[float, float]:
+            qty = abs(float(getattr(position, "quantity", 0.0)))
+            px = float(getattr(position, "avg_px_open", 0.0))
+            return (abs(qty - lot_qty), abs(px - lot_px))
+
+        candidates.sort(key=score)
+
+        best = candidates[0]
+        best_score = score(best)
+        second_score = score(candidates[1]) if len(candidates) > 1 else None
+
+        # 若前两名几乎一样，视为歧义，拒绝盲绑
+        if second_score is not None and best_score == second_score:
+            self.log.error(
+                f"Cannot resolve position_id for lot={lot.lot_id}: ambiguous candidates={len(candidates)} side={lot.side.name}",
+                color=LogColor.RED,
+            )
+            return None
+
+        position_id = getattr(best, "id", None) or getattr(best, "position_id", None)
         if position_id is None:
-            self.log.error(f"Resolved position missing id for lot={lot.lot_id}", color=LogColor.RED)
+            self.log.error(
+                f"Resolved position missing id for lot={lot.lot_id}",
+                color=LogColor.RED,
+            )
             return None
 
         lot.position_id = position_id
-        self.log.info(f"Resolved position_id for lot={lot.lot_id}: {position_id}", color=LogColor.BLUE)
+        self.log.warning(
+            f"Resolved position_id by heuristic for lot={lot.lot_id}: {position_id}",
+            color=LogColor.YELLOW,
+        )
         return position_id
 
     def _calc_reduce_price(self: Any, lot: InventoryLot) -> tuple[OrderSide, float] | None:

@@ -408,18 +408,18 @@ class QuoteEngineMixin:
         if total > 0:
             self.log.info(f"Requested cancel for {total} active quotes reason={reason.value}", color=LogColor.YELLOW)
 
-    def _submit_quote(self: Any, side: OrderSide, price: float, qty: Decimal) -> ClientOrderId | None:
-        """提交报价,只返回 client_order_id,不修改 active 列表.
+    def _quote_position_id(self: Any, side: OrderSide) -> PositionId:
+        """为 Binance Futures hedge mode 生成 quote 订单的 PositionId."""
+        suffix = "LONG" if side == OrderSide.BUY else "SHORT"
+        return PositionId(f"{self.config.instrument_id}-{suffix}")
 
-        Args:
-            side: 订单方向.
-            price: 报价价格.
-            qty: 报价数量.
-        """
+    def _submit_quote(self: Any, side: OrderSide, price: float, qty: Decimal) -> ClientOrderId | None:
+        """提交报价,只返回 client_order_id,不修改 active 列表."""
         if self.instrument is None:
             return None
         if qty <= 0:
             return None
+
         try:
             price_obj = self.instrument.make_price(price)
             qty_obj = self.instrument.make_qty(qty)
@@ -430,9 +430,7 @@ class QuoteEngineMixin:
             if notional < 5.0:
                 self.log.debug(f"Skipping quote: notional {notional:.2f} < 5.0 min")
                 return None
-            #  Binance Futures + post_only=True 时，adapter 会将 GTC 转为 GTX（Post-Only），订单正常显示在订单列表中，
-            # 不再被 GTX 强制覆盖导致 GTD 失效。订单生命周期管理完全由策略已有的 _refresh_quotes drift 刷新逻辑承担（每 limit_ttl_ms *
-            # order_refresh_ratio 触发一次检查）
+
             order = self.order_factory.limit(
                 instrument_id=self.config.instrument_id,
                 order_side=side,
@@ -441,10 +439,15 @@ class QuoteEngineMixin:
                 time_in_force=TimeInForce.GTC,
                 post_only=self.config.post_only,
             )
-            self.submit_order(order)
 
-            # 只给 quote 池打标记
+            position_id = self._quote_position_id(side)
+            self.submit_order(order, position_id=position_id)
+
             self._quote_order_ids.add(order.client_order_id)
+            self.log.debug(
+                f"Quote submitted: oid={order.client_order_id} side={side.name} px={price:.8f} "
+                f"qty={qty_obj.as_decimal()} position_id={position_id}"
+            )
             return order.client_order_id
         except Exception as e:
             self.log.error(f"Failed to submit quote: {e}", color=LogColor.RED)
