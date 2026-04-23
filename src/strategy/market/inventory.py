@@ -9,6 +9,7 @@ from typing import Any
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.events import OrderFilled
+
 from src.strategy.market.quote_engine import CancelReason
 
 
@@ -61,10 +62,7 @@ class InventoryMixin:
         short_ratio = short_usd / max_pos
         gross_ratio = gross_usd / max_pos
 
-        if gross_usd > 1e-9:
-            imbalance = (long_usd - short_usd) / gross_usd
-        else:
-            imbalance = 0.0
+        imbalance = (long_usd - short_usd) / gross_usd if gross_usd > 1e-9 else 0.0
 
         return {
             "long_ratio": long_ratio,
@@ -287,6 +285,10 @@ class InventoryMixin:
             try:
                 qty_obj = self.instrument.make_qty(qty)
                 order_side = OrderSide.SELL if lot.side == OrderSide.BUY else OrderSide.BUY
+                position_id = self._resolve_lot_position_id(lot)
+                if position_id is None:
+                    self.log.error(f"Skip flatten without position_id: lot={lot.lot_id}", color=LogColor.RED)
+                    continue
 
                 order = self.order_factory.market(
                     instrument_id=self.config.instrument_id,
@@ -294,7 +296,7 @@ class InventoryMixin:
                     quantity=qty_obj,
                     reduce_only=True,
                 )
-                self.submit_order(order)
+                self.submit_order(order, position_id=position_id)
                 flattened += 1
             except Exception as e:
                 self.log.error(f"Failed to flatten lot {lot.lot_id}: {e}", color=LogColor.RED)

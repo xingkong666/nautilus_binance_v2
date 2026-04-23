@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import ClientOrderId
+from nautilus_trader.model.identifiers import ClientOrderId, PositionId
 
 
 class LotStatus:
@@ -29,6 +29,7 @@ class InventoryLot:
     entry_price: float  # 建仓价格
     filled_qty: Decimal  # 初始成交量
     remaining_qty: Decimal  # 当前未平仓量
+    position_id: PositionId | None = None  # Binance hedge-mode reduce_only 需要绑定的仓位 ID
     reduce_order_id: ClientOrderId | None = None  # 对应的 Reduce 订单ID
     status: str = field(default=LotStatus.OPEN)
     reduce_version: int = 0  # 每次补挂递增，避免旧单事件串扰

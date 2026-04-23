@@ -12,7 +12,7 @@ import pytest
 import yaml
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId
+from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId, PositionId
 
 from src.core.events import SignalDirection
 from src.strategy.base import BaseStrategyConfig
@@ -1606,6 +1606,7 @@ def _make_order_filled_event(client_order_id, order_side, last_px=100.0, last_qt
         order_side=order_side,
         last_px=last_px,
         last_qty=last_qty,
+        position_id=PositionId("P-TEST-001"),
         commission=SimpleNamespace(as_double=lambda: 0.0),
     )
 
@@ -1633,7 +1634,70 @@ def test_quote_fill_creates_lot() -> None:
     assert float(lot.filled_qty) == pytest.approx(0.5)
     assert float(lot.remaining_qty) == pytest.approx(0.5)
     assert lot.entry_price == pytest.approx(100.0)
+    assert lot.position_id == PositionId("P-TEST-001")
     assert lot.status == LotStatus.OPEN
+
+
+def test_place_reduce_order_submits_with_position_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reduce-only 挂单必须携带 quote fill 绑定的 position_id."""
+    from src.strategy.market.inventory_lot import LotStatus
+
+    strategy = make_strategy()
+    _patch_utc_now(strategy)
+    strategy.instrument = SimpleNamespace(
+        make_price=lambda value: value,
+        make_qty=lambda value: SimpleNamespace(as_decimal=lambda: Decimal(str(value))),
+    )
+
+    order = SimpleNamespace(client_order_id=ClientOrderId("reduce-oid-001"))
+    monkeypatch.setattr(type(strategy), "order_factory", SimpleNamespace(limit=lambda **_: order), raising=False)
+
+    submit_calls: list[tuple[object, PositionId | None]] = []
+    strategy.submit_order = lambda submitted_order, position_id=None: submit_calls.append((submitted_order, position_id))  # type: ignore[method-assign]
+
+    lot = InventoryLot(
+        lot_id="lot-protected",
+        quote_order_id=ClientOrderId("quote-protected"),
+        side=OrderSide.BUY,
+        entry_price=100.0,
+        filled_qty=Decimal("0.5"),
+        remaining_qty=Decimal("0.5"),
+        position_id=PositionId("P-REDUCE-001"),
+    )
+
+    returned_id = strategy._place_reduce_order(lot)
+
+    assert returned_id == ClientOrderId("reduce-oid-001")
+    assert submit_calls == [(order, PositionId("P-REDUCE-001"))]
+    assert lot.reduce_order_id == ClientOrderId("reduce-oid-001")
+    assert lot.status == LotStatus.PROTECTED
+
+
+def test_flatten_all_lots_submits_with_position_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Kill-switch flatten 的 reduce-only 市价单也必须携带 position_id."""
+    strategy = make_strategy()
+    strategy.instrument = SimpleNamespace(make_qty=lambda value: value)
+
+    order = SimpleNamespace(client_order_id=ClientOrderId("flatten-oid-001"))
+    monkeypatch.setattr(type(strategy), "order_factory", SimpleNamespace(market=lambda **_: order), raising=False)
+
+    submit_calls: list[tuple[object, PositionId | None]] = []
+    strategy.submit_order = lambda submitted_order, position_id=None: submit_calls.append((submitted_order, position_id))  # type: ignore[method-assign]
+
+    lot = InventoryLot(
+        lot_id="lot-flatten",
+        quote_order_id=ClientOrderId("quote-flatten"),
+        side=OrderSide.BUY,
+        entry_price=100.0,
+        filled_qty=Decimal("0.5"),
+        remaining_qty=Decimal("0.5"),
+        position_id=PositionId("P-FLATTEN-001"),
+    )
+    strategy._inventory_lots[lot.lot_id] = lot
+
+    strategy._flatten_all_lots()
+
+    assert submit_calls == [(order, PositionId("P-FLATTEN-001"))]
 
 
 def test_quote_fill_places_reduce() -> None:

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.events import OrderFilled
-from nautilus_trader.model.identifiers import ClientOrderId
+from nautilus_trader.model.identifiers import ClientOrderId, PositionId
 
 from src.strategy.market.inventory_lot import InventoryLot, LotStatus
 from src.strategy.market.quote_engine import CancelReason
@@ -35,6 +36,7 @@ class ReduceManagerMixin:
             entry_price=float(event.last_px),
             filled_qty=qty,
             remaining_qty=qty,
+            position_id=getattr(event, "position_id", None),
         )
         self._inventory_lots[lot.lot_id] = lot
         self.log.info(
@@ -42,6 +44,51 @@ class ReduceManagerMixin:
             color=LogColor.GREEN,
         )
         return lot
+
+    def _resolve_lot_position_id(self: Any, lot: InventoryLot) -> PositionId | None:
+        """解析 lot 对应的持仓 ID，供 reduce_only 订单绑定使用."""
+        if lot.position_id is not None:
+            return lot.position_id
+
+        positions_open = getattr(self.cache, "positions_open", None)
+        if not callable(positions_open):
+            self.log.error(f"Cannot resolve position_id for lot={lot.lot_id}: cache.positions_open unavailable", color=LogColor.RED)
+            return None
+
+        try:
+            candidates = []
+            for position in cast(Callable[[], list[Any]], positions_open)():
+                if getattr(position, "instrument_id", None) != self.config.instrument_id:
+                    continue
+
+                if lot.side == OrderSide.BUY and not getattr(position, "is_long", False):
+                    continue
+                if lot.side == OrderSide.SELL and getattr(position, "is_long", False):
+                    continue
+
+                candidates.append(position)
+        except Exception as exc:
+            self.log.error(
+                f"Failed to resolve position_id for lot={lot.lot_id}: {exc}",
+                color=LogColor.RED,
+            )
+            return None
+
+        if len(candidates) != 1:
+            self.log.error(
+                f"Cannot resolve position_id for lot={lot.lot_id}: matched_positions={len(candidates)} side={lot.side.name}",
+                color=LogColor.RED,
+            )
+            return None
+
+        position_id = getattr(candidates[0], "id", None)
+        if position_id is None:
+            self.log.error(f"Resolved position missing id for lot={lot.lot_id}", color=LogColor.RED)
+            return None
+
+        lot.position_id = position_id
+        self.log.info(f"Resolved position_id for lot={lot.lot_id}: {position_id}", color=LogColor.BLUE)
+        return position_id
 
     def _calc_reduce_price(self: Any, lot: InventoryLot) -> tuple[OrderSide, float] | None:
         """计算 reduce 价格."""
@@ -71,6 +118,10 @@ class ReduceManagerMixin:
             qty_obj = self.instrument.make_qty(lot.remaining_qty)
             if qty_obj.as_decimal() <= 0:
                 return None
+            position_id = self._resolve_lot_position_id(lot)
+            if position_id is None:
+                self.log.error(f"Skip reduce placement without position_id: lot={lot.lot_id}", color=LogColor.RED)
+                return None
 
             order = self.order_factory.limit(
                 instrument_id=self.config.instrument_id,
@@ -81,7 +132,7 @@ class ReduceManagerMixin:
                 post_only=self.config.reduce_post_only,  # False 可以吃单
                 reduce_only=True,
             )
-            self.submit_order(order)
+            self.submit_order(order, position_id=position_id)
             lot.reduce_version += 1
             lot.reduce_order_id = order.client_order_id
             lot.status = LotStatus.PROTECTED
