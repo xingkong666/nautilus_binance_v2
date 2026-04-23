@@ -315,11 +315,7 @@ def _smooth_score(stats: dict[str, float], orders: int) -> float:
         orders: Orders.
     """
     return round(
-        stats["Sharpe"]
-        + (0.4 * stats["Calmar"])
-        - (0.6 * stats["Volatility"])
-        - (0.4 * stats["MaxDrawdown"])
-        - (0.01 * orders),
+        stats["Sharpe"] + (0.4 * stats["Calmar"]) - (0.6 * stats["Volatility"]) - (0.4 * stats["MaxDrawdown"]) - (0.01 * orders),
         4,
     )
 
@@ -386,9 +382,7 @@ def run_single_backtest(task: dict[str, Any]) -> dict[str, Any]:
     interval_str = str(task.get("interval", "15m"))
     interval = Interval(interval_str)
 
-    strategy_params = {
-        k: v for k, v in task.items() if k not in {"symbol", "strategy_type", "start_date", "end_date", "interval"}
-    }
+    strategy_params = {k: v for k, v in task.items() if k not in {"symbol", "strategy_type", "start_date", "end_date", "interval"}}
 
     runner_config = BacktestConfig(
         start=start_date,

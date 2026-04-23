@@ -150,11 +150,7 @@ class SmokeStrategy(Strategy):
             return
 
         # 第一笔：开仓成交
-        if (
-            not self._entry_filled
-            and self._entry_client_order_id is not None
-            and event.client_order_id == self._entry_client_order_id
-        ):
+        if not self._entry_filled and self._entry_client_order_id is not None and event.client_order_id == self._entry_client_order_id:
             self._entry_filled = True
             self.log.info("=" * 50)
             self.log.info("🎉 开仓成交成功！")

@@ -1541,7 +1541,7 @@ def test_asymmetric_layers_one_side() -> None:
 
 
 # ===========================================================================
-# 净仓位聚合 TP 测试（单向持仓重构）
+# Lot-Based 库存管理 + Reduce/TP 池测试
 # ===========================================================================
 
 
@@ -1556,110 +1556,229 @@ def _make_order_filled_event(client_order_id, order_side, last_px=100.0, last_qt
     )
 
 
-def test_on_order_filled_net_tp_early_return() -> None:
-    """TP 单成交时 on_order_filled 应 early return，不触发 _cancel_quotes."""
+def test_quote_fill_creates_lot() -> None:
+    """Quote 成交后 _inventory_lots 新增一个 OPEN lot."""
     from nautilus_trader.model.enums import OrderSide
     from nautilus_trader.model.identifiers import ClientOrderId
 
+    from src.strategy.market.inventory_lot import LotStatus
+
     strategy = make_strategy()
-    tp_id = ClientOrderId("tp-001")
-    strategy._net_tp_order_id = tp_id
-
-    # Mock the utc_now method to avoid NotImplementedError
     _patch_utc_now(strategy)
+    strategy._cancel_all_quotes = lambda *_: None  # type: ignore[method-assign]
+    strategy._place_reduce_order = lambda lot: None  # type: ignore[method-assign]
 
-    # 直接测试 TP 成交后的状态变化
-    event = _make_order_filled_event(tp_id, OrderSide.SELL, last_px=101.0, last_qty=0.1)
+    quote_id = ClientOrderId("quote-001")
+    event = _make_order_filled_event(quote_id, OrderSide.BUY, last_px=100.0, last_qty=0.5)
     strategy.on_order_filled(event)
 
-    assert strategy._net_tp_order_id is None, "TP 成交后 _net_tp_order_id 应被清空"
+    assert len(strategy._inventory_lots) == 1
+    lot = list(strategy._inventory_lots.values())[0]
+    assert lot.side == OrderSide.BUY
+    assert float(lot.qty) == pytest.approx(0.5)
+    assert lot.entry_price == pytest.approx(100.0)
+    assert lot.status == LotStatus.OPEN
 
 
-def test_sync_net_tp_order_logic_long_position() -> None:
-    """测试净多头时的 TP 逻辑判断."""
-    strategy = make_strategy()
-    strategy._position_qty = 0.5
-    strategy._net_position_usd = 50000.0
-
-    # 测试多头时应该创建 SELL 方向的 TP
-    # 这里我们测试逻辑而不是实际的订单提交
+def test_quote_fill_places_reduce() -> None:
+    """Quote 成交后立即调用 _place_reduce_order."""
     from nautilus_trader.model.enums import OrderSide
+    from nautilus_trader.model.identifiers import ClientOrderId
 
-    # 模拟逻辑：如果净多头，TP 方向应该是 SELL
-    expected_side = OrderSide.SELL if strategy._position_qty > 0 else OrderSide.BUY
-    assert expected_side == OrderSide.SELL, "净多头应使用 SELL 方向的 TP"
-
-
-def test_sync_net_tp_order_logic_short_position() -> None:
-    """测试净空头时的 TP 逻辑判断."""
     strategy = make_strategy()
-    strategy._position_qty = -0.5
-    strategy._net_position_usd = -50000.0
+    _patch_utc_now(strategy)
+    strategy._cancel_all_quotes = lambda *_: None  # type: ignore[method-assign]
 
-    # 测试空头时应该创建 BUY 方向的 TP
+    reduce_calls = []
+    strategy._place_reduce_order = lambda lot: reduce_calls.append(lot)  # type: ignore[method-assign]
+
+    quote_id = ClientOrderId("quote-002")
+    event = _make_order_filled_event(quote_id, OrderSide.SELL, last_px=50000.0, last_qty=0.01)
+    strategy.on_order_filled(event)
+
+    assert len(reduce_calls) == 1
+    assert reduce_calls[0].side == OrderSide.SELL
+    assert reduce_calls[0].entry_price == pytest.approx(50000.0)
+
+
+def test_reduce_fill_closes_lot() -> None:
+    """Reduce 成交后 lot 状态变为 CLOSED，不撤 Quote 池."""
     from nautilus_trader.model.enums import OrderSide
+    from nautilus_trader.model.identifiers import ClientOrderId
 
-    # 模拟逻辑：如果净空头，TP 方向应该是 BUY
-    expected_side = OrderSide.BUY if strategy._position_qty < 0 else OrderSide.SELL
-    assert expected_side == OrderSide.BUY, "净空头应使用 BUY 方向的 TP"
+    from src.strategy.market.inventory_lot import InventoryLot, LotStatus
 
-
-def test_sync_net_tp_order_logic_zero_position() -> None:
-    """测试净仓为零时的 TP 逻辑判断."""
     strategy = make_strategy()
-    strategy._position_qty = 0.0
-    strategy._net_position_usd = 0.0
+    _patch_utc_now(strategy)
 
-    # 测试零仓位时不应有 TP
-    should_create_tp = abs(strategy._position_qty) > 0 and abs(strategy._net_position_usd) > 0
-    assert should_create_tp is False, "净仓为零时不应创建 TP"
+    cancel_called = []
+    strategy._cancel_all_quotes = lambda *_: cancel_called.append(True)  # type: ignore[method-assign]
+
+    lot = InventoryLot(
+        lot_id="lot-001",
+        side=OrderSide.BUY,
+        qty=Decimal("0.5"),
+        entry_price=100.0,
+        reduce_order_id=ClientOrderId("reduce-001"),
+        status=LotStatus.CLOSING,
+    )
+    strategy._inventory_lots["lot-001"] = lot
+    strategy._reduce_to_lot[ClientOrderId("reduce-001")] = "lot-001"
+
+    event = _make_order_filled_event(ClientOrderId("reduce-001"), OrderSide.SELL, last_px=100.1, last_qty=0.5)
+    strategy.on_order_filled(event)
+
+    assert lot.status == LotStatus.CLOSED
+    assert lot.reduce_order_id is None
+    assert ClientOrderId("reduce-001") not in strategy._reduce_to_lot
+    assert len(cancel_called) == 0  # Quote 池不受影响
 
 
-def test_sync_net_tp_order_logic_ref_price_calculation() -> None:
-    """测试 TP 参考价格计算逻辑."""
+def test_reduce_fill_tracks_realized_pnl() -> None:
+    """Reduce 成交后正确计算 lot-based realized PnL."""
+    from nautilus_trader.model.enums import OrderSide
+    from nautilus_trader.model.identifiers import ClientOrderId
+
+    from src.strategy.market.inventory_lot import InventoryLot, LotStatus
+
     strategy = make_strategy()
-    strategy._last_microprice = 100.0
+    _patch_utc_now(strategy)
+    strategy._cancel_all_quotes = lambda *_: None  # type: ignore[method-assign]
 
-    # 测试参考价格获取逻辑
-    # 优先使用 microprice，其次使用订单簿中价
-    ref_price = strategy._last_microprice
-    assert ref_price == 100.0, "应优先使用 microprice 作为参考价格"
+    lot = InventoryLot(
+        lot_id="lot-pnl",
+        side=OrderSide.BUY,
+        qty=Decimal("1.0"),
+        entry_price=100.0,
+        reduce_order_id=ClientOrderId("reduce-pnl"),
+        status=LotStatus.CLOSING,
+    )
+    strategy._inventory_lots["lot-pnl"] = lot
+    strategy._reduce_to_lot[ClientOrderId("reduce-pnl")] = "lot-pnl"
 
-    # 测试无 microprice 时的回退逻辑
-    strategy._last_microprice = None
-    ref_price = strategy._last_microprice
-    assert ref_price is None, "无 microprice 时参考价格应为 None"
+    event = _make_order_filled_event(ClientOrderId("reduce-pnl"), OrderSide.SELL, last_px=101.0, last_qty=1.0)
+    strategy.on_order_filled(event)
+
+    assert len(strategy._recent_fills) == 1
+    _, pnl = strategy._recent_fills[0]
+    assert pnl == pytest.approx(1.0)  # (101 - 100) * 1.0
 
 
-def test_sync_net_tp_order_id_management() -> None:
-    """测试 TP 订单 ID 管理逻辑."""
+def test_reduce_not_cancelled_by_drift_refresh() -> None:
+    """Drift 刷新只撤 Quote 池，不影响 Reduce 池."""
     from nautilus_trader.model.identifiers import ClientOrderId
 
     strategy = make_strategy()
 
-    # 测试设置 TP 订单 ID
-    tp_id = ClientOrderId("tp-test")
-    strategy._net_tp_order_id = tp_id
-    assert strategy._net_tp_order_id == tp_id, "TP 订单 ID 应正确设置"
+    reduce_id = ClientOrderId("reduce-drift")
+    strategy._reduce_to_lot[reduce_id] = "lot-drift"
 
-    # 测试清空 TP 订单 ID
-    strategy._net_tp_order_id = None
-    assert strategy._net_tp_order_id is None, "TP 订单 ID 应正确清空"
+    strategy._cancel_all_quotes = lambda *_: None  # type: ignore[method-assign]
+    strategy._prune_inactive_quote_ids = lambda: None  # type: ignore[method-assign]
+    strategy._has_active_quotes = lambda: False  # type: ignore[method-assign]
+    strategy._submit_quote = lambda side, price, qty, **kw: f"order_{side}"  # type: ignore[method-assign]
+    _patch_utc_now(strategy)
+
+    strategy._refresh_quotes(99.0, 101.0, Decimal("0.1"), Decimal("0.1"), mid=100.0, current_skew=0.0)
+
+    assert reduce_id in strategy._reduce_to_lot
 
 
-def test_sync_net_tp_order_old_order_detection() -> None:
-    """测试旧 TP 订单检测逻辑."""
+def test_reduce_cancelled_by_kill_switch() -> None:
+    """Kill switch 撤两个池."""
+    strategy = make_strategy()
+
+    cancel_quote_called = []
+    cancel_reduce_called = []
+    strategy._cancel_all_quotes = lambda reason: cancel_quote_called.append(reason)  # type: ignore[method-assign]
+    strategy._cancel_reduce_orders = lambda reason: cancel_reduce_called.append(reason)  # type: ignore[method-assign]
+
+    from src.strategy.market.quote_engine import CancelReason
+
+    strategy._cancel_all_orders(CancelReason.KILL_SWITCH)
+
+    assert len(cancel_quote_called) == 1
+    assert len(cancel_reduce_called) == 1
+    assert cancel_quote_called[0] == CancelReason.KILL_SWITCH
+    assert cancel_reduce_called[0] == CancelReason.KILL_SWITCH
+
+
+def test_place_reduce_order_long_lot() -> None:
+    """BUY lot → SELL reduce at entry * (1 + tp_pct)."""
+    from nautilus_trader.model.enums import OrderSide
+
+    strategy = make_strategy(tp_pct=0.001)
+    entry_price = 50000.0
+    tp_pct = strategy.config.tp_pct
+
+    expected_reduce_side = OrderSide.SELL
+    expected_price = entry_price * (1 + tp_pct)
+
+    assert expected_reduce_side == OrderSide.SELL
+    assert expected_price == pytest.approx(50050.0)
+
+
+def test_place_reduce_order_short_lot() -> None:
+    """SELL lot → BUY reduce at entry * (1 - tp_pct)."""
+    from nautilus_trader.model.enums import OrderSide
+
+    strategy = make_strategy(tp_pct=0.001)
+
+    entry_price = 50000.0
+    tp_pct = strategy.config.tp_pct
+
+    expected_reduce_side = OrderSide.BUY
+    expected_price = entry_price * (1 - tp_pct)
+
+    assert expected_reduce_side == OrderSide.BUY
+    assert expected_price == pytest.approx(49950.0)
+
+
+def test_on_order_canceled_reduce_resets_lot() -> None:
+    """Reduce 订单被撤后 lot 状态回退到 OPEN."""
+    from nautilus_trader.model.enums import OrderSide
+    from nautilus_trader.model.identifiers import ClientOrderId
+
+    from src.strategy.market.inventory_lot import InventoryLot, LotStatus
+
+    strategy = make_strategy()
+
+    reduce_id = ClientOrderId("reduce-cancel")
+    lot = InventoryLot(
+        lot_id="lot-cancel",
+        side=OrderSide.BUY,
+        qty=Decimal("1.0"),
+        entry_price=100.0,
+        reduce_order_id=reduce_id,
+        status=LotStatus.CLOSING,
+    )
+    strategy._inventory_lots["lot-cancel"] = lot
+    strategy._reduce_to_lot[reduce_id] = "lot-cancel"
+
+    event = SimpleNamespace(client_order_id=reduce_id)
+    strategy.on_order_canceled(event)
+
+    assert lot.status == LotStatus.OPEN
+    assert lot.reduce_order_id is None
+    assert reduce_id not in strategy._reduce_to_lot
+
+
+def test_quote_fill_only_cancels_quote_pool() -> None:
+    """Quote 成交后只撤 Quote 池（_cancel_all_quotes），不撤 Reduce 池."""
+    from nautilus_trader.model.enums import OrderSide
     from nautilus_trader.model.identifiers import ClientOrderId
 
     strategy = make_strategy()
-    old_id = ClientOrderId("tp-old")
-    strategy._net_tp_order_id = old_id
+    _patch_utc_now(strategy)
 
-    # 测试是否存在旧订单
-    has_old_order = strategy._net_tp_order_id is not None
-    assert has_old_order is True, "应能检测到存在旧的 TP 订单"
+    cancel_all_quotes_called = []
+    cancel_reduce_called = []
+    strategy._cancel_all_quotes = lambda reason: cancel_all_quotes_called.append(reason)  # type: ignore[method-assign]
+    strategy._cancel_reduce_orders = lambda reason: cancel_reduce_called.append(reason)  # type: ignore[method-assign]
+    strategy._place_reduce_order = lambda lot: None  # type: ignore[method-assign]
 
-    # 测试清空后的状态
-    strategy._net_tp_order_id = None
-    has_old_order = strategy._net_tp_order_id is not None
-    assert has_old_order is False, "清空后应无旧的 TP 订单"
+    event = _make_order_filled_event(ClientOrderId("quote-003"), OrderSide.BUY, last_px=100.0, last_qty=0.1)
+    strategy.on_order_filled(event)
+
+    assert len(cancel_all_quotes_called) == 1
+    assert len(cancel_reduce_called) == 0

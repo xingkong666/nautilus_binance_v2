@@ -79,9 +79,7 @@ def main() -> None:
     selection_min_score_grid_raw = walk_cfg.get("selection_min_score_grid", [])
     selection_min_score_grid = [float(v) for v in selection_min_score_grid_raw]
     selection_min_score_raw = walk_cfg.get("selection_min_score")
-    selection_min_score_default: float | None = (
-        float(selection_min_score_raw) if selection_min_score_raw is not None else None
-    )
+    selection_min_score_default: float | None = float(selection_min_score_raw) if selection_min_score_raw is not None else None
 
     base_output_dir = Path(args.output_dir) if args.output_dir else Path("experiments/walkforward") / portfolio_name
     base_output_dir.mkdir(parents=True, exist_ok=True)
@@ -149,9 +147,7 @@ def main() -> None:
             ascending=[False, False],
         )
         grid_df.to_csv(base_output_dir / "walkforward_grid_summary.csv", index=False)
-        (base_output_dir / "walkforward_grid_summary.json").write_text(
-            json.dumps(grid_rows, ensure_ascii=False, indent=2)
-        )
+        (base_output_dir / "walkforward_grid_summary.json").write_text(json.dumps(grid_rows, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

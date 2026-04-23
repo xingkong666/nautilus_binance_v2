@@ -266,9 +266,7 @@ def test_recovery_halt_on_many_mismatches() -> None:
         mgr.save(snap)
 
         # 6 个不匹配的交易所头寸不在本地快照中
-        exchange_positions = [
-            {"instrument_id": f"TOKEN{i}-PERP.BINANCE", "quantity": "1.0", "side": "LONG"} for i in range(6)
-        ]
+        exchange_positions = [{"instrument_id": f"TOKEN{i}-PERP.BINANCE", "quantity": "1.0", "side": "LONG"} for i in range(6)]
 
         mock_reconciler = MagicMock()
         mock_result = MagicMock()

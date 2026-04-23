@@ -283,8 +283,7 @@ def query_trades(persistence, limit=10):
     """
     with persistence._conn.cursor() as cur:
         cur.execute(
-            "SELECT instrument_id, side, quantity, price, order_id, strategy_id, fees "
-            "FROM trades ORDER BY timestamp_ns DESC LIMIT %s",
+            "SELECT instrument_id, side, quantity, price, order_id, strategy_id, fees FROM trades ORDER BY timestamp_ns DESC LIMIT %s",
             (limit,),
         )
         cols = [desc[0] for desc in cur.description]

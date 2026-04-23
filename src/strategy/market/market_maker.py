@@ -34,8 +34,10 @@ from src.core.events import EventBus
 from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.market.alpha import AlphaMixin
 from src.strategy.market.inventory import InventoryMixin
+from src.strategy.market.inventory_lot import InventoryLot
 from src.strategy.market.queue_model import QueueModelMixin
 from src.strategy.market.quote_engine import CancelReason, QuoteEngineMixin, QuoteState
+from src.strategy.market.reduce_manager import ReduceManagerMixin
 
 logger = structlog.get_logger(__name__)
 
@@ -174,10 +176,12 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     # V5-US-005: 非对称分层报价
     asymmetric_layers: bool = True
 
-    allow_reduce_only_rebalance: bool = True
+    # Reduce/TP 池
+    tp_pct: float = 0.001  # TP 百分比（0.1%）
+    reduce_post_only: bool = False  # reduce 单是否 post_only（默认否，允许吃单）
 
 
-class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModelMixin, BaseStrategy):
+class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModelMixin, ReduceManagerMixin, BaseStrategy):
     """主动做市商策略."""
 
     def __init__(self, config: MarketMakerConfig, event_bus: EventBus | None = None) -> None:
@@ -210,6 +214,8 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         # 活跃报价订单 ID — US-006 分层报价
         self._active_bid_ids: list[ClientOrderId | None] = []
         self._active_ask_ids: list[ClientOrderId | None] = []
+        # Quote 池订单来源标记
+        self._quote_order_ids: set[ClientOrderId] = set()
 
         # 撤单原因追踪
         self._pending_cancel_reasons: dict[ClientOrderId, CancelReason] = {}
@@ -220,8 +226,10 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         # 熔断开关状态
         self._kill_switch: bool = False
 
-        # 净仓聚合 TP 单
-        self._net_tp_order_id: ClientOrderId | None = None
+        # Reduce/TP 池 — lot-based 库存追踪
+        self._inventory_lots: dict[str, InventoryLot] = {}
+        self._reduce_to_lot: dict[ClientOrderId, str] = {}
+        self._lot_seq: int = 0
 
         # US-002: 逆向选择
         self._last_fill_price: float | None = None
@@ -244,8 +252,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         # US-008: 市场质量过滤
         self._quote_quality_ok: bool = True
 
-        # V3-US-001: 已实现 PNL追踪（替代名义额）
-        self._open_fills: list[tuple[float, float, str]] = []
+        # V3-US-001: microprice
         self._last_microprice: float | None = None
 
         # V3-US-002: 成交流 阿尔法
@@ -362,6 +369,8 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         self._update_dynamic_spread()
 
         if self._quote_suspended:
+            self._prune_reduce_orders()
+            self._ensure_all_open_lots_protected()
             return
 
         # V5-US-003: 撤销 fill_prob 极低的滞留单
@@ -369,7 +378,12 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
 
         mid = self._get_mid_price(bar)
         if mid is None:
+            self._prune_reduce_orders()
+            self._ensure_all_open_lots_protected()
             return
+
+        self._prune_reduce_orders()
+        self._ensure_all_open_lots_protected()
 
         # US-005: 更新已实现波动率
         self._update_realized_vol(mid)
@@ -493,13 +507,8 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         self._queue_traded_volume = 0.0
 
     def on_stop(self) -> None:
-        """停止策略时撤销所有挂单."""
-        self._cancel_all_quotes(CancelReason.STRATEGY_STOP)
-        if self._net_tp_order_id is not None:
-            order = self.cache.order(self._net_tp_order_id)
-            if order is not None and order.is_open:
-                self._cancel_order_with_reason(order, CancelReason.STRATEGY_STOP)
-            self._net_tp_order_id = None
+        """停止策略时撤销所有挂单（Quote + Reduce 池）."""
+        self._cancel_all_orders(CancelReason.STRATEGY_STOP)
         super().on_stop()
 
     def on_reset(self) -> None:
@@ -515,8 +524,10 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         self._quote_suspended = False
         self._active_bid_ids = []
         self._active_ask_ids = []
+        self._quote_order_ids.clear()
         self._pending_cancel_reasons.clear()
-        self._net_tp_order_id = None
+        self._inventory_lots.clear()
+        self._reduce_to_lot.clear()
         self._last_fill_ts = None
         self._kill_switch = False
         # US-002: 重置逆向选择状态
@@ -535,8 +546,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         self._pnl_cb_reset_at = None
         # US-008: 重置市场质量标志
         self._quote_quality_ok = True
-        # V3-US-001: 重置已实现 PNL追踪
-        self._open_fills.clear()
+        # V3-US-001: 重置 microprice
         self._last_microprice = None
         # V3-US-002: 重置成交流
         self._agg_buy_vol = 0.0

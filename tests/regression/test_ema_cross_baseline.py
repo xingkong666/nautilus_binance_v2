@@ -180,9 +180,7 @@ class TestMultiScenarioBaseline:
             trend_bars_up: Trend bars up.
         """
         metrics = run_ema_cross(trend_bars_up)
-        assert metrics["total_orders"] == 0, (
-            "纯线性上涨趋势（EMA 从不交叉）不应产生订单，若此测试失败说明策略信号逻辑可能发生了变化"
-        )
+        assert metrics["total_orders"] == 0, "纯线性上涨趋势（EMA 从不交叉）不应产生订单，若此测试失败说明策略信号逻辑可能发生了变化"
 
     def test_pure_downtrend_no_crossover(self, trend_bars_down):
         """纯线性下跌趋势：同上，不产生交叉信号。.

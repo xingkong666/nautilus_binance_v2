@@ -256,9 +256,7 @@ class TestWilderAdxNumericalParity:
         for i, (high, low, close) in enumerate(bars):
             ref.update(high, low, close)
             adx.update(high, low, close)
-            assert ref.initialized == adx.initialized, (
-                f"Mismatch at bar {i}: ref={ref.initialized}, new={adx.initialized}"
-            )
+            assert ref.initialized == adx.initialized, f"Mismatch at bar {i}: ref={ref.initialized}, new={adx.initialized}"
 
     def test_streaming_values_match_reference(self) -> None:
         """Every single ADX value after initialization must match the reference."""

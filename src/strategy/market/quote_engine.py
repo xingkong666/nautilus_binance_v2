@@ -308,6 +308,7 @@ class QuoteEngineMixin:
             order = self.cache.order(oid)
             if order is None or not order.is_open or order.is_pending_cancel:
                 self._active_bid_ids[i] = None
+                self._quote_order_ids.discard(oid)
 
         for i, oid in enumerate(self._active_ask_ids):
             if oid is None:
@@ -315,6 +316,7 @@ class QuoteEngineMixin:
             order = self.cache.order(oid)
             if order is None or not order.is_open or order.is_pending_cancel:
                 self._active_ask_ids[i] = None
+                self._quote_order_ids.discard(oid)
 
         # 清理已不再活跃的撤单原因，防止长期运行时 dict 无限增长
         stale = [oid for oid in self._pending_cancel_reasons if oid not in active_oids]
@@ -442,6 +444,9 @@ class QuoteEngineMixin:
                 reduce_only=reduce_only,
             )
             self.submit_order(order)
+
+            # 只给 quote 池打标记
+            self._quote_order_ids.add(order.client_order_id)
             return order.client_order_id
         except Exception as e:
             self.log.error(f"Failed to submit quote: {e}", color=LogColor.RED)
@@ -585,7 +590,7 @@ class QuoteEngineMixin:
         qs.quoted_skew = current_skew
 
     def on_order_canceled(self: Any, event: OrderCanceled) -> None:
-        """订单撤销事件处理.
+        """订单撤销事件处理 — 三池识别.
 
         Args:
             event: OrderCanceled 订单撤销事件.
@@ -594,24 +599,26 @@ class QuoteEngineMixin:
         reason = self._pending_cancel_reasons.pop(oid, None)
         reason_str = f" reason={reason.value}" if reason is not None else ""
 
-        # 聚合 TP 单撤销
-        if oid == self._net_tp_order_id:
-            self._net_tp_order_id = None
-            self.log.info(f"Net TP order canceled: client_order_id={oid}{reason_str}", color=LogColor.YELLOW)
+        # 1) reduce 池
+        if oid in self._reduce_to_lot:
+            self._handle_reduce_canceled(oid, reason)
             return
 
-        # 做市报价单撤销
+        # 2) quote 池 - bid
         for i, bid_id in enumerate(self._active_bid_ids):
             if oid == bid_id:
                 self._active_bid_ids[i] = None
+                self._quote_order_ids.discard(oid)
                 if i == 0:
                     self._clear_bid_quote_state()
                 self.log.info(f"Bid quote canceled: client_order_id={oid}{reason_str}", color=LogColor.YELLOW)
                 return
-        # 做市报价单撤销
+
+        # 3) quote 池 - ask
         for i, ask_id in enumerate(self._active_ask_ids):
             if oid == ask_id:
                 self._active_ask_ids[i] = None
+                self._quote_order_ids.discard(oid)
                 if i == 0:
                     self._clear_ask_quote_state()
                 self.log.info(f"Ask quote canceled: client_order_id={oid}{reason_str}", color=LogColor.YELLOW)
