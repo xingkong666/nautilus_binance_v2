@@ -35,7 +35,7 @@ from src.strategy.base import BaseStrategy, BaseStrategyConfig
 from src.strategy.market.alpha import AlphaMixin
 from src.strategy.market.inventory import InventoryMixin
 from src.strategy.market.queue_model import QueueModelMixin
-from src.strategy.market.quote_engine import QuoteEngineMixin, QuoteState
+from src.strategy.market.quote_engine import CancelReason, QuoteEngineMixin, QuoteState
 
 logger = structlog.get_logger(__name__)
 
@@ -211,6 +211,9 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         self._active_bid_ids: list[ClientOrderId | None] = []
         self._active_ask_ids: list[ClientOrderId | None] = []
 
+        # 撤单原因追踪
+        self._pending_cancel_reasons: dict[ClientOrderId, CancelReason] = {}
+
         # 成交冷却状态
         self._last_fill_ts: datetime | None = None
 
@@ -343,7 +346,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         if window_pnl < -self.config.max_loss_usd:
             self._pnl_circuit_open = True
             self._pnl_cb_reset_at = now + timedelta(milliseconds=self.config.pnl_cb_cooldown_ms)
-            self._cancel_all_quotes()
+            self._cancel_all_quotes(CancelReason.PNL_CIRCUIT_BREAKER)
             self.log.error(
                 f"PnL circuit breaker opened: {window_pnl:.2f} USD loss in window",
                 color=LogColor.RED,
@@ -448,7 +451,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         fill_prob_ask = self._calc_queue_fill_prob("SELL")
         fill_prob_combined = (fill_prob_bid + fill_prob_ask) / 2.0
         if abs(self._toxic_flow_score) > 0.6 and fill_prob_combined < 0.3:
-            self._cancel_all_quotes()
+            self._cancel_all_quotes(CancelReason.TOXIC_QUEUE_MISS)
             return
 
         # V4: 报价分决策
@@ -456,7 +459,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         self._last_quote_score = score
 
         if score < self.config.quote_score_threshold:
-            self._cancel_all_quotes()
+            self._cancel_all_quotes(CancelReason.QUOTE_SCORE_LOW)
             return
 
         # 有毒流单边控制
@@ -491,11 +494,11 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
 
     def on_stop(self) -> None:
         """停止策略时撤销所有挂单."""
-        self._cancel_all_quotes()
+        self._cancel_all_quotes(CancelReason.STRATEGY_STOP)
         if self._net_tp_order_id is not None:
             order = self.cache.order(self._net_tp_order_id)
             if order is not None and order.is_open:
-                self.cancel_order(order)
+                self._cancel_order_with_reason(order, CancelReason.STRATEGY_STOP)
             self._net_tp_order_id = None
         super().on_stop()
 
@@ -512,6 +515,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         self._quote_suspended = False
         self._active_bid_ids = []
         self._active_ask_ids = []
+        self._pending_cancel_reasons.clear()
         self._net_tp_order_id = None
         self._last_fill_ts = None
         self._kill_switch = False

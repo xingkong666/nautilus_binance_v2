@@ -116,10 +116,9 @@ uv run python scripts/run_backtest.py \
 
 ```bash
 # Testnet（标准 live 入口）
-uv run python -m src.app.bootstrap \
-  --env configs/env/dev.yaml \
-  --strategy-config configs/strategies/vegas_tunnel.yaml
+uv run python -m src.app.bootstrap  --env dev  --strategy-config configs/strategies/vegas_tunnel.yaml
 
+uv run python  -m src.app.bootstrap  --env prod   --strategy-config configs/strategies/market_maker.yaml --symbol SOLUSDC
 # 生产预检 + 启动（推荐）
 CONFIRM_LIVE=YES SUBMIT_ORDERS=false scripts/run_live_prod.sh
 
@@ -128,6 +127,7 @@ CONFIRM_LIVE=YES SUBMIT_ORDERS=true scripts/run_live_prod.sh
 ```
 
 当前 live 启动行为：
+
 
 - `bootstrap` 会实际启动 `TradingNode`、挂载策略并运行 live，不再只是初始化容器。
 - `run_live_prod.sh` 会先执行 readiness 预检，再启动实盘进程；未设置 `CONFIRM_LIVE=YES` 会直接拒绝运行。

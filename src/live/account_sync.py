@@ -535,7 +535,7 @@ class AccountSync:
 
     def _resolve_container_snapshot_provider(self) -> AccountSnapshotProvider | None:
         adapter = self._container.binance_adapter
-        if adapter is None:
+        if adapter is None or not adapter.is_started:
             return None
 
         fetch_account_snapshot = getattr(adapter, "fetch_account_snapshot", None)

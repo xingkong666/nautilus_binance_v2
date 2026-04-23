@@ -6,12 +6,30 @@ import itertools
 import math
 from datetime import datetime, timedelta
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any
 
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.events import OrderCanceled
 from nautilus_trader.model.identifiers import ClientOrderId
+
+
+class CancelReason(StrEnum):
+    """撤单原因枚举."""
+
+    PRETRADE_ADVERSE = "pretrade_adverse"  # 价格即将穿越报价，主动撤单
+    TTL_REFRESH = "ttl_refresh"  # 订单临近 TTL 到期且有更优价格
+    DRIFT_REFRESH = "drift_refresh"  # mid/skew 漂移超过阈值，重新报价
+    SPREAD_TOO_WIDE = "spread_too_wide"  # 价差过宽，暂停报价
+    STALE_LOW_FILL_PROB = "stale_low_fill_prob"  # fill_prob 极低，撤销滞留单
+    TOXIC_PREEMPTIVE = "toxic_preemptive"  # microprice 急速漂移，预防性撤单
+    PNL_CIRCUIT_BREAKER = "pnl_circuit_breaker"  # PnL 熔断器触发
+    TOXIC_QUEUE_MISS = "toxic_queue_miss"  # 有毒流 + 排不到队列
+    QUOTE_SCORE_LOW = "quote_score_low"  # 报价评分过低
+    STRATEGY_STOP = "strategy_stop"  # 策略停止
+    ORDER_FILLED = "order_filled"  # 成交后重置报价
+    KILL_SWITCH = "kill_switch"  # 仓位超限，kill switch 触发
 
 
 class QuoteState:
@@ -44,6 +62,11 @@ class QuoteState:
 class QuoteEngineMixin:
     """封装报价定价、撤挂单、分层报价和 delta 驱动刷新逻辑."""
 
+    def _cancel_order_with_reason(self: Any, order: Any, reason: CancelReason) -> None:
+        """记录撤单原因后发送撤单请求."""
+        self._pending_cancel_reasons[order.client_order_id] = reason
+        self.cancel_order(order)
+
     def _check_pretrade_cancel(self: Any) -> None:
         """检测价格即将穿越报价时主动撤单（pre-trade adverse cancel）.
 
@@ -73,14 +96,14 @@ class QuoteEngineMixin:
             if bid_id is not None:
                 order = self.cache.order(bid_id)
                 if order is not None and order.is_open and not order.is_pending_cancel:
-                    self.cancel_order(order)
+                    self._cancel_order_with_reason(order, CancelReason.PRETRADE_ADVERSE)
 
         if qs.ask_price is not None and bb >= qs.ask_price - threshold and self._active_ask_ids:
             ask_id = self._active_ask_ids[0]
             if ask_id is not None:
                 order = self.cache.order(ask_id)
                 if order is not None and order.is_open and not order.is_pending_cancel:
-                    self.cancel_order(order)
+                    self._cancel_order_with_reason(order, CancelReason.PRETRADE_ADVERSE)
 
     def _update_dynamic_spread(self: Any) -> None:
         if self.config.use_realized_vol:
@@ -106,7 +129,7 @@ class QuoteEngineMixin:
         if raw > float(self.config.max_spread_ticks):
             if not self._quote_suspended:
                 self.log.warning("Spread too wide, suspending quotes", color=LogColor.YELLOW)
-                self._cancel_all_quotes()
+                self._cancel_all_quotes(CancelReason.SPREAD_TOO_WIDE)
             self._quote_suspended = True
             return
 
@@ -249,7 +272,7 @@ class QuoteEngineMixin:
             if order is not None and order.is_open and not order.is_pending_cancel:
                 current_price = float(order.price)
                 if current_price < optimal_bid:
-                    self.cancel_order(order)
+                    self._cancel_order_with_reason(order, CancelReason.TTL_REFRESH)
 
         if (
             qs.ask_submit_time is not None
@@ -261,7 +284,7 @@ class QuoteEngineMixin:
             if order is not None and order.is_open and not order.is_pending_cancel:
                 current_price = float(order.price)
                 if current_price > optimal_ask:
-                    self.cancel_order(order)
+                    self._cancel_order_with_reason(order, CancelReason.TTL_REFRESH)
 
     def _has_open_order(self: Any, oid: ClientOrderId | None) -> bool:
         """判断某个 client order id 是否仍然是 open 状态."""
@@ -276,6 +299,9 @@ class QuoteEngineMixin:
 
     def _prune_inactive_quote_ids(self: Any) -> None:
         """将已不存在、已非 open 或正在撤销中的订单 ID 置为 None，避免脏状态累积."""
+        all_ids = list(self._active_bid_ids) + list(self._active_ask_ids)
+        active_oids = {oid for oid in all_ids if oid is not None}
+
         for i, oid in enumerate(self._active_bid_ids):
             if oid is None:
                 continue
@@ -289,6 +315,11 @@ class QuoteEngineMixin:
             order = self.cache.order(oid)
             if order is None or not order.is_open or order.is_pending_cancel:
                 self._active_ask_ids[i] = None
+
+        # 清理已不再活跃的撤单原因，防止长期运行时 dict 无限增长
+        stale = [oid for oid in self._pending_cancel_reasons if oid not in active_oids]
+        for oid in stale:
+            self._pending_cancel_reasons.pop(oid, None)
 
     def _update_top_quote_state(self: Any, bid_price: float, ask_price: float) -> None:
         """根据当前 active ids 更新第一层报价状态.
@@ -326,24 +357,25 @@ class QuoteEngineMixin:
         qs.ask_submit_time = None
         qs.ask_queue_on_submit = None
 
-    def _cancel_all_quotes(self: Any) -> None:
+    def _cancel_all_quotes(self: Any, reason: CancelReason = CancelReason.DRIFT_REFRESH) -> None:
         """请求撤销当前所有双边挂单.
 
         注意：
         - 撤单是异步的，不能在这里立刻清空 _active_bid_ids/_active_ask_ids
         - 真正的状态收敛依赖 on_order_canceled / prune
         """
-        self._cancel_quotes(OrderSide.BUY)
-        self._cancel_quotes(OrderSide.SELL)
+        self._cancel_quotes(OrderSide.BUY, reason)
+        self._cancel_quotes(OrderSide.SELL, reason)
         # 重置状态
         self._quote_state.quoted_mid = None
         self._quote_state.quoted_skew = None
 
-    def _cancel_quotes(self: Any, side: OrderSide) -> None:
+    def _cancel_quotes(self: Any, side: OrderSide, reason: CancelReason = CancelReason.DRIFT_REFRESH) -> None:
         """撤销所有 bid 或 ask 报价.
 
         Args:
             side: 要撤销的订单方向（bid 或 ask）
+            reason: 撤单原因
         """
         self._prune_inactive_quote_ids()
         total = 0
@@ -357,9 +389,12 @@ class QuoteEngineMixin:
                 continue
             if order.is_open and not order.is_pending_cancel:
                 try:
-                    self.cancel_order(order)
+                    self._cancel_order_with_reason(order, reason)
                     total += 1
-                    self.log.info(f"Cancel {side_str} quote requested: client_order_id={oid}", color=LogColor.YELLOW)
+                    self.log.info(
+                        f"Cancel {side_str} quote requested: client_order_id={oid} reason={reason.value}",
+                        color=LogColor.YELLOW,
+                    )
                 except Exception as e:
                     self.log.error(f"Failed to cancel {side_str} quote {oid}: {e}", color=LogColor.RED)
 
@@ -369,7 +404,7 @@ class QuoteEngineMixin:
             self._clear_ask_quote_state()
 
         if total > 0:
-            self.log.info(f"Requested cancel for {total} active quotes", color=LogColor.YELLOW)
+            self.log.info(f"Requested cancel for {total} active quotes reason={reason.value}", color=LogColor.YELLOW)
 
     def _submit_quote(self: Any, side: OrderSide, price: float, qty: Decimal, *, reduce_only: bool = False) -> ClientOrderId | None:
         """提交报价,只返回 client_order_id,不修改 active 列表.
@@ -532,7 +567,7 @@ class QuoteEngineMixin:
                 return
 
         if self._has_active_quotes():
-            self._cancel_all_quotes()
+            self._cancel_all_quotes(CancelReason.DRIFT_REFRESH)
 
         if self._quote_suspended:
             return
@@ -556,11 +591,13 @@ class QuoteEngineMixin:
             event: OrderCanceled 订单撤销事件.
         """
         oid = event.client_order_id
+        reason = self._pending_cancel_reasons.pop(oid, None)
+        reason_str = f" reason={reason.value}" if reason is not None else ""
 
         # 聚合 TP 单撤销
         if oid == self._net_tp_order_id:
             self._net_tp_order_id = None
-            self.log.info(f"Net TP order canceled: client_order_id={oid}", color=LogColor.YELLOW)
+            self.log.info(f"Net TP order canceled: client_order_id={oid}{reason_str}", color=LogColor.YELLOW)
             return
 
         # 做市报价单撤销
@@ -569,7 +606,7 @@ class QuoteEngineMixin:
                 self._active_bid_ids[i] = None
                 if i == 0:
                     self._clear_bid_quote_state()
-                self.log.info(f"Bid quote canceled: client_order_id={oid}", color=LogColor.YELLOW)
+                self.log.info(f"Bid quote canceled: client_order_id={oid}{reason_str}", color=LogColor.YELLOW)
                 return
         # 做市报价单撤销
         for i, ask_id in enumerate(self._active_ask_ids):
@@ -577,7 +614,7 @@ class QuoteEngineMixin:
                 self._active_ask_ids[i] = None
                 if i == 0:
                     self._clear_ask_quote_state()
-                self.log.info(f"Ask quote canceled: client_order_id={oid}", color=LogColor.YELLOW)
+                self.log.info(f"Ask quote canceled: client_order_id={oid}{reason_str}", color=LogColor.YELLOW)
                 return
 
     def _try_quote_on_delta(self: Any) -> None:
@@ -631,13 +668,13 @@ class QuoteEngineMixin:
             bid_id = self._active_bid_ids[0]
             order = self.cache.order(bid_id)
             if order is not None and order.is_open and not order.is_pending_cancel:
-                self.cancel_order(order)
+                self._cancel_order_with_reason(order, CancelReason.STALE_LOW_FILL_PROB)
 
         if self._active_ask_ids and self._active_ask_ids[0] is not None and self._calc_queue_fill_prob("SELL") < threshold:
             ask_id = self._active_ask_ids[0]
             order = self.cache.order(ask_id)
             if order is not None and order.is_open and not order.is_pending_cancel:
-                self.cancel_order(order)
+                self._cancel_order_with_reason(order, CancelReason.STALE_LOW_FILL_PROB)
 
     def _check_toxic_preemptive(self: Any) -> None:
         """Microprice 急速漂移时预防性撤单（toxic 前置防御）."""
@@ -653,10 +690,10 @@ class QuoteEngineMixin:
             bid_id = self._active_bid_ids[0]
             order = self.cache.order(bid_id)
             if order is not None and order.is_open and not order.is_pending_cancel:
-                self.cancel_order(order)
+                self._cancel_order_with_reason(order, CancelReason.TOXIC_PREEMPTIVE)
 
         if instant_drift > threshold and self._active_ask_ids and self._active_ask_ids[0] is not None:
             ask_id = self._active_ask_ids[0]
             order = self.cache.order(ask_id)
             if order is not None and order.is_open and not order.is_pending_cancel:
-                self.cancel_order(order)
+                self._cancel_order_with_reason(order, CancelReason.TOXIC_PREEMPTIVE)

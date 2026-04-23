@@ -149,7 +149,7 @@ def test_spread_suspended_above_max() -> None:
     strategy._atr_indicator = SimpleNamespace(initialized=True, value=10.0)
 
     cancelled = []
-    strategy._cancel_all_quotes = lambda: cancelled.append(True)
+    strategy._cancel_all_quotes = lambda *_: cancelled.append(True)
 
     strategy._update_dynamic_spread()
     assert strategy._quote_suspended is True
@@ -281,7 +281,7 @@ def test_refresh_cancels_previous_orders() -> None:
 
     cancelled_ids = []
 
-    def mock_cancel():
+    def mock_cancel(*_):
         for oid in strategy._active_bid_ids + strategy._active_ask_ids:
             if oid is not None:
                 cancelled_ids.append(oid)
@@ -344,7 +344,7 @@ def test_drift_threshold_no_cancel_when_unchanged() -> None:
 
     cancel_called = []
 
-    def mock_cancel():
+    def mock_cancel(*_):
         cancel_called.append(True)
         strategy._active_bid_ids = []
         strategy._active_ask_ids = []
@@ -407,7 +407,7 @@ def test_kill_switch_activates() -> None:
     strategy._net_position_usd = net_usd
 
     cancel_called = []
-    strategy._cancel_all_quotes = lambda: cancel_called.append(True)
+    strategy._cancel_all_quotes = lambda *_: cancel_called.append(True)
 
     # For long position, use long ratio
     long_ratio = abs(net_usd) / max(strategy.config.max_position_usd, 1.0)
@@ -576,7 +576,7 @@ def test_skew_drift_triggers_refresh() -> None:
 
     cancel_called = []
 
-    def mock_cancel():
+    def mock_cancel(*_):
         cancel_called.append(True)
         strategy._active_bid_ids = []
         strategy._active_ask_ids = []
@@ -879,7 +879,7 @@ def test_single_layer_unchanged() -> None:
 
     strategy._submit_quote = mock_submit_quote  # type: ignore[method-assign]
 
-    def mock_cancel():
+    def mock_cancel(*_):
         strategy._active_bid_ids = []
         strategy._active_ask_ids = []
         strategy._quote_state.quoted_mid = None
@@ -1258,7 +1258,7 @@ def test_quote_score_blocks_quoting() -> None:
     strategy._net_position_usd = 800.0  # 高 投资
 
     cancel_called = []
-    strategy._cancel_all_quotes = lambda: cancel_called.append(True)  # type: ignore[method-assign]
+    strategy._cancel_all_quotes = lambda *_: cancel_called.append(True)  # type: ignore[method-assign]
 
     score = strategy._calc_quote_score(dir_val=0.1)
     # fill_prob=1.0, inv_ratio = 0.8的新公式：0.1 + 1.0*1.2 - 0.8*0.8 - 0.9*1.5 - 0.0 = 0.1+1.2-0.64-1.35 = -0.69
@@ -1355,7 +1355,7 @@ def test_toxic_queue_combined_cancels() -> None:
     strategy._queue_traded_volume = 1000.0  # fill_prob=0.1 < 0.3
 
     cancel_called = []
-    strategy._cancel_all_quotes = lambda: cancel_called.append(True)  # type: ignore[method-assign]
+    strategy._cancel_all_quotes = lambda *_: cancel_called.append(True)  # type: ignore[method-assign]
 
     fill_prob = (strategy._calc_queue_fill_prob("BUY") + strategy._calc_queue_fill_prob("SELL")) / 2.0
     if abs(strategy._toxic_flow_score) > 0.6 and fill_prob < 0.3:

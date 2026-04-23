@@ -11,6 +11,7 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.events import OrderFilled, PositionChanged, PositionClosed, PositionOpened
 
 from src.strategy.base import BaseStrategy
+from src.strategy.market.quote_engine import CancelReason
 
 
 class InventoryMixin:
@@ -252,7 +253,7 @@ class InventoryMixin:
         # 成交后撤销所有报价（双边），重置报价状态，
         # 使下一个 bar 的 _refresh_quotes 能立即提交新报价，避免两 bar 空窗
         self.log.info(f"Order filled: side={fill_side} qty={fill_qty:.8f} px={fill_price:.8f}", color=LogColor.YELLOW)
-        self._cancel_all_quotes()
+        self._cancel_all_quotes(CancelReason.ORDER_FILLED)
 
         # 匹配对手方未平成交（先进先出）
         realized = 0.0
@@ -346,7 +347,7 @@ class InventoryMixin:
 
         if ratio >= self.config.kill_switch_limit and not self._kill_switch:
             self._kill_switch = True
-            self._cancel_all_quotes()
+            self._cancel_all_quotes(CancelReason.KILL_SWITCH)
             self.log.error(
                 f"Kill switch activated: ratio={ratio:.2f} >= {self.config.kill_switch_limit}",
                 color=LogColor.RED,
