@@ -95,6 +95,20 @@ def make_lot(
     )
 
 
+def make_quote_fill_event(client_order_id: ClientOrderId, last_qty: str) -> SimpleNamespace:
+    """Build a minimal quote fill event for unit tests."""
+    return SimpleNamespace(
+        client_order_id=client_order_id,
+        venue_order_id="venue-bid",
+        trade_id="trade-1",
+        ts_event=1,
+        last_qty=Decimal(last_qty),
+        last_px=Decimal("100"),
+        order_side=OrderSide.BUY,
+        position_id=None,
+    )
+
+
 def test_inventory_snapshot_aggregates_long_and_short_lots() -> None:
     """Inventory snapshot should aggregate long/short lots independently."""
     strategy = make_strategy(max_position_usd=1000.0)
@@ -305,6 +319,104 @@ def test_order_cancel_rejected_unknown_clears_quote_state() -> None:
     assert strategy._quote_state.bid_price is None
     assert strategy._quote_state.bid_submit_time is None
     assert strategy._quote_state.bid_queue_on_submit is None
+
+
+def test_quote_fill_skips_cancel_for_fully_filled_quote(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fully filled quote should be cleared before canceling the remaining quote pool."""
+    strategy = make_strategy()
+    bid_id = ClientOrderId("quote-bid")
+    ask_id = ClientOrderId("quote-ask")
+    strategy._active_bid_ids = [bid_id]
+    strategy._active_ask_ids = [ask_id]
+    strategy._quote_order_ids = {bid_id, ask_id}
+
+    orders = {
+        bid_id: SimpleNamespace(
+            client_order_id=bid_id,
+            is_open=True,
+            is_pending_cancel=False,
+            quantity=Decimal("0.06"),
+            filled_qty=Decimal("0"),
+        ),
+        ask_id: SimpleNamespace(
+            client_order_id=ask_id,
+            is_open=True,
+            is_pending_cancel=False,
+            quantity=Decimal("0.06"),
+            filled_qty=Decimal("0"),
+        ),
+    }
+    canceled: list[ClientOrderId] = []
+
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "cache",
+        property(lambda self: SimpleNamespace(order=lambda client_order_id: orders.get(client_order_id))),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "cancel_order",
+        lambda self, order: canceled.append(order.client_order_id),
+    )
+    monkeypatch.setattr(ActiveMarketMaker, "_place_reduce_order", lambda self, lot: None)
+    monkeypatch.setattr(ActiveMarketMaker, "_check_lot_risk", lambda self: None)
+    monkeypatch.setattr(ActiveMarketMaker, "_utc_now", lambda self: datetime(2026, 4, 24, tzinfo=UTC))
+
+    strategy.on_order_filled(make_quote_fill_event(bid_id, "0.06"))  # type: ignore[arg-type]
+
+    assert canceled == [ask_id]
+    assert strategy._active_bid_ids == [None]
+    assert bid_id not in strategy._quote_order_ids
+    assert bid_id not in strategy._pending_cancel_reasons
+    assert strategy._pending_cancel_reasons[ask_id] == CancelReason.ORDER_FILLED
+
+
+def test_quote_fill_still_cancels_partially_filled_quote(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A partially filled quote must stay cancellable so its remaining quantity is withdrawn."""
+    strategy = make_strategy()
+    bid_id = ClientOrderId("quote-bid")
+    ask_id = ClientOrderId("quote-ask")
+    strategy._active_bid_ids = [bid_id]
+    strategy._active_ask_ids = [ask_id]
+    strategy._quote_order_ids = {bid_id, ask_id}
+
+    orders = {
+        bid_id: SimpleNamespace(
+            client_order_id=bid_id,
+            is_open=True,
+            is_pending_cancel=False,
+            quantity=Decimal("0.10"),
+            filled_qty=Decimal("0"),
+        ),
+        ask_id: SimpleNamespace(
+            client_order_id=ask_id,
+            is_open=True,
+            is_pending_cancel=False,
+            quantity=Decimal("0.06"),
+            filled_qty=Decimal("0"),
+        ),
+    }
+    canceled: list[ClientOrderId] = []
+
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "cache",
+        property(lambda self: SimpleNamespace(order=lambda client_order_id: orders.get(client_order_id))),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "cancel_order",
+        lambda self, order: canceled.append(order.client_order_id),
+    )
+    monkeypatch.setattr(ActiveMarketMaker, "_place_reduce_order", lambda self, lot: None)
+    monkeypatch.setattr(ActiveMarketMaker, "_check_lot_risk", lambda self: None)
+    monkeypatch.setattr(ActiveMarketMaker, "_utc_now", lambda self: datetime(2026, 4, 24, tzinfo=UTC))
+
+    strategy.on_order_filled(make_quote_fill_event(bid_id, "0.06"))  # type: ignore[arg-type]
+
+    assert canceled == [bid_id, ask_id]
+    assert strategy._pending_cancel_reasons[bid_id] == CancelReason.ORDER_FILLED
+    assert strategy._pending_cancel_reasons[ask_id] == CancelReason.ORDER_FILLED
 
 
 def test_order_cancel_rejected_unknown_replaces_reduce_order(monkeypatch: pytest.MonkeyPatch) -> None:

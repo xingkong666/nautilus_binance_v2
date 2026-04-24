@@ -12,7 +12,7 @@ from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Any, cast
 
@@ -1257,6 +1257,8 @@ class ActiveMarketMaker(BaseStrategy):
         )
 
         # quote 成交后，可撤 quote 池避免继续被动吃货；reduce 池绝不跟着撤
+        if client_order_id is not None and self._quote_fill_completes_order(client_order_id, event):
+            self._clear_quote_order_state(client_order_id)
 
         self._cancel_all_quotes(CancelReason.ORDER_FILLED)
 
@@ -1766,6 +1768,44 @@ class ActiveMarketMaker(BaseStrategy):
         """判断撤单拒绝是否表示交易所已无该订单."""
         return "-2011" in reason or "Unknown order sent" in reason
 
+    @staticmethod
+    def _quantity_to_decimal(value: Any) -> Decimal | None:
+        """将 Nautilus Quantity 或普通数值安全转为 Decimal."""
+        if value is None:
+            return None
+        if hasattr(value, "as_decimal"):
+            try:
+                return Decimal(str(value.as_decimal()))
+            except (InvalidOperation, TypeError, ValueError):
+                return None
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+
+    def _quote_fill_completes_order(self, client_order_id: ClientOrderId, event: OrderFilled) -> bool:
+        """判断本次 quote fill 是否已使原订单无剩余量.
+
+        Binance 全成后再撤同一个订单会返回 ``-2011 Unknown order sent``。只有能从本地订单状态
+        或单次 fill 数量明确确认订单已经无剩余量时才提前清理该 quote；部分成交仍保留在 active
+        列表中，让后续 ``_cancel_all_quotes`` 撤掉剩余量。
+        """
+        order = self.cache.order(client_order_id)
+        if order is None:
+            return False
+
+        order_qty = self._quantity_to_decimal(getattr(order, "quantity", None))
+        last_qty = self._quantity_to_decimal(getattr(event, "last_qty", None))
+        if order_qty is None or last_qty is None:
+            return False
+
+        leaves_qty = self._quantity_to_decimal(getattr(order, "leaves_qty", None))
+        if leaves_qty is not None and leaves_qty <= Decimal("0"):
+            return True
+
+        filled_qty = self._quantity_to_decimal(getattr(order, "filled_qty", None)) or Decimal("0")
+        return filled_qty >= order_qty or last_qty >= order_qty
+
     def _quote_position_id(self, side: OrderSide) -> PositionId:
         """为 Binance Futures 双向持仓生成 quote 订单的 PositionId."""
         suffix = "LONG" if side == OrderSide.BUY else "SHORT"
@@ -1990,7 +2030,7 @@ class ActiveMarketMaker(BaseStrategy):
             self._handle_reduce_cancel_unknown(oid, reason, raw_reason)
             return
 
-        if self._clear_rejected_quote_order(oid):
+        if self._clear_quote_order_state(oid):
             self.log.warning(
                 f"Quote cancel rejected as unknown order, cleared local state: client_order_id={oid} reason={raw_reason}",
                 color=LogColor.YELLOW,
@@ -2003,8 +2043,8 @@ class ActiveMarketMaker(BaseStrategy):
             color=LogColor.YELLOW,
         )
 
-    def _clear_rejected_quote_order(self, client_order_id: ClientOrderId) -> bool:
-        """清理已被交易所报告为 unknown 的 quote 订单 ID."""
+    def _clear_quote_order_state(self, client_order_id: ClientOrderId) -> bool:
+        """清理本地 quote 订单 ID 及顶层 quote 状态."""
         for i, bid_id in enumerate(self._active_bid_ids):
             if bid_id == client_order_id:
                 self._active_bid_ids[i] = None
