@@ -25,6 +25,9 @@ data/processed/*
 data/features/*
 data/versioned/*
 !data/**/.gitkeep
+# Runlog
+live_logs/*
+!live_logs/.gitkeep
 
 # Experiments
 experiments/reports/*
@@ -38,6 +41,7 @@ backup/**/*.tar.gz
 backup/**/*.dump.gz
 backup/**/*.rdb
 backup/**/*.err
+
 
 # Lock file (optional)
 # uv.lock
