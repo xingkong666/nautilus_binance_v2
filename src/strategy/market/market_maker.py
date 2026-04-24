@@ -329,12 +329,15 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         self.log.info(repr(bar), LogColor.CYAN)
 
         if not self.indicators_initialized():
+            self.log.info("Indicators not initialized（指标未初始化）, skipping bar", LogColor.YELLOW)
             return
 
         if bar.is_single_price():
+            self.log.info("Single price bar(只有价格), skipping", LogColor.YELLOW)
             return
 
         if self._kill_switch:
+            self.log.info("Kill switch activated（kill switch 激活）, skipping bar", LogColor.YELLOW)
             return
 
         # US-007: PNL熔断器检查
@@ -344,6 +347,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
                 self._pnl_circuit_open = False
                 self._pnl_cb_reset_at = None
             else:
+                self.log.info("PNL circuit breaker open（pnl 熔断器打开）, skipping bar", LogColor.YELLOW)
                 return
         # 清理过期成交记录
         cutoff = now - timedelta(milliseconds=self.config.loss_window_ms)
@@ -355,7 +359,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
             self._pnl_cb_reset_at = now + timedelta(milliseconds=self.config.pnl_cb_cooldown_ms)
             self._cancel_all_quotes(CancelReason.PNL_CIRCUIT_BREAKER)
             self.log.error(
-                f"PnL circuit breaker opened: {window_pnl:.2f} USD loss in window",
+                f"PnL circuit breaker opened（pnl 熔断器打开）: {window_pnl:.2f} USD loss in window",
                 color=LogColor.RED,
             )
             return
@@ -363,6 +367,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         if self._last_fill_ts is not None:
             elapsed_ms = (self._utc_now() - self._last_fill_ts).total_seconds() * 1000
             if elapsed_ms < self.config.fill_cooldown_ms:
+                self.log.info("Fill cooldown not met（fill 冷却未满足）, skipping bar", LogColor.YELLOW)
                 return
 
         self._bar_index += 1
@@ -371,6 +376,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         if self._quote_suspended:
             self._prune_reduce_orders()
             self._ensure_all_open_lots_protected()
+            self.log.info("Quote suspended（quote 挂起）, skipping bar", LogColor.YELLOW)
             return
 
         # V5-US-003: 撤销 fill_prob 极低的滞留单
@@ -380,6 +386,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         if mid is None:
             self._prune_reduce_orders()
             self._ensure_all_open_lots_protected()
+            self.log.info("Mid price not available（mid 价格不可用）, skipping bar", LogColor.YELLOW)
             return
 
         self._prune_reduce_orders()
@@ -406,11 +413,13 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
 
         # US-008: 市场质量过滤
         if not self._quote_quality_ok:
+            self.log.info("Quote quality not ok（quote 质量不优）, skipping bar", LogColor.YELLOW)
             return
 
         # US-009: 成本模型过滤
         expected_profit = self._calc_expected_profit_bps(mid)
         if expected_profit < self.config.min_expected_profit_bps:
+            self.log.info("Expected profit too low（预期收益太低）, skipping bar", LogColor.YELLOW)
             return
 
         # US-002: 逆向选择检测
@@ -430,6 +439,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
 
         clamped = self._clamp_quote_prices(bid_price, ask_price)
         if clamped is None:
+            self.log.info("Clamp quote prices failed（clamp quote 价格失败）, skipping bar", LogColor.YELLOW)
             return
         bid_price, ask_price = clamped
 
@@ -448,6 +458,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
 
         base_qty = self._resolve_order_quantity(bar)
         if base_qty is None:
+            self.log.info("Resolve order quantity failed（resolve order 数量失败）, skipping bar", LogColor.YELLOW)
             return
 
         # US-004: 缓存基础数量供 三角洲驱动报价使用
@@ -463,6 +474,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         fill_prob_combined = (fill_prob_bid + fill_prob_ask) / 2.0
         if abs(self._toxic_flow_score) > 0.6 and fill_prob_combined < 0.3:
             self._cancel_all_quotes(CancelReason.TOXIC_QUEUE_MISS)
+            self.log.info("Toxic queue miss（toxic 队列 miss）, skipping bar", LogColor.YELLOW)
             return
 
         # V4: 报价分决策
@@ -471,6 +483,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
 
         if score < self.config.quote_score_threshold:
             self._cancel_all_quotes(CancelReason.QUOTE_SCORE_LOW)
+            self.log.info("Quote score low（quote 分数低）, skipping bar", LogColor.YELLOW)
             return
 
         # 有毒流单边控制
