@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,7 +13,7 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId, PositionId
 
 from src.core.config import load_yaml
-from src.strategy.market_maker import ActiveMarketMaker, InventoryLot, LotStatus, MarketMakerConfig
+from src.strategy.market_maker import ActiveMarketMaker, CancelReason, InventoryLot, LotStatus, MarketMakerConfig
 
 INSTRUMENT_ID = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
 BAR_TYPE = BarType.from_str("BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-INTERNAL")
@@ -237,6 +238,107 @@ def test_place_reduce_order_requires_and_binds_position_id(monkeypatch: pytest.M
     assert lot.reduce_order_id == ClientOrderId("reduce-1")
     assert lot.status == LotStatus.PENDING_PROTECT
     assert strategy._reduce_to_lot[ClientOrderId("reduce-1")] == "long"
+
+
+def test_cancel_order_with_reason_is_idempotent_while_pending(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Duplicate cancel triggers should not submit repeated cancel commands for one order."""
+    strategy = make_strategy()
+    order = _DummyOrder(ClientOrderId("quote-bid"))
+    canceled: list[ClientOrderId] = []
+
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "cancel_order",
+        lambda self, order: canceled.append(order.client_order_id),
+    )
+
+    strategy._cancel_order_with_reason(order, CancelReason.DRIFT_REFRESH)
+    strategy._cancel_order_with_reason(order, CancelReason.PRETRADE_ADVERSE)
+
+    assert canceled == [ClientOrderId("quote-bid")]
+    assert strategy._pending_cancel_reasons[ClientOrderId("quote-bid")] == CancelReason.DRIFT_REFRESH
+
+
+def test_prune_keeps_pending_cancel_quote_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pending-cancel quote ids should remain active until cancel resolves or rejects."""
+    strategy = make_strategy()
+    oid = ClientOrderId("quote-bid")
+    strategy._active_bid_ids = [oid]
+    strategy._quote_order_ids = {oid}
+    strategy._pending_cancel_reasons[oid] = CancelReason.DRIFT_REFRESH
+
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "cache",
+        property(lambda self: SimpleNamespace(order=lambda client_order_id: None)),
+    )
+
+    strategy._prune_inactive_quote_ids()
+
+    assert strategy._active_bid_ids == [oid]
+    assert oid in strategy._quote_order_ids
+    assert strategy._pending_cancel_reasons[oid] == CancelReason.DRIFT_REFRESH
+    assert strategy._has_active_quotes()
+
+
+def test_order_cancel_rejected_unknown_clears_quote_state() -> None:
+    """Binance unknown-order cancel rejects should converge quote state locally."""
+    strategy = make_strategy()
+    oid = ClientOrderId("quote-bid")
+    strategy._active_bid_ids = [oid]
+    strategy._quote_order_ids = {oid}
+    strategy._pending_cancel_reasons[oid] = CancelReason.DRIFT_REFRESH
+    strategy._quote_state.bid_price = 100.0
+    strategy._quote_state.bid_submit_time = datetime(2026, 4, 24, tzinfo=UTC)
+    strategy._quote_state.bid_queue_on_submit = 1.0
+
+    event = SimpleNamespace(
+        client_order_id=oid,
+        reason="{'code': -2011, 'msg': 'Unknown order sent.'}",
+    )
+
+    strategy.on_order_cancel_rejected(event)  # type: ignore[arg-type]
+
+    assert strategy._active_bid_ids == [None]
+    assert oid not in strategy._quote_order_ids
+    assert oid not in strategy._pending_cancel_reasons
+    assert strategy._quote_state.bid_price is None
+    assert strategy._quote_state.bid_submit_time is None
+    assert strategy._quote_state.bid_queue_on_submit is None
+
+
+def test_order_cancel_rejected_unknown_replaces_reduce_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unknown reduce cancels should release stale protection and request a fresh reduce."""
+    strategy = make_strategy()
+    oid = ClientOrderId("reduce-1")
+    lot = make_lot("long", OrderSide.BUY, 100.0, "0.50")
+    lot.reduce_order_id = oid
+    lot.status = LotStatus.PROTECTED
+    strategy._inventory_lots[lot.lot_id] = lot
+    strategy._reduce_to_lot[oid] = lot.lot_id
+    strategy._pending_cancel_reasons[oid] = CancelReason.DRIFT_REFRESH
+    replaced: list[str] = []
+
+    def place_reduce_order(self: ActiveMarketMaker, lot: InventoryLot) -> ClientOrderId:
+        replaced.append(lot.lot_id)
+        lot.reduce_order_id = ClientOrderId("reduce-2")
+        lot.status = LotStatus.PENDING_PROTECT
+        return lot.reduce_order_id
+
+    monkeypatch.setattr(ActiveMarketMaker, "_place_reduce_order", place_reduce_order)
+
+    event = SimpleNamespace(
+        client_order_id=oid,
+        reason="{'code': -2011, 'msg': 'Unknown order sent.'}",
+    )
+
+    strategy.on_order_cancel_rejected(event)  # type: ignore[arg-type]
+
+    assert oid not in strategy._reduce_to_lot
+    assert oid not in strategy._pending_cancel_reasons
+    assert replaced == ["long"]
+    assert lot.reduce_order_id == ClientOrderId("reduce-2")
+    assert lot.status == LotStatus.PENDING_PROTECT
 
 
 def test_market_maker_configs_are_hedge_only() -> None:

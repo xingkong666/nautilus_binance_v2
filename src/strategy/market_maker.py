@@ -22,7 +22,7 @@ from nautilus_trader.config import PositiveInt
 from nautilus_trader.indicators import ExponentialMovingAverage
 from nautilus_trader.model.data import Bar, BarType, OrderBookDeltas, TradeTick
 from nautilus_trader.model.enums import AggressorSide, OrderSide, TimeInForce
-from nautilus_trader.model.events import OrderCanceled, OrderFilled
+from nautilus_trader.model.events import OrderCanceled, OrderCancelRejected, OrderFilled
 from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId, PositionId
 
 from src.core.events import EventBus, SignalDirection
@@ -1395,7 +1395,15 @@ class ActiveMarketMaker(BaseStrategy):
 
     def _cancel_order_with_reason(self, order: Any, reason: CancelReason) -> None:
         """记录撤单原因后发送撤单请求."""
-        self._pending_cancel_reasons[order.client_order_id] = reason
+        client_order_id = order.client_order_id
+        if client_order_id in self._pending_cancel_reasons:
+            self.log.debug(
+                f"Skip duplicate cancel request: client_order_id={client_order_id} "
+                f"reason={self._pending_cancel_reasons[client_order_id].value}",
+            )
+            return
+
+        self._pending_cancel_reasons[client_order_id] = reason
         self.cancel_order(order)
 
     def _check_pretrade_cancel(self) -> None:
@@ -1621,15 +1629,17 @@ class ActiveMarketMaker(BaseStrategy):
         """判断某个 client order id 是否仍然是 open 状态."""
         if oid is None:
             return False
+        if oid in self._pending_cancel_reasons:
+            return True
         order = self.cache.order(oid)
-        return order is not None and order.is_open
+        return order is not None and (order.is_open or order.is_pending_cancel)
 
     def _has_active_quotes(self) -> bool:
         """判断当前是否仍有活跃挂单."""
         return any(self._has_open_order(oid) for oid in itertools.chain(self._active_bid_ids, self._active_ask_ids))
 
     def _prune_inactive_quote_ids(self) -> None:
-        """将已不存在、已非 open 或正在撤销中的订单 ID 置为 None，避免脏状态累积."""
+        """将已不存在或已非 open 的订单 ID 置为 None，避免脏状态累积."""
         all_ids = list(self._active_bid_ids) + list(self._active_ask_ids)
         active_oids = {oid for oid in all_ids if oid is not None}
 
@@ -1637,7 +1647,13 @@ class ActiveMarketMaker(BaseStrategy):
             if oid is None:
                 continue
             order = self.cache.order(oid)
-            if order is None or not order.is_open or order.is_pending_cancel:
+            if order is None:
+                if oid in self._pending_cancel_reasons:
+                    continue
+                self._active_bid_ids[i] = None
+                self._quote_order_ids.discard(oid)
+                continue
+            if not order.is_open and not order.is_pending_cancel:
                 self._active_bid_ids[i] = None
                 self._quote_order_ids.discard(oid)
 
@@ -1645,7 +1661,13 @@ class ActiveMarketMaker(BaseStrategy):
             if oid is None:
                 continue
             order = self.cache.order(oid)
-            if order is None or not order.is_open or order.is_pending_cancel:
+            if order is None:
+                if oid in self._pending_cancel_reasons:
+                    continue
+                self._active_ask_ids[i] = None
+                self._quote_order_ids.discard(oid)
+                continue
+            if not order.is_open and not order.is_pending_cancel:
                 self._active_ask_ids[i] = None
                 self._quote_order_ids.discard(oid)
 
@@ -1738,6 +1760,11 @@ class ActiveMarketMaker(BaseStrategy):
 
         if total > 0:
             self.log.info(f"Requested cancel for {total} active quotes reason={reason.value}", color=LogColor.YELLOW)
+
+    @staticmethod
+    def _is_unknown_order_cancel_rejection(reason: str) -> bool:
+        """判断撤单拒绝是否表示交易所已无该订单."""
+        return "-2011" in reason or "Unknown order sent" in reason
 
     def _quote_position_id(self, side: OrderSide) -> PositionId:
         """为 Binance Futures 双向持仓生成 quote 订单的 PositionId."""
@@ -1938,6 +1965,63 @@ class ActiveMarketMaker(BaseStrategy):
                     self._clear_ask_quote_state()
                 self.log.info(f"Ask quote canceled: client_order_id={oid}{reason_str}", color=LogColor.YELLOW)
                 return
+
+    def on_order_cancel_rejected(self, event: OrderCancelRejected) -> None:
+        """订单撤销拒绝事件处理.
+
+        Binance ``-2011 Unknown order sent`` 表示交易所侧已找不到该订单。对 quote 池而言可视作
+        终态并清理本地活跃 ID，避免继续对同一个 client_order_id 重复发撤单请求；对 reduce 池而言则
+        必须释放旧映射并立即重新补挂保护单。
+
+        Args:
+            event: OrderCancelRejected 订单撤销拒绝事件.
+        """
+        oid = event.client_order_id
+        reason = self._pending_cancel_reasons.pop(oid, None)
+        raw_reason = str(event.reason)
+        if not self._is_unknown_order_cancel_rejection(raw_reason):
+            self.log.warning(
+                f"Order cancel rejected but order may still be active: client_order_id={oid} reason={raw_reason}",
+                color=LogColor.YELLOW,
+            )
+            return
+
+        if oid in self._reduce_to_lot:
+            self._handle_reduce_cancel_unknown(oid, reason, raw_reason)
+            return
+
+        if self._clear_rejected_quote_order(oid):
+            self.log.warning(
+                f"Quote cancel rejected as unknown order, cleared local state: client_order_id={oid} reason={raw_reason}",
+                color=LogColor.YELLOW,
+            )
+            return
+
+        self._quote_order_ids.discard(oid)
+        self.log.warning(
+            f"Cancel rejected as unknown order for untracked order: client_order_id={oid} reason={raw_reason}",
+            color=LogColor.YELLOW,
+        )
+
+    def _clear_rejected_quote_order(self, client_order_id: ClientOrderId) -> bool:
+        """清理已被交易所报告为 unknown 的 quote 订单 ID."""
+        for i, bid_id in enumerate(self._active_bid_ids):
+            if bid_id == client_order_id:
+                self._active_bid_ids[i] = None
+                self._quote_order_ids.discard(client_order_id)
+                if i == 0:
+                    self._clear_bid_quote_state()
+                return True
+
+        for i, ask_id in enumerate(self._active_ask_ids):
+            if ask_id == client_order_id:
+                self._active_ask_ids[i] = None
+                self._quote_order_ids.discard(client_order_id)
+                if i == 0:
+                    self._clear_ask_quote_state()
+                return True
+
+        return False
 
     def _try_quote_on_delta(self) -> None:
         """在 orderbook delta 事件触发时尝试刷新报价."""
@@ -2307,6 +2391,40 @@ class ActiveMarketMaker(BaseStrategy):
         )
 
         # 只有策略停止/kill switch/全平等少数场景允许不补挂
+        if reason in {
+            CancelReason.STRATEGY_STOP,
+            CancelReason.KILL_SWITCH,
+        }:
+            return
+
+        self._place_reduce_order(lot)
+
+    def _handle_reduce_cancel_unknown(
+        self,
+        client_order_id: ClientOrderId,
+        reason: CancelReason | None,
+        raw_reason: str,
+    ) -> None:
+        """处理 reduce 撤单被交易所报告为 unknown 的情况."""
+        lot_id = self._reduce_to_lot.pop(client_order_id, None)
+        if lot_id is None:
+            return
+
+        lot = self._inventory_lots.get(lot_id)
+        if lot is None or not lot.is_open():
+            return
+
+        if lot.reduce_order_id == client_order_id:
+            lot.reduce_order_id = None
+            lot.status = LotStatus.OPEN
+            lot.last_reduce_submit_at = None
+
+        self.log.warning(
+            f"Reduce cancel rejected as unknown order: lot={lot_id} oid={client_order_id} "
+            f"reason={reason.value if reason else 'unknown'} raw_reason={raw_reason}",
+            color=LogColor.YELLOW,
+        )
+
         if reason in {
             CancelReason.STRATEGY_STOP,
             CancelReason.KILL_SWITCH,
