@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.model.data import Bar, OrderBookDeltas, TradeTick
-from nautilus_trader.model.enums import AggressorSide
+from nautilus_trader.model.enums import AggressorSide, OrderSide
 
 from src.core.events import SignalDirection
 
@@ -316,9 +316,9 @@ class AlphaMixin:
             tick = 1.0
         drift = mid - self._last_fill_price
         threshold = self.config.adverse_selection_ticks * tick
-        if self._last_fill_side == "BUY" and drift < -threshold:
+        if self._last_fill_side == OrderSide.BUY and drift < -threshold:
             return "BUY"
-        if self._last_fill_side == "SELL" and drift > threshold:
+        if self._last_fill_side == OrderSide.SELL and drift > threshold:
             return "SELL"
         return None
 

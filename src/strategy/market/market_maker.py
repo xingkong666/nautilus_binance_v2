@@ -28,6 +28,7 @@ from nautilus_trader.common.enums import LogColor
 from nautilus_trader.config import PositiveInt
 from nautilus_trader.indicators import ExponentialMovingAverage
 from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId
 
 from src.core.events import EventBus
@@ -233,7 +234,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
 
         # US-002: 逆向选择
         self._last_fill_price: float | None = None
-        self._last_fill_side: str | None = None  # "BUY" 或 "SELL"
+        self._last_fill_side: OrderSide | None = None  # "BUY" 或 "SELL"
         self._adverse_cooldown_until: datetime | None = None
 
         # US-004: 三角洲驱动报价

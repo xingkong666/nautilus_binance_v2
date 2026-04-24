@@ -17,7 +17,7 @@ class InventoryMixin:
     """双向持仓库存管理类（基于 lot 聚合，而非净仓）."""
 
     _last_fill_price: float | None
-    _last_fill_side: str | None
+    _last_fill_side: OrderSide | None
 
     def _inventory_snapshot(self: Any) -> dict[str, float]:
         """基于 open lots 计算库存快照.
@@ -173,9 +173,8 @@ class InventoryMixin:
 
         fill_price = float(event.last_px)
         fill_qty = float(event.last_qty)
-        fill_side = "BUY" if event.order_side == OrderSide.BUY else "SELL"
         self._last_fill_price = fill_price
-        self._last_fill_side = fill_side
+        self._last_fill_side = event.order_side
 
         client_order_id = getattr(event, "client_order_id", None)
 
@@ -194,14 +193,15 @@ class InventoryMixin:
         is_quote_fill = client_order_id is not None and client_order_id in self._quote_order_ids
         if not is_quote_fill:
             self.log.info(
-                f"Non-quote fill ignored for lot creation: oid={client_order_id} side={fill_side} qty={fill_qty:.8f} px={fill_price:.8f}",
+                f"Non-quote fill ignored for lot creation: oid={client_order_id} side={event.order_side.name} "
+                f" qty={fill_qty:.8f} px={fill_price:.8f}",
                 color=LogColor.YELLOW,
             )
             return
 
         # 3) Quote fill
         self.log.info(
-            f"Quote filled: oid={client_order_id} side={fill_side} qty={fill_qty:.8f} px={fill_price:.8f}",
+            f"Quote filled: oid={client_order_id} side={event.order_side.name} qty={fill_qty:.8f} px={fill_price:.8f}",
             color=LogColor.YELLOW,
         )
 
@@ -218,7 +218,7 @@ class InventoryMixin:
         # m2m proxy pnl
         mid = self._last_microprice or 0.0
         if mid > 0:
-            sign = 1.0 if fill_side == "BUY" else -1.0
+            sign = 1.0 if event.order_side == OrderSide.BUY else -1.0
             proxy_pnl = (mid - fill_price) * fill_qty * sign
             self._recent_fills.append((self._utc_now(), proxy_pnl))
 
@@ -226,9 +226,9 @@ class InventoryMixin:
         mid_now = self._last_microprice
         if mid_now is not None:
             drift = mid_now - fill_price
-            if fill_side == "BUY" and drift < 0:
+            if event.order_side == OrderSide.BUY and drift < 0:
                 self._toxic_flow_score = max(-1.0, self._toxic_flow_score - 0.3)
-            elif fill_side == "SELL" and drift > 0:
+            elif event.order_side == OrderSide.SELL and drift > 0:
                 self._toxic_flow_score = min(1.0, self._toxic_flow_score + 0.3)
 
         self._check_lot_risk()
