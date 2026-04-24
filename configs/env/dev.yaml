@@ -2,9 +2,9 @@
 env: dev
 
 logging:
-    level: DEBUG
+    level: INFO # DEBUG WARNING INFO
     format: json
-    console: true
+    console: false
 
 data:
     catalog_dir: data/processed/catalog
@@ -20,21 +20,21 @@ cache:
     enabled: true
     database: redis
     live:
-        flush_on_start: true  # 重启时清空旧 cache，避免 PENDING_CANCEL 残留订单产生 Residual WARN
+        flush_on_start: true
     backtest:
         use_instance_id: true
         flush_on_start: false
 
 monitoring:
-    enabled: false
+    enabled: true
     prometheus_port: 9100
 
 risk:
     enabled: true
-    mode: soft # soft=告警不阻断, hard=阻断
+    mode: hard
 
 exchange:
-    environment: TESTNET
+    environment: LIVE
 
 execution:
     submit_orders: true
@@ -43,3 +43,4 @@ live:
     strategy_config: configs/strategies/market_maker.yaml
     universe_top_n: 200
     exclude_stablecoin_bases: true
+

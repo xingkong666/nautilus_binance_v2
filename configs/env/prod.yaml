@@ -2,7 +2,7 @@
 env: prod
 
 logging:
-    level: DEBUG # DEBUG WARNING INFO
+    level: WARNING # DEBUG WARNING INFO
     format: json
     console: false
 
