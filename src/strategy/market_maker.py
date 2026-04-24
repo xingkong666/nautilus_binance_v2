@@ -34,6 +34,7 @@ class LotStatus:
     """Lot 生命周期状态."""
 
     OPEN = "OPEN"  # 刚由 quote fill 创建，尚未有有效 reduce
+    PENDING_PROTECT = "PENDING_PROTECT"  # reduce 已提交，等待 cache / adapter 收敛
     PROTECTED = "PROTECTED"  # 已存在有效 reduce
     CLOSING = "CLOSING"  # reduce 已挂出, 部分成交中
     CLOSED = "CLOSED"  # reduce 已完全关闭
@@ -53,6 +54,7 @@ class InventoryLot:
     reduce_order_id: ClientOrderId | None = None  # 对应的 Reduce 订单ID
     status: str = field(default=LotStatus.OPEN)
     reduce_version: int = 0  # 每次补挂递增，避免旧单事件串扰
+    flatten_order_id: ClientOrderId | None = None
     last_reduce_submit_at: datetime | None = None
 
     def is_open(self) -> bool:
@@ -99,7 +101,7 @@ class QuoteState:
     bid_queue_on_submit: float | None = None
     ask_queue_on_submit: float | None = None
 
-    def reset(self: Any) -> None:
+    def reset(self) -> None:
         """重置为初始状态."""
         self.quoted_mid = None
         self.quoted_skew = None
@@ -205,7 +207,12 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
 
     # US-009: 成本模型——最低预期收益
     min_expected_profit_bps: float = 1.0
-    taker_fee_bps: float = 4.0
+    maker_fee_bps: float = 0.0
+    reduce_taker_fee_bps: float = 4.0
+    adverse_cost_bps: float = 1.0
+
+    # Reduce 防重复补挂窗口
+    reduce_submit_grace_ms: int = 5000
 
     # V3-US-002: 成交流 阿尔法
     subscribe_trades: bool = True
@@ -333,7 +340,11 @@ class ActiveMarketMaker(BaseStrategy):
         self._last_best_ask_size: float | None = None
 
         # V4-US-001: 队列位置快照
-        self._queue_traded_volume: float = 0.0
+        self._bid_queue_consumed: float = 0.0
+        self._ask_queue_consumed: float = 0.0
+
+        # 成交事件幂等保护
+        self._processed_fill_keys: set[str] = set()
 
         # V4-US-002: 有毒流
         self._toxic_flow_score: float = 0.0
@@ -406,7 +417,13 @@ class ActiveMarketMaker(BaseStrategy):
             return
 
         if self._kill_switch:
-            self.log.info("Kill switch activated（kill switch 激活）, skipping bar", LogColor.YELLOW)
+            self._prune_reduce_orders()
+            self._ensure_all_open_lots_protected()
+            self._flatten_all_lots()
+            self.log.info(
+                "Kill switch active（kill switch 激活）, managing reduce/flatten only",
+                LogColor.YELLOW,
+            )
             return
 
         # US-007: PNL熔断器检查
@@ -580,7 +597,8 @@ class ActiveMarketMaker(BaseStrategy):
         # V3-US-002: 每根 K 线结束后重置成交流累计量
         self._agg_buy_vol = 0.0
         self._agg_sell_vol = 0.0
-        self._queue_traded_volume = 0.0
+        self._bid_queue_consumed = 0.0
+        self._ask_queue_consumed = 0.0
 
     def on_stop(self) -> None:
         """停止策略时撤销所有挂单（Quote + Reduce 池）."""
@@ -632,7 +650,9 @@ class ActiveMarketMaker(BaseStrategy):
         self._last_best_bid_size = None
         self._last_best_ask_size = None
 
-        self._queue_traded_volume = 0.0
+        self._bid_queue_consumed = 0.0
+        self._ask_queue_consumed = 0.0
+        self._processed_fill_keys.clear()
         # V4-US-002: 重置有毒流
         self._toxic_flow_score = 0.0
         self._last_fill_mid = None
@@ -667,28 +687,30 @@ class ActiveMarketMaker(BaseStrategy):
     _last_mid_for_rv: float | None
     _prev_microprice: float | None
 
-    def on_trade_tick(self: Any, trade: TradeTick) -> None:
-        """处理逐笔成交，追踪主动买卖量."""
+    def on_trade_tick(self, trade: TradeTick) -> None:
+        """处理逐笔成交，追踪主动买卖量，并按方向估算队列消耗."""
         qty = float(trade.size)
+
         if trade.aggressor_side == AggressorSide.BUYER:
             self._agg_buy_vol += qty
+            # 主动买打 ask，消耗 ask 队列
+            self._ask_queue_consumed += qty
         elif trade.aggressor_side == AggressorSide.SELLER:
             self._agg_sell_vol += qty
-
-        # V4+: 累计队列消耗量（复用已计算的数量）
-        self._queue_traded_volume += qty
+            # 主动卖打 bid，消耗 bid 队列
+            self._bid_queue_consumed += qty
 
         # V4-US-002: 更新有毒流分数
         self._update_toxic_flow(trade)
 
-    def _calc_trade_flow_signal(self: Any) -> float:
+    def _calc_trade_flow_signal(self) -> float:
         """计算 trade flow 信号：(buy_vol - sell_vol) / (buy_vol + sell_vol + ε)."""
         total = self._agg_buy_vol + self._agg_sell_vol
         if total < 1e-10:
             return 0.0
         return (self._agg_buy_vol - self._agg_sell_vol) / total
 
-    def _update_toxic_flow(self: Any, trade: TradeTick) -> None:
+    def _update_toxic_flow(self, trade: TradeTick) -> None:
         """基于 microprice drift 更新 toxic flow 分数（微观结构版）."""
         # 使用微价格而非中间价，响应更快
         mp = self._last_microprice
@@ -706,7 +728,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._toxic_flow_score = max(-1.0, min(1.0, self._toxic_flow_score))
         self._last_fill_mid = mp
 
-    def _calc_quote_score(self: Any, dir_val: float) -> float:
+    def _calc_quote_score(self, dir_val: float) -> float:
         """统一报价质量评分:alpha + fill_prob - 库存惩罚 - toxic 惩罚 - queue 惩罚.
 
         Args:
@@ -725,7 +747,7 @@ class ActiveMarketMaker(BaseStrategy):
         queue_penalty = 1.0 - fill_prob
         return alpha + fill_prob * 1.2 - inv_ratio * 0.8 - toxic * 1.5 - queue_penalty
 
-    def on_order_book_deltas(self: Any, deltas: OrderBookDeltas) -> None:
+    def on_order_book_deltas(self, deltas: OrderBookDeltas) -> None:
         """处理 orderbook delta 更新，刷新加权 imbalance."""
         self._calc_weighted_imbalance()
 
@@ -761,7 +783,7 @@ class ActiveMarketMaker(BaseStrategy):
         if self.config.quote_on_delta:
             self._try_quote_on_delta()
 
-    def _calc_weighted_imbalance(self: Any) -> None:
+    def _calc_weighted_imbalance(self) -> None:
         """计算前 N 档加权 imbalance，并用 EWM 平滑.
 
         公式：raw = (bid_w - ask_w) / (bid_w + ask_w)，范围 [-1, 1].
@@ -793,20 +815,20 @@ class ActiveMarketMaker(BaseStrategy):
         if abs(self._smooth_imbalance) < self.config.dead_zone_threshold:
             self._smooth_imbalance = 0.0
 
-    def _order_book_level_size(self: Any, level: Any) -> float:
+    def _order_book_level_size(self, level: Any) -> float:
         """读取 order book 档位数量，兼容 Nautilus 方法式 size() 与测试桩属性式 size."""
         size_attr = level.size
         size = size_attr() if callable(size_attr) else size_attr
         return float(cast(Any, size))
 
-    def _calc_weights(self: Any, n: int) -> list[float]:
+    def _calc_weights(self, n: int) -> list[float]:
         if self.config.imbalance_weight_mode == "exp":
             lam = 0.5
             return [math.exp(-lam * i) for i in range(n)]
         # 线性模式：weight[i] = (n-i)/n（线性加权）
         return [(n - i) / n for i in range(n)]
 
-    def _get_microprice(self: Any, bar: Bar | None) -> float | None:
+    def _get_microprice(self, bar: Bar | None) -> float | None:
         """从 orderbook 买一/卖一的 size 加权计算 microprice.
 
         Args:
@@ -837,7 +859,7 @@ class ActiveMarketMaker(BaseStrategy):
             pass
         return None
 
-    def _get_mid_price(self: Any, bar: Bar | None) -> float | None:
+    def _get_mid_price(self, bar: Bar | None) -> float | None:
         """从 orderbook 计算 mid price.
 
         Args:
@@ -867,7 +889,7 @@ class ActiveMarketMaker(BaseStrategy):
             pass
         return None
 
-    def _update_realized_vol(self: Any, mid: float) -> float | None:
+    def _update_realized_vol(self, mid: float) -> float | None:
         """用对数收益率更新已实现波动率.
 
         Args:
@@ -884,7 +906,7 @@ class ActiveMarketMaker(BaseStrategy):
             return None
         return statistics.stdev(self._price_returns)
 
-    def _get_rv_ticks(self: Any) -> float:
+    def _get_rv_ticks(self) -> float:
         """将已实现波动率转换为 tick 单位.
 
         Returns:
@@ -902,7 +924,7 @@ class ActiveMarketMaker(BaseStrategy):
         vol_price = std * mid
         return vol_price / tick
 
-    def _check_market_quality(self: Any, best_bid: float, best_ask: float) -> None:
+    def _check_market_quality(self, best_bid: float, best_ask: float) -> None:
         """根据 orderbook spread 和 imbalance spike 检查市场质量.
 
         Args:
@@ -924,27 +946,25 @@ class ActiveMarketMaker(BaseStrategy):
         if was_ok and not self._quote_quality_ok:
             self.log.warning("Market quality degraded, pausing quotes", color=LogColor.YELLOW)
 
-    def _calc_expected_profit_bps(self: Any, mid: float) -> float:
-        """计算预期收益（单位：bps）.
+    def _calc_expected_profit_bps(self, mid: float) -> float:
+        """计算 quote 预期收益（单位 bps）。
 
-        Args:
-            mid: 当前 mid price.
-
-        Returns:
-            扣除手续费后的预期收益，单位 bps.
+        注意：
+        - quote 默认 post_only，应按 maker 成本计算；
+        - reduce 是否吃单，属于平仓成本，不应直接过滤开仓 quote。
         """
         tick = 1.0
         if self.instrument is not None:
             tick = float(self.instrument.price_increment)
-        if tick <= 0:
-            tick = 1.0
-        spread_price = self._current_spread_ticks * tick
-        if mid <= 0:
+        if tick <= 0 or mid <= 0:
             return 0.0
-        gross_bps = (spread_price / mid) * 10000 / 2
-        return gross_bps - self.config.taker_fee_bps
 
-    def _check_adverse_selection(self: Any, mid: float) -> str | None:
+        spread_price = self._current_spread_ticks * tick
+        half_spread_bps = (spread_price / mid) * 10000 / 2.0
+
+        return half_spread_bps - float(self.config.maker_fee_bps) - float(self.config.adverse_cost_bps)
+
+    def _check_adverse_selection(self, mid: float) -> str | None:
         """检查上次成交是否遭到逆向选择.
 
         Args:
@@ -966,7 +986,7 @@ class ActiveMarketMaker(BaseStrategy):
             return "SELL"
         return None
 
-    def generate_signal(self: Any, bar: Bar) -> SignalDirection | None:
+    def generate_signal(self, bar: Bar) -> SignalDirection | None:
         """基于连续 imbalance 生成方向性信号，用于信号总线兼容.
 
         Args:
@@ -985,7 +1005,7 @@ class ActiveMarketMaker(BaseStrategy):
             return SignalDirection.SHORT
         return None
 
-    def _calc_microprice_signal(self: Any) -> float:
+    def _calc_microprice_signal(self) -> float:
         """Microprice 偏离 mid 的归一化信号，用于 alpha 主驱动."""
         if self._last_microprice is None:
             return 0.0
@@ -1010,7 +1030,7 @@ class ActiveMarketMaker(BaseStrategy):
         normalized = bias / (spread_price / 2.0)
         return math.tanh(normalized)
 
-    def _compute_dir_val(self: Any) -> float:
+    def _compute_dir_val(self) -> float:
         """计算连续方向值：microprice 主驱动 + imbalance + trade flow 三路混合."""
         mp_w = float(self.config.mp_alpha_weight)
         imb_w = float(self.config.imbalance_weight)
@@ -1042,7 +1062,7 @@ class ActiveMarketMaker(BaseStrategy):
     _last_fill_price: float | None
     _last_fill_side: OrderSide | None
 
-    def _inventory_snapshot(self: Any) -> dict[str, float]:
+    def _inventory_snapshot(self) -> dict[str, float]:
         """基于 open lots 计算库存快照.
 
         Returns:
@@ -1100,7 +1120,7 @@ class ActiveMarketMaker(BaseStrategy):
             "short_qty": short_qty,
         }
 
-    def _calc_quote_sizes(self: Any, base_qty: Decimal, adverse_side: str | None = None) -> tuple[Decimal, Decimal]:
+    def _calc_quote_sizes(self, base_qty: Decimal, adverse_side: str | None = None) -> tuple[Decimal, Decimal]:
         """双向持仓下的 bid/ask 数量控制.
 
         规则：
@@ -1190,9 +1210,25 @@ class ActiveMarketMaker(BaseStrategy):
 
         return bid_qty, ask_qty
 
-    def on_order_filled(self: Any, event: OrderFilled) -> None:
+    def _fill_key(self, event: OrderFilled) -> str:
+        """构造成交事件幂等 key，避免重复 fill 造成重复 lot / reduce."""
+        return (
+            f"{getattr(event, 'client_order_id', None)}:"
+            f"{getattr(event, 'venue_order_id', None)}:"
+            f"{getattr(event, 'trade_id', None)}:"
+            f"{getattr(event, 'ts_event', None)}:"
+            f"{event.last_qty}:"
+            f"{event.last_px}"
+        )
+
+    def on_order_filled(self, event: OrderFilled) -> None:
         """处理订单成交事件."""
         self.log.info(f"ORDER_FILLED (订单成交): {event}", color=LogColor.CYAN)
+        fill_key = self._fill_key(event)
+        if fill_key in self._processed_fill_keys:
+            self.log.warning(f"Duplicate fill ignored: {fill_key}", color=LogColor.YELLOW)
+            return
+        self._processed_fill_keys.add(fill_key)
 
         self._last_fill_ts = self._utc_now()
 
@@ -1260,7 +1296,7 @@ class ActiveMarketMaker(BaseStrategy):
 
         self._check_lot_risk()
 
-    def _check_lot_risk(self: Any) -> None:
+    def _check_lot_risk(self) -> None:
         """基于 lot 聚合风险检查 kill switch."""
         inv = self._inventory_snapshot()
 
@@ -1289,7 +1325,7 @@ class ActiveMarketMaker(BaseStrategy):
             self._kill_switch = False
             self.log.info("Kill switch reset", color=LogColor.GREEN)
 
-    def _flatten_all_lots(self: Any) -> None:
+    def _flatten_all_lots(self) -> None:
         """按 open lots 逐笔反向市价平仓.
 
         说明：
@@ -1317,6 +1353,13 @@ class ActiveMarketMaker(BaseStrategy):
                     self.log.error(f"Skip flatten without position_id: lot={lot.lot_id}", color=LogColor.RED)
                     continue
 
+                now = self._utc_now()
+
+                if lot.flatten_order_id is not None and lot.last_flatten_submit_at is not None:
+                    elapsed_ms = (now - lot.last_flatten_submit_at).total_seconds() * 1000
+                    if elapsed_ms < self.config.reduce_submit_grace_ms:
+                        continue
+
                 order = self.order_factory.market(
                     instrument_id=self.config.instrument_id,
                     order_side=order_side,
@@ -1324,6 +1367,11 @@ class ActiveMarketMaker(BaseStrategy):
                     reduce_only=True,
                 )
                 self.submit_order(order, position_id=position_id)
+
+                lot.flatten_order_id = order.client_order_id
+                lot.last_flatten_submit_at = now
+                lot.status = LotStatus.CLOSING
+
                 flattened += 1
             except Exception as e:
                 self.log.error(f"Failed to flatten lot {lot.lot_id}: {e}", color=LogColor.RED)
@@ -1334,34 +1382,46 @@ class ActiveMarketMaker(BaseStrategy):
     # ===== inlined from QueueModelMixin =====
     """提供队列位置、排队惩罚和成交概率估算逻辑."""
 
-    def _estimate_queue_ahead(self: Any, side: str) -> float:
+    def _estimate_queue_ahead(self, side: str) -> float:
         """当前价位排队量估算（用 best_bid/ask_size 作为代理）."""
         if side == "BUY":
             return self._last_best_bid_size or 0.0
         return self._last_best_ask_size or 0.0
 
-    def _calc_queue_penalty(self: Any, side: str) -> float:
+    def _calc_queue_penalty(self, side: str) -> float:
         """队列越长惩罚越大，归一化到 [0, 1]."""
         queue = self._estimate_queue_ahead(side)
         return min(queue / max(self.config.queue_norm_volume, 1.0), 1.0)
 
-    def _calc_queue_fill_prob(self: Any, side: str) -> float:
-        """下单后的队列消耗估算成交概率：traded_volume / initial_queue."""
+    def _calc_queue_fill_prob(self, side: str) -> float:
+        """下单后的队列消耗估算成交概率。
+
+        BUY quote 排在 bid 队列，主要由主动卖成交消耗；
+        SELL quote 排在 ask 队列，主要由主动买成交消耗。
+        """
         qs = self._quote_state
-        initial = qs.bid_queue_on_submit if side == "BUY" else qs.ask_queue_on_submit
+
+        if side == "BUY":
+            initial = qs.bid_queue_on_submit
+            consumed = self._bid_queue_consumed
+        else:
+            initial = qs.ask_queue_on_submit
+            consumed = self._ask_queue_consumed
+
         if initial is None or initial <= 0:
             return 1.0
-        return min(self._queue_traded_volume / initial, 1.0)
+
+        return min(consumed / initial, 1.0)
 
     # ===== inlined from QuoteEngineMixin =====
     """封装报价定价、撤挂单、分层报价和 delta 驱动刷新逻辑."""
 
-    def _cancel_order_with_reason(self: Any, order: Any, reason: CancelReason) -> None:
+    def _cancel_order_with_reason(self, order: Any, reason: CancelReason) -> None:
         """记录撤单原因后发送撤单请求."""
         self._pending_cancel_reasons[order.client_order_id] = reason
         self.cancel_order(order)
 
-    def _check_pretrade_cancel(self: Any) -> None:
+    def _check_pretrade_cancel(self) -> None:
         """检测价格即将穿越报价时主动撤单（pre-trade adverse cancel）.
 
         只发送撤单请求，由 on_order_canceled 回调清理 ID 和状态，
@@ -1399,7 +1459,7 @@ class ActiveMarketMaker(BaseStrategy):
                 if order is not None and order.is_open and not order.is_pending_cancel:
                     self._cancel_order_with_reason(order, CancelReason.PRETRADE_ADVERSE)
 
-    def _update_dynamic_spread(self: Any) -> None:
+    def _update_dynamic_spread(self) -> None:
         if self.config.use_realized_vol:
             rv_ticks = self._get_rv_ticks()
             if rv_ticks > 0:
@@ -1440,7 +1500,7 @@ class ActiveMarketMaker(BaseStrategy):
             min(float(self.config.max_spread_ticks), raw),
         )
 
-    def _calc_quote_prices(self: Any, mid: float, dir_val: float) -> tuple[float, float, float]:
+    def _calc_quote_prices(self, mid: float, dir_val: float) -> tuple[float, float, float]:
         """双向持仓下的 side-aware bid/ask 报价价格.
 
         Args:
@@ -1506,7 +1566,7 @@ class ActiveMarketMaker(BaseStrategy):
         avg_shift = (bid_shift + ask_shift) / 2.0
         return bid, ask, avg_shift
 
-    def _clamp_quote_prices(self: Any, bid_price: float, ask_price: float) -> tuple[float, float] | None:
+    def _clamp_quote_prices(self, bid_price: float, ask_price: float) -> tuple[float, float] | None:
         """将 bid 夹紧至低于 best_ask，将 ask 夹紧至高于 best_bid.
 
         Returns:
@@ -1535,7 +1595,7 @@ class ActiveMarketMaker(BaseStrategy):
 
         return bid_price, ask_price
 
-    def _maybe_refresh_expiring_orders(self: Any, mid: float) -> None:
+    def _maybe_refresh_expiring_orders(self, mid: float) -> None:
         """若订单临近 TTL 到期且有更优价格，则提前刷新.
 
         Args:
@@ -1580,18 +1640,18 @@ class ActiveMarketMaker(BaseStrategy):
                 if current_price > optimal_ask:
                     self._cancel_order_with_reason(order, CancelReason.TTL_REFRESH)
 
-    def _has_open_order(self: Any, oid: ClientOrderId | None) -> bool:
+    def _has_open_order(self, oid: ClientOrderId | None) -> bool:
         """判断某个 client order id 是否仍然是 open 状态."""
         if oid is None:
             return False
         order = self.cache.order(oid)
         return order is not None and order.is_open
 
-    def _has_active_quotes(self: Any) -> bool:
+    def _has_active_quotes(self) -> bool:
         """判断当前是否仍有活跃挂单."""
         return any(self._has_open_order(oid) for oid in itertools.chain(self._active_bid_ids, self._active_ask_ids))
 
-    def _prune_inactive_quote_ids(self: Any) -> None:
+    def _prune_inactive_quote_ids(self) -> None:
         """将已不存在、已非 open 或正在撤销中的订单 ID 置为 None，避免脏状态累积."""
         all_ids = list(self._active_bid_ids) + list(self._active_ask_ids)
         active_oids = {oid for oid in all_ids if oid is not None}
@@ -1617,7 +1677,7 @@ class ActiveMarketMaker(BaseStrategy):
         for oid in stale:
             self._pending_cancel_reasons.pop(oid, None)
 
-    def _update_top_quote_state(self: Any, bid_price: float, ask_price: float) -> None:
+    def _update_top_quote_state(self, bid_price: float, ask_price: float) -> None:
         """根据当前 active ids 更新第一层报价状态.
 
         Args:
@@ -1639,21 +1699,21 @@ class ActiveMarketMaker(BaseStrategy):
         else:
             self._clear_ask_quote_state()
 
-    def _clear_bid_quote_state(self: Any) -> None:
+    def _clear_bid_quote_state(self) -> None:
         """清除 bid 报价状态."""
         qs = self._quote_state
         qs.bid_price = None
         qs.bid_submit_time = None
         qs.bid_queue_on_submit = None
 
-    def _clear_ask_quote_state(self: Any) -> None:
+    def _clear_ask_quote_state(self) -> None:
         """清除 ask 报价状态."""
         qs = self._quote_state
         qs.ask_price = None
         qs.ask_submit_time = None
         qs.ask_queue_on_submit = None
 
-    def _cancel_all_quotes(self: Any, reason: CancelReason = CancelReason.DRIFT_REFRESH) -> None:
+    def _cancel_all_quotes(self, reason: CancelReason = CancelReason.DRIFT_REFRESH) -> None:
         """请求撤销当前所有双边挂单.
 
         注意：
@@ -1666,7 +1726,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._quote_state.quoted_mid = None
         self._quote_state.quoted_skew = None
 
-    def _cancel_quotes(self: Any, side: OrderSide, reason: CancelReason = CancelReason.DRIFT_REFRESH) -> None:
+    def _cancel_quotes(self, side: OrderSide, reason: CancelReason = CancelReason.DRIFT_REFRESH) -> None:
         """撤销所有 bid 或 ask 报价.
 
         Args:
@@ -1702,12 +1762,12 @@ class ActiveMarketMaker(BaseStrategy):
         if total > 0:
             self.log.info(f"Requested cancel for {total} active quotes reason={reason.value}", color=LogColor.YELLOW)
 
-    def _quote_position_id(self: Any, side: OrderSide) -> PositionId:
+    def _quote_position_id(self, side: OrderSide) -> PositionId:
         """为 Binance Futures hedge mode 生成 quote 订单的 PositionId."""
         suffix = "LONG" if side == OrderSide.BUY else "SHORT"
         return PositionId(f"{self.config.instrument_id}-{suffix}")
 
-    def _submit_quote(self: Any, side: OrderSide, price: float, qty: Decimal) -> ClientOrderId | None:
+    def _submit_quote(self, side: OrderSide, price: float, qty: Decimal) -> ClientOrderId | None:
         """提交报价,只返回 client_order_id,不修改 active 列表."""
         if self.instrument is None:
             return None
@@ -1748,7 +1808,7 @@ class ActiveMarketMaker(BaseStrategy):
             return None
 
     def _submit_single_level_quotes(
-        self: Any,
+        self,
         bid_price: float,
         ask_price: float,
         bid_qty: Decimal,
@@ -1762,7 +1822,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._update_top_quote_state(bid_price, ask_price)
 
     def _submit_layered_quotes(
-        self: Any,
+        self,
         bid_price: float,
         ask_price: float,
         bid_qty: Decimal,
@@ -1820,7 +1880,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._update_top_quote_state(bid_price, ask_price)
 
     def _refresh_quotes(
-        self: Any,
+        self,
         bid_price: float,
         ask_price: float,
         bid_qty: Decimal,
@@ -1867,7 +1927,7 @@ class ActiveMarketMaker(BaseStrategy):
         qs.quoted_mid = mid
         qs.quoted_skew = current_skew
 
-    def on_order_canceled(self: Any, event: OrderCanceled) -> None:
+    def on_order_canceled(self, event: OrderCanceled) -> None:
         """订单撤销事件处理 — 三池识别.
 
         Args:
@@ -1902,7 +1962,7 @@ class ActiveMarketMaker(BaseStrategy):
                 self.log.info(f"Ask quote canceled: client_order_id={oid}{reason_str}", color=LogColor.YELLOW)
                 return
 
-    def _try_quote_on_delta(self: Any) -> None:
+    def _try_quote_on_delta(self) -> None:
         """在 orderbook delta 事件触发时尝试刷新报价."""
         if not self._fast_ema.initialized or not self._slow_ema.initialized:
             return
@@ -1937,7 +1997,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._refresh_quotes(bid_price, ask_price, bid_qty, ask_qty, mid, current_skew)
         self._last_delta_quote_ts = now
 
-    def _maybe_withdraw_stale_quotes(self: Any) -> None:
+    def _maybe_withdraw_stale_quotes(self) -> None:
         """fill_prob 极低时撤销滞留单（不再有成交机会的挂单）."""
         threshold = self.config.withdraw_fill_prob_threshold
         if self._active_bid_ids and self._active_bid_ids[0] is not None and self._calc_queue_fill_prob("BUY") < threshold:
@@ -1952,7 +2012,7 @@ class ActiveMarketMaker(BaseStrategy):
             if order is not None and order.is_open and not order.is_pending_cancel:
                 self._cancel_order_with_reason(order, CancelReason.STALE_LOW_FILL_PROB)
 
-    def _check_toxic_preemptive(self: Any) -> None:
+    def _check_toxic_preemptive(self) -> None:
         """Microprice 急速漂移时预防性撤单（toxic 前置防御）."""
         if self._last_microprice is None or self._prev_microprice is None:
             return
@@ -1977,14 +2037,14 @@ class ActiveMarketMaker(BaseStrategy):
     # ===== inlined from ReduceManagerMixin =====
     """封装 Reduce/TP 池的 lot 管理和 reduce 订单生命周期."""
 
-    def _next_lot_id(self: Any, event: OrderFilled) -> str:
+    def _next_lot_id(self, event: OrderFilled) -> str:
         """生成 fill 级唯一 lot_id."""
         self._lot_seq += 1
         oid = getattr(event, "client_order_id", None)
         ts = getattr(event, "ts_event", None)
         return f"lot:{oid or 'na'}:{ts or 'na'}:{self._lot_seq}"
 
-    def _create_lot(self: Any, event: OrderFilled) -> InventoryLot:
+    def _create_lot(self, event: OrderFilled) -> InventoryLot:
         """Quote 成交时创建 inventory lot."""
         qty = Decimal(str(float(event.last_qty)))
 
@@ -2005,7 +2065,7 @@ class ActiveMarketMaker(BaseStrategy):
         )
         return lot
 
-    def _resolve_lot_position_id(self: Any, lot: InventoryLot) -> PositionId | None:
+    def _resolve_lot_position_id(self, lot: InventoryLot) -> PositionId | None:
         """解析 lot 对应的持仓 ID，供 reduce 订单绑定使用."""
         if lot.position_id is not None:
             return lot.position_id
@@ -2112,7 +2172,7 @@ class ActiveMarketMaker(BaseStrategy):
         )
         return position_id
 
-    def _calc_reduce_price(self: Any, lot: InventoryLot) -> tuple[OrderSide, float] | None:
+    def _calc_reduce_price(self, lot: InventoryLot) -> tuple[OrderSide, float] | None:
         """计算 reduce 价格."""
         if lot.side == OrderSide.BUY:
             side = OrderSide.SELL
@@ -2125,7 +2185,7 @@ class ActiveMarketMaker(BaseStrategy):
             return None
         return side, price
 
-    def _place_reduce_order(self: Any, lot: InventoryLot) -> ClientOrderId | None:
+    def _place_reduce_order(self, lot: InventoryLot) -> ClientOrderId | None:
         """为单个 lot 挂保护性 reduce 单."""
         if self.instrument is None or not lot.is_open():
             return None
@@ -2157,7 +2217,7 @@ class ActiveMarketMaker(BaseStrategy):
             self.submit_order(order, position_id=position_id)
             lot.reduce_version += 1
             lot.reduce_order_id = order.client_order_id
-            lot.status = LotStatus.PROTECTED
+            lot.status = LotStatus.PENDING_PROTECT
             lot.last_reduce_submit_at = self._utc_now()
             self._reduce_to_lot[order.client_order_id] = lot.lot_id
             self.log.info(
@@ -2171,32 +2231,52 @@ class ActiveMarketMaker(BaseStrategy):
             self.log.error(f"Failed to place reduce order for lot={lot.lot_id}: {e}", color=LogColor.RED)
             return None
 
-    def _ensure_reduce_for_lot(self: Any, lot: InventoryLot) -> None:
-        """Lot 只要还开着，就必须有 reduce."""
+    def _ensure_reduce_for_lot(self, lot: InventoryLot) -> None:
+        """Lot 只要还开着，就必须有 reduce。
+
+        注意：
+        reduce 提交后，cache / adapter 可能需要几秒才收敛。
+        这段逻辑避免因为 cache 暂时查不到订单而重复补挂 reduce。
+        """
         if not lot.is_open():
             return
-        # 刚补挂过，给 cache / adapter 一个收敛窗口，避免重复补单
-        if lot.last_reduce_submit_at is not None:
-            elapsed_ms = (self._utc_now() - lot.last_reduce_submit_at).total_seconds() * 1000
-            if elapsed_ms < 500:
-                return
+
+        now = self._utc_now()
 
         if lot.reduce_order_id is not None:
             order = self.cache.order(lot.reduce_order_id)
-            if order is not None and order.is_open and not order.is_pending_cancel:
-                return
+
+            if order is not None:
+                if order.is_open and not order.is_pending_cancel:
+                    lot.status = LotStatus.PROTECTED
+                    return
+
+                if order.is_pending_cancel:
+                    return
+
+            if lot.last_reduce_submit_at is not None:
+                elapsed_ms = (now - lot.last_reduce_submit_at).total_seconds() * 1000
+                if elapsed_ms < self.config.reduce_submit_grace_ms:
+                    lot.status = LotStatus.PENDING_PROTECT
+                    return
+
+            self.log.warning(
+                f"Reduce order not found/open after grace window: lot={lot.lot_id} oid={lot.reduce_order_id}, will resubmit",
+                color=LogColor.YELLOW,
+            )
+            self._reduce_to_lot.pop(lot.reduce_order_id, None)
 
         lot.reduce_order_id = None
         lot.status = LotStatus.OPEN
         self._place_reduce_order(lot)
 
-    def _ensure_all_open_lots_protected(self: Any) -> None:
+    def _ensure_all_open_lots_protected(self) -> None:
         """为所有开着的 lot 确保有 reduce."""
         for lot in list(self._inventory_lots.values()):
             if lot.is_open():
                 self._ensure_reduce_for_lot(lot)
 
-    def _handle_reduce_fill(self: Any, event: OrderFilled, lot: InventoryLot) -> None:
+    def _handle_reduce_fill(self, event: OrderFilled, lot: InventoryLot) -> None:
         """处理 reduce 成交，支持 partial fill."""
         fill_qty = Decimal(str(float(event.last_qty)))
         fill_price = float(event.last_px)
@@ -2231,7 +2311,7 @@ class ActiveMarketMaker(BaseStrategy):
             color=LogColor.YELLOW,
         )
 
-    def _handle_reduce_canceled(self: Any, client_order_id: ClientOrderId, reason: CancelReason | None) -> None:
+    def _handle_reduce_canceled(self, client_order_id: ClientOrderId, reason: CancelReason | None) -> None:
         """处理 reduce 订单被撤销的情况."""
         lot_id = self._reduce_to_lot.pop(client_order_id, None)
         if lot_id is None:
@@ -2260,7 +2340,7 @@ class ActiveMarketMaker(BaseStrategy):
 
         self._place_reduce_order(lot)
 
-    def _cancel_reduce_orders(self: Any, reason: CancelReason) -> None:
+    def _cancel_reduce_orders(self, reason: CancelReason) -> None:
         """撤销 Reduce 池所有活跃订单."""
         total = 0
         for oid in list(self._reduce_to_lot.keys()):
@@ -2274,23 +2354,42 @@ class ActiveMarketMaker(BaseStrategy):
         if total:
             self.log.info(f"Requested cancel {total} reduce orders reason={reason.value}", color=LogColor.YELLOW)
 
-    def _cancel_all_orders(self: Any, reason: CancelReason) -> None:
+    def _cancel_all_orders(self, reason: CancelReason) -> None:
         """撤销所有订单（Quote 池 + Reduce 池）."""
         self._cancel_all_quotes(reason)
         self._cancel_reduce_orders(reason)
 
-    def _prune_reduce_orders(self: Any) -> None:
-        """只做脏状态修剪，不主动关闭 lot."""
+    def _prune_reduce_orders(self) -> None:
+        """只做脏状态修剪，不主动关闭 lot。
+
+        注意：
+        PENDING_PROTECT 状态下，cache 可能短时间查不到订单；
+        不要在 grace window 内清理 reduce_order_id。
+        """
+        now = self._utc_now()
         stale_oids: list[ClientOrderId] = []
+
         for oid in list(self._reduce_to_lot.keys()):
+            lot_id = self._reduce_to_lot.get(oid)
+            lot = self._inventory_lots.get(lot_id) if lot_id is not None else None
             order = self.cache.order(oid)
-            if order is None or not order.is_open:
+
+            if order is None:
+                if lot is not None and lot.reduce_order_id == oid and lot.last_reduce_submit_at is not None:
+                    elapsed_ms = (now - lot.last_reduce_submit_at).total_seconds() * 1000
+                    if elapsed_ms < self.config.reduce_submit_grace_ms:
+                        continue
+                stale_oids.append(oid)
+                continue
+
+            if not order.is_open and not order.is_pending_cancel:
                 stale_oids.append(oid)
 
         for oid in stale_oids:
             lot_id = self._reduce_to_lot.pop(oid, None)
             if lot_id is None:
                 continue
+
             lot = self._inventory_lots.get(lot_id)
             if lot is not None and lot.reduce_order_id == oid and lot.is_open():
                 lot.reduce_order_id = None
