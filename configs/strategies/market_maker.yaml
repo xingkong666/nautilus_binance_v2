@@ -139,7 +139,7 @@ strategy:
     instruments:
         - PNUTUSDC-PERP.BINANCE
 
-    bar_type: "{instrument_id}-1-MINUTE-LAST-EXTERNAL"
+    bar_type: "{instrument_id}-1-MINUTE-LAST-INTERNAL"
 
     subscribe:
         bars: true

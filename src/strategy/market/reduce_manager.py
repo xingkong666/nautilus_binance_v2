@@ -181,9 +181,12 @@ class ReduceManagerMixin:
             if qty_obj.as_decimal() <= 0:
                 return None
             position_id = self._resolve_lot_position_id(lot)
+
             if position_id is None:
-                self.log.error(f"Skip reduce placement without position_id: lot={lot.lot_id}", color=LogColor.RED)
-                return None
+                suffix = "LONG" if lot.side == OrderSide.BUY else "SHORT"
+                position_id = PositionId(f"{self.config.instrument_id}-{suffix}")
+                lot.position_id = position_id
+                self.log.warning(f"Fallback position_id for reduce: lot={lot.lot_id} position_id={position_id}", color=LogColor.YELLOW)
 
             order = self.order_factory.limit(
                 instrument_id=self.config.instrument_id,
@@ -194,12 +197,21 @@ class ReduceManagerMixin:
                 post_only=self.config.reduce_post_only,  # False 可以吃单
                 reduce_only=True,
             )
-            self.submit_order(order, position_id=position_id)
             lot.reduce_version += 1
             lot.reduce_order_id = order.client_order_id
             lot.status = LotStatus.PROTECTED
             lot.last_reduce_submit_at = self._utc_now()
             self._reduce_to_lot[order.client_order_id] = lot.lot_id
+
+            try:
+                self.submit_order(order, position_id=position_id)
+            except Exception:
+                self._reduce_to_lot.pop(order.client_order_id, None)
+                lot.reduce_order_id = None
+                lot.status = LotStatus.OPEN
+                lot.last_reduce_submit_at = None
+                raise
+
             self.log.info(
                 f"Reduce placed: lot={lot.lot_id} v={lot.reduce_version} "
                 f"oid={order.client_order_id} side={side.name} px={price:.8f} "
@@ -324,7 +336,12 @@ class ReduceManagerMixin:
         stale_oids: list[ClientOrderId] = []
         for oid in list(self._reduce_to_lot.keys()):
             order = self.cache.order(oid)
-            if order is None or not order.is_open:
+            if order is None:
+                stale_oids.append(oid)
+                continue
+            if order.is_pending_cancel:
+                continue
+            if not order.is_open:
                 stale_oids.append(oid)
 
         for oid in stale_oids:

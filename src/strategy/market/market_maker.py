@@ -327,7 +327,7 @@ class ActiveMarketMaker(AlphaMixin, InventoryMixin, QuoteEngineMixin, QueueModel
         Args:
             bar: 当前 bar.
         """
-        self.log.info(repr(bar), LogColor.CYAN)
+        self.log.info(f"on_bar :{bar}", LogColor.CYAN)
 
         if not self.indicators_initialized():
             self.log.info("Indicators not initialized（指标未初始化）, skipping bar", LogColor.YELLOW)

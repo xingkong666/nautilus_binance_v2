@@ -25,6 +25,7 @@ class AlphaMixin:
 
     def on_trade_tick(self: Any, trade: TradeTick) -> None:
         """处理逐笔成交，追踪主动买卖量."""
+        self.log.debug(f"TRADE_TICK {trade}", color=LogColor.CYAN)
         qty = float(trade.size)
         if trade.aggressor_side == AggressorSide.BUYER:
             self._agg_buy_vol += qty
@@ -83,6 +84,7 @@ class AlphaMixin:
 
     def on_order_book_deltas(self: Any, deltas: OrderBookDeltas) -> None:
         """处理 orderbook delta 更新，刷新加权 imbalance."""
+        # self.log.debug(f"ORDER_BOOK_DELTA {deltas}", color=LogColor.CYAN)
         self._calc_weighted_imbalance()
 
         # V4-US-001: 队列位置 — 追踪最优买/卖量

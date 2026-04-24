@@ -11,8 +11,10 @@ from typing import Any
 
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.model.enums import OrderSide, TimeInForce
-from nautilus_trader.model.events import OrderCanceled
+from nautilus_trader.model.events import OrderCanceled, OrderCancelRejected
 from nautilus_trader.model.identifiers import ClientOrderId, PositionId
+
+from src.strategy.market.inventory_lot import LotStatus
 
 
 class CancelReason(StrEnum):
@@ -298,7 +300,12 @@ class QuoteEngineMixin:
         return any(self._has_open_order(oid) for oid in itertools.chain(self._active_bid_ids, self._active_ask_ids))
 
     def _prune_inactive_quote_ids(self: Any) -> None:
-        """将已不存在、已非 open 或正在撤销中的订单 ID 置为 None，避免脏状态累积."""
+        """修剪已终态的 quote id.
+
+        注意：
+        - pending_cancel 仍可能随后成交，不能从 _quote_order_ids 删除；
+        - 只有明确非 open 且非 pending_cancel 时才删除 quote 来源标记。
+        """
         all_ids = list(self._active_bid_ids) + list(self._active_ask_ids)
         active_oids = {oid for oid in all_ids if oid is not None}
 
@@ -306,7 +313,13 @@ class QuoteEngineMixin:
             if oid is None:
                 continue
             order = self.cache.order(oid)
-            if order is None or not order.is_open or order.is_pending_cancel:
+            if order is None:
+                self._active_bid_ids[i] = None
+                self._quote_order_ids.discard(oid)
+                continue
+            if order.is_pending_cancel:
+                continue
+            if not order.is_open:
                 self._active_bid_ids[i] = None
                 self._quote_order_ids.discard(oid)
 
@@ -314,12 +327,17 @@ class QuoteEngineMixin:
             if oid is None:
                 continue
             order = self.cache.order(oid)
-            if order is None or not order.is_open or order.is_pending_cancel:
+            if order is None:
+                self._active_ask_ids[i] = None
+                self._quote_order_ids.discard(oid)
+                continue
+            if order.is_pending_cancel:
+                continue
+            if not order.is_open:
                 self._active_ask_ids[i] = None
                 self._quote_order_ids.discard(oid)
 
-        # 清理已不再活跃的撤单原因，防止长期运行时 dict 无限增长
-        stale = [oid for oid in self._pending_cancel_reasons if oid not in active_oids]
+        stale = [oid for oid in self._pending_cancel_reasons if oid not in active_oids and oid not in self._reduce_to_lot]
         for oid in stale:
             self._pending_cancel_reasons.pop(oid, None)
 
@@ -561,6 +579,7 @@ class QuoteEngineMixin:
 
         if self._has_active_quotes():
             self._cancel_all_quotes(CancelReason.DRIFT_REFRESH)
+            return
 
         if self._quote_suspended:
             return
@@ -572,6 +591,51 @@ class QuoteEngineMixin:
 
         qs.quoted_mid = mid
         qs.quoted_skew = current_skew
+
+    def on_order_cancel_rejected(self: Any, event: OrderCancelRejected) -> None:
+        """撤单被拒绝时收敛本地 quote/reduce 状态.
+
+        Binance -2011 Unknown order sent 通常表示订单已成交、已撤或交易所端已不存在。
+        不要反复 cancel；清理 active quote 引用，但保留成交回报驱动 lot/reduce。
+        """
+        oid = event.client_order_id
+        reason = getattr(event, "reason", "")
+
+        self._pending_cancel_reasons.pop(oid, None)
+
+        # reduce 单：不要直接关闭 lot，交给 ensure/prune 后续补挂
+        if oid in self._reduce_to_lot:
+            lot_id = self._reduce_to_lot.pop(oid, None)
+            lot = self._inventory_lots.get(lot_id) if lot_id is not None else None
+            if lot is not None and lot.reduce_order_id == oid and lot.is_open():
+                lot.reduce_order_id = None
+                lot.status = LotStatus.OPEN
+                lot.last_reduce_submit_at = None
+                # self._place_reduce_order(lot)  # 重新挂单,不着急重新挂
+
+                self.log.warning(
+                    f"Reduce cancel rejected, mark unprotected: lot={lot_id} oid={oid} reason={reason}",
+                    color=LogColor.YELLOW,
+                )
+            return
+
+        for i, bid_id in enumerate(self._active_bid_ids):
+            if oid == bid_id:
+                self._active_bid_ids[i] = None
+                # 不在这里 discard _quote_order_ids：该单可能稍后还有 fill 事件
+                if i == 0:
+                    self._clear_bid_quote_state()
+                self.log.warning(f"Bid cancel rejected: oid={oid} reason={reason}", color=LogColor.YELLOW)
+                return
+
+        for i, ask_id in enumerate(self._active_ask_ids):
+            if oid == ask_id:
+                self._active_ask_ids[i] = None
+                # 不在这里 discard _quote_order_ids：该单可能稍后还有 fill 事件
+                if i == 0:
+                    self._clear_ask_quote_state()
+                self.log.warning(f"Ask cancel rejected: oid={oid} reason={reason}", color=LogColor.YELLOW)
+                return
 
     def on_order_canceled(self: Any, event: OrderCanceled) -> None:
         """订单撤销事件处理 — 三池识别.

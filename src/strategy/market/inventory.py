@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from decimal import Decimal
+from itertools import chain
 from typing import Any
 
 from nautilus_trader.common.enums import LogColor
@@ -190,8 +191,10 @@ class InventoryMixin:
             return
 
         # 2) 只有 quote 池订单的 fill 才创建 lot
-        is_quote_fill = client_order_id is not None and client_order_id in self._quote_order_ids
-        if not is_quote_fill:
+        active_ids = {oid for oid in chain(self._active_bid_ids, self._active_ask_ids) if oid is not None}
+        is_known_quote_id = client_order_id is not None and (client_order_id in self._quote_order_ids or client_order_id in active_ids)
+
+        if not is_known_quote_id:
             self.log.info(
                 f"Non-quote fill ignored for lot creation: oid={client_order_id} side={event.order_side.name} "
                 f" qty={fill_qty:.8f} px={fill_price:.8f}",
