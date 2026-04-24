@@ -170,8 +170,8 @@ class InventoryMixin:
 
     def on_order_filled(self: Any, event: OrderFilled) -> None:
         """处理订单成交事件."""
+        self.log.info(f"Order filled (订单成交): {event}", color=LogColor.GREEN)
         self._last_fill_ts = self._utc_now()
-
         fill_price = float(event.last_px)
         fill_qty = float(event.last_qty)
         self._last_fill_price = fill_price
@@ -183,9 +183,9 @@ class InventoryMixin:
         if client_order_id is not None and client_order_id in self._reduce_to_lot:
             lot_id = self._reduce_to_lot[client_order_id]
             lot = self._inventory_lots.get(lot_id)
+            self.log.info(f"Reduce fill (止盈单成交): lot={lot_id} qty={fill_qty:.8f} px={fill_price:.8f}", color=LogColor.GREEN)
             if lot is not None:
                 self._handle_reduce_fill(event, lot)
-
             # reduce 成交后重新检查 lot 聚合风险
             self._check_lot_risk()
             return
@@ -196,7 +196,7 @@ class InventoryMixin:
 
         if not is_known_quote_id:
             self.log.info(
-                f"Non-quote fill ignored for lot creation: oid={client_order_id} side={event.order_side.name} "
+                f"Non-quote fill (不是报价增量单成交) ignored for lot creation: oid={client_order_id} side={event.order_side.name} "
                 f" qty={fill_qty:.8f} px={fill_price:.8f}",
                 color=LogColor.YELLOW,
             )
@@ -204,18 +204,18 @@ class InventoryMixin:
 
         # 3) Quote fill
         self.log.info(
-            f"Quote filled: oid={client_order_id} side={event.order_side.name} qty={fill_qty:.8f} px={fill_price:.8f}",
+            f"Quote filled（报价增量单成交）: oid={client_order_id} side={event.order_side.name} qty={fill_qty:.8f} px={fill_price:.8f}",
             color=LogColor.YELLOW,
         )
 
         # quote 成交后，可撤 quote 池避免继续被动吃货；reduce 池绝不跟着撤
-
         self._cancel_all_quotes(CancelReason.ORDER_FILLED)
 
         # 当前 oid 已成交，移出 quote 来源集合
         self._quote_order_ids.discard(client_order_id)
 
         lot = self._create_lot(event)
+        self.log.info(f"Created lot: {lot}, starting reduce order placement", color=LogColor.CYAN)
         self._place_reduce_order(lot)
 
         # m2m proxy pnl

@@ -168,10 +168,12 @@ class ReduceManagerMixin:
     def _place_reduce_order(self: Any, lot: InventoryLot) -> ClientOrderId | None:
         """为单个 lot 挂保护性 reduce 单."""
         if self.instrument is None or not lot.is_open():
+            self.log.warning(f"Cannot place reduce order for closed lot: {lot}", color=LogColor.YELLOW)
             return None
 
         calc = self._calc_reduce_price(lot)
         if calc is None:
+            self.log.warning(f"Cannot calculate reduce price for lot: {lot}", color=LogColor.YELLOW)
             return None
         side, price = calc
 
@@ -179,6 +181,9 @@ class ReduceManagerMixin:
             price_obj = self.instrument.make_price(price)
             qty_obj = self.instrument.make_qty(lot.remaining_qty)
             if qty_obj.as_decimal() <= 0:
+                self.log.warning(
+                    f"Cannot place reduce order for zero quantity: lot={lot.lot_id} qty={lot.remaining_qty}", color=LogColor.YELLOW
+                )
                 return None
             position_id = self._resolve_lot_position_id(lot)
 
