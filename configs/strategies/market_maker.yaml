@@ -8,7 +8,6 @@ strategy:
         subscribe_order_book: true
         order_book_depth: 10
         imbalance_decay: 0.3
-        imbalance_threshold: 0.58
         imbalance_weight_mode: "linear"
 
         # EMA过滤
@@ -28,7 +27,7 @@ strategy:
         inv_scale_ticks: 3.0
         inv_tanh_scale: 2.0
 
-        # 库存 管理（单向净仓，USD notional）
+        # 库存管理（双向持仓：按 long/short lots 分侧聚合 USD notional）
         max_position_usd: 1000.0
         soft_limit: 0.30
         hard_limit: 0.70
@@ -89,11 +88,9 @@ strategy:
 
         # US-009：成本模型
         min_expected_profit_bps: 1.0
-        taker_fee_bps: 4.0
 
         # V3：成交流 Alpha
         subscribe_trades: true
-        trade_flow_weight: 0.4
 
         # V3：交易前逆向撤单
         pretrade_cancel_ticks: 0.5
@@ -105,7 +102,6 @@ strategy:
         deeper_layer_inv_threshold: 0.5
 
         # V4：队列位置
-        queue_norm_volume: 10000.0
         queue_improve_threshold: 0.7
 
         # V4：有毒流（Toxic Flow）

@@ -9,6 +9,7 @@ import itertools
 import math
 import statistics
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -50,11 +51,12 @@ class InventoryLot:
     entry_price: float  # 建仓价格
     filled_qty: Decimal  # 初始成交量
     remaining_qty: Decimal  # 当前未平仓量
-    position_id: PositionId | None = None  # Binance hedge-mode reduce_only 需要绑定的仓位 ID
+    position_id: PositionId | None = None  # Binance 双向持仓 reduce_only 需要绑定的仓位 ID
     reduce_order_id: ClientOrderId | None = None  # 对应的 Reduce 订单ID
     status: str = field(default=LotStatus.OPEN)
     reduce_version: int = 0  # 每次补挂递增，避免旧单事件串扰
     flatten_order_id: ClientOrderId | None = None
+    last_flatten_submit_at: datetime | None = None
     last_reduce_submit_at: datetime | None = None
 
     def is_open(self) -> bool:
@@ -126,7 +128,6 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     # L2 订单簿
     order_book_depth: int = 10
     imbalance_decay: float = 0.3
-    imbalance_threshold: float = 0.58
     imbalance_weight_mode: str = "linear"  # "linear" | "exp"（配置枚举值）
 
     # EMA辅助过滤
@@ -208,7 +209,6 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     # US-009: 成本模型——最低预期收益
     min_expected_profit_bps: float = 1.0
     maker_fee_bps: float = 0.0
-    reduce_taker_fee_bps: float = 4.0
     adverse_cost_bps: float = 1.0
 
     # Reduce 防重复补挂窗口
@@ -216,7 +216,6 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
 
     # V3-US-002: 成交流 阿尔法
     subscribe_trades: bool = True
-    trade_flow_weight: float = 0.4
 
     # V3-US-003: 交易前逆向撤单
     pretrade_cancel_ticks: float = 0.5
@@ -229,7 +228,6 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
     deeper_layer_inv_threshold: float = 0.5
 
     # V4-US-001: 队列位置
-    queue_norm_volume: float = 10000.0
     queue_improve_threshold: float = 0.7
 
     # V4-US-002: 有毒流
@@ -677,9 +675,6 @@ class ActiveMarketMaker(BaseStrategy):
         """最外层事件观测入口，仅用于诊断."""
         self.log.debug(f"EVENT_RECEIVED type={type(event).__name__}: {event}", color=LogColor.CYAN)
 
-    # ===== inlined from AlphaMixin =====
-    """封装订单簿 imbalance、microprice、trade flow 和市场质量相关逻辑."""
-
     _last_best_ask_size: float | None
     _last_best_bid_size: float | None
     _last_fill_mid: float | None
@@ -947,7 +942,7 @@ class ActiveMarketMaker(BaseStrategy):
             self.log.warning("Market quality degraded, pausing quotes", color=LogColor.YELLOW)
 
     def _calc_expected_profit_bps(self, mid: float) -> float:
-        """计算 quote 预期收益（单位 bps）。
+        """计算 quote 预期收益（单位 bps）.
 
         注意：
         - quote 默认 post_only，应按 maker 成本计算；
@@ -1056,9 +1051,6 @@ class ActiveMarketMaker(BaseStrategy):
 
         return raw
 
-    # ===== inlined from InventoryMixin =====
-    """双向持仓库存管理类（基于 lot 聚合，而非净仓）."""
-
     _last_fill_price: float | None
     _last_fill_side: OrderSide | None
 
@@ -1074,7 +1066,6 @@ class ActiveMarketMaker(BaseStrategy):
                 long_usd: 多头总名义价值
                 short_usd: 空头总名义价值
                 gross_usd: 多空总名义价值
-                net_usd: 多头 - 空头（仅观测用途，不作为风控主驱动）
         """
         long_usd = 0.0
         short_usd = 0.0
@@ -1098,7 +1089,6 @@ class ActiveMarketMaker(BaseStrategy):
                 short_qty += qty
 
         gross_usd = long_usd + short_usd
-        net_usd = long_usd - short_usd
         max_pos = max(float(self.config.max_position_usd), 1.0)
 
         long_ratio = long_usd / max_pos
@@ -1115,7 +1105,6 @@ class ActiveMarketMaker(BaseStrategy):
             "long_usd": long_usd,
             "short_usd": short_usd,
             "gross_usd": gross_usd,
-            "net_usd": net_usd,
             "long_qty": long_qty,
             "short_qty": short_qty,
         }
@@ -1305,7 +1294,6 @@ class ActiveMarketMaker(BaseStrategy):
             f"long_usd={inv['long_usd']:.4f} "
             f"short_usd={inv['short_usd']:.4f} "
             f"gross_usd={inv['gross_usd']:.4f} "
-            f"net_usd={inv['net_usd']:.4f} "
             f"long_ratio={inv['long_ratio']:.4f} "
             f"short_ratio={inv['short_ratio']:.4f} "
             f"gross_ratio={inv['gross_ratio']:.4f} "
@@ -1379,22 +1367,14 @@ class ActiveMarketMaker(BaseStrategy):
         if flattened > 0:
             self.log.warning(f"Flatten requested for {flattened} open lots", color=LogColor.YELLOW)
 
-    # ===== inlined from QueueModelMixin =====
-    """提供队列位置、排队惩罚和成交概率估算逻辑."""
-
     def _estimate_queue_ahead(self, side: str) -> float:
-        """当前价位排队量估算（用 best_bid/ask_size 作为代理）."""
+        """估算当前最优价位前方排队量."""
         if side == "BUY":
             return self._last_best_bid_size or 0.0
         return self._last_best_ask_size or 0.0
 
-    def _calc_queue_penalty(self, side: str) -> float:
-        """队列越长惩罚越大，归一化到 [0, 1]."""
-        queue = self._estimate_queue_ahead(side)
-        return min(queue / max(self.config.queue_norm_volume, 1.0), 1.0)
-
     def _calc_queue_fill_prob(self, side: str) -> float:
-        """下单后的队列消耗估算成交概率。
+        """下单后的队列消耗估算成交概率.
 
         BUY quote 排在 bid 队列，主要由主动卖成交消耗；
         SELL quote 排在 ask 队列，主要由主动买成交消耗。
@@ -1412,9 +1392,6 @@ class ActiveMarketMaker(BaseStrategy):
             return 1.0
 
         return min(consumed / initial, 1.0)
-
-    # ===== inlined from QuoteEngineMixin =====
-    """封装报价定价、撤挂单、分层报价和 delta 驱动刷新逻辑."""
 
     def _cancel_order_with_reason(self, order: Any, reason: CancelReason) -> None:
         """记录撤单原因后发送撤单请求."""
@@ -1763,7 +1740,7 @@ class ActiveMarketMaker(BaseStrategy):
             self.log.info(f"Requested cancel for {total} active quotes reason={reason.value}", color=LogColor.YELLOW)
 
     def _quote_position_id(self, side: OrderSide) -> PositionId:
-        """为 Binance Futures hedge mode 生成 quote 订单的 PositionId."""
+        """为 Binance Futures 双向持仓生成 quote 订单的 PositionId."""
         suffix = "LONG" if side == OrderSide.BUY else "SHORT"
         return PositionId(f"{self.config.instrument_id}-{suffix}")
 
@@ -2034,9 +2011,6 @@ class ActiveMarketMaker(BaseStrategy):
             if order is not None and order.is_open and not order.is_pending_cancel:
                 self._cancel_order_with_reason(order, CancelReason.TOXIC_PREEMPTIVE)
 
-    # ===== inlined from ReduceManagerMixin =====
-    """封装 Reduce/TP 池的 lot 管理和 reduce 订单生命周期."""
-
     def _next_lot_id(self, event: OrderFilled) -> str:
         """生成 fill 级唯一 lot_id."""
         self._lot_seq += 1
@@ -2097,8 +2071,9 @@ class ActiveMarketMaker(BaseStrategy):
             )
             return None
 
+        positions_iter = cast(Iterable[Any], positions)
         candidates: list[Any] = []
-        for position in positions:
+        for position in positions_iter:
             if getattr(position, "instrument_id", None) != self.config.instrument_id:
                 continue
 
@@ -2232,7 +2207,7 @@ class ActiveMarketMaker(BaseStrategy):
             return None
 
     def _ensure_reduce_for_lot(self, lot: InventoryLot) -> None:
-        """Lot 只要还开着，就必须有 reduce。
+        """Lot 只要还开着，就必须有 reduce.
 
         注意：
         reduce 提交后，cache / adapter 可能需要几秒才收敛。
@@ -2360,7 +2335,7 @@ class ActiveMarketMaker(BaseStrategy):
         self._cancel_reduce_orders(reason)
 
     def _prune_reduce_orders(self) -> None:
-        """只做脏状态修剪，不主动关闭 lot。
+        """只做脏状态修剪，不主动关闭 lot.
 
         注意：
         PENDING_PROTECT 状态下，cache 可能短时间查不到订单；

@@ -85,10 +85,7 @@ class RealTimeRiskMonitor:
             self._peak_equity = current_equity
 
         # 计算回撤
-        if self._peak_equity > 0:
-            drawdown_pct = float((self._peak_equity - current_equity) / self._peak_equity * 100)
-        else:
-            drawdown_pct = 0.0
+        drawdown_pct = float((self._peak_equity - current_equity) / self._peak_equity * 100) if self._peak_equity > 0 else 0.0
 
         # 计算日内 PNL
         self._daily_pnl = current_equity - self._initial_equity

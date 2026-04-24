@@ -3,7 +3,7 @@ account:
   name: binance_futures_main
   venue: BINANCE
   account_type: MARGIN
-  oms_type: NETTING  # 单向持仓模式 (NETTING), 双向持仓模式 (HEDGING)
+  oms_type: HEDGING  # 双向持仓模式 (HEDGING)
   base_currency: USDT
 
   # 资金配置
