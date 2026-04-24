@@ -661,15 +661,21 @@ class ActiveMarketMaker(BaseStrategy):
         # V5-US-005: 重置上一方向值
         self._last_dir_val = 0.0
 
-    # def on_order_event(self, event: OrderEvent) -> None:
-    #     """兜底订单事件入口，避免具体回调未分发时漏掉成交."""
-    #     self.log.info(f"ORDER_EVENT_RECEIVED type={type(event).__name__}: {event}", color=LogColor.CYAN)
-    #     if isinstance(event, OrderFilled):
-    #         self.on_order_filled(event)
-    #     elif isinstance(event, OrderCanceled):
-    #         self.on_order_canceled(event)
-    #     elif isinstance(event, OrderCancelRejected):
-    #         self.on_order_cancel_rejected(event)
+    def on_order_event(self, event: object) -> None:
+        """兜底订单事件入口，用于捕获因竞态未能通过具体回调分发的成交事件.
+
+        NautilusTrader 保证在调用具体回调（on_order_filled 等）之后，再调用此方法，
+        因此不会造成重复分发。此处仅对 OrderFilled 做幂等补偿处理，其余类型
+        仅做日志记录用于诊断。
+        """
+        if isinstance(event, OrderFilled):
+            fill_key = self._fill_key(event)
+            if fill_key not in self._processed_fill_keys:
+                self.log.warning(
+                    f"OrderFilled caught via on_order_event fallback (missed by on_order_filled): {event}",
+                    color=LogColor.YELLOW,
+                )
+                self.on_order_filled(event)
 
     def on_event(self, event: object) -> None:
         """最外层事件观测入口，仅用于诊断."""
@@ -2006,6 +2012,9 @@ class ActiveMarketMaker(BaseStrategy):
                 self.log.info(f"Ask quote canceled: client_order_id={oid}{reason_str}", color=LogColor.YELLOW)
                 return
 
+        # 兜底清理：处理 -2011 恢复路径中 active 槽已清空但仍在 _quote_order_ids 的订单
+        self._quote_order_ids.discard(oid)
+
     def on_order_cancel_rejected(self, event: OrderCancelRejected) -> None:
         """订单撤销拒绝事件处理.
 
@@ -2031,10 +2040,32 @@ class ActiveMarketMaker(BaseStrategy):
             return
 
         if self._clear_quote_order_state(oid):
-            self.log.warning(
-                f"Quote cancel rejected as unknown order, cleared local state: client_order_id={oid} reason={raw_reason}",
-                color=LogColor.YELLOW,
-            )
+            # -2011 说明订单在 Binance 侧已消失（可能已成交）。
+            # 把 oid 重新加回 _quote_order_ids，确保如果 OrderFilled 因 WebSocket
+            # 时序问题晚到，仍能被 on_order_filled 当作 quote fill 正确处理。
+            self._quote_order_ids.add(oid)
+            # 主动向 Binance 查询该订单的最终状态，触发 NautilusTrader 补发
+            # 任何遗漏的 OrderFilled 事件（通过对账路径）。
+            order = self.cache.order(oid)
+            if order is not None and not order.is_closed:
+                try:
+                    self.query_order(order)
+                    self.log.warning(
+                        f"Quote cancel rejected as unknown order, querying fill status: client_order_id={oid} reason={raw_reason}",
+                        color=LogColor.YELLOW,
+                    )
+                except Exception as exc:
+                    self.log.warning(
+                        f"Quote cancel rejected as unknown order, query_order failed: client_order_id={oid} reason={raw_reason} err={exc}",
+                        color=LogColor.YELLOW,
+                    )
+            else:
+                self.log.warning(
+                    f"Quote cancel rejected as unknown order, order not queryable: "
+                    f"client_order_id={oid} reason={raw_reason} "
+                    f"order_closed={order.is_closed if order else 'not_in_cache'}",
+                    color=LogColor.YELLOW,
+                )
             return
 
         self._quote_order_ids.discard(oid)
