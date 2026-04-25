@@ -22,7 +22,7 @@ from nautilus_trader.config import PositiveInt
 from nautilus_trader.indicators import ExponentialMovingAverage
 from nautilus_trader.model.data import Bar, BarType, OrderBookDeltas, TradeTick
 from nautilus_trader.model.enums import AggressorSide, OrderSide, TimeInForce
-from nautilus_trader.model.events import OrderCanceled, OrderCancelRejected, OrderFilled
+from nautilus_trader.model.events import OrderCanceled, OrderCancelRejected, OrderFilled, OrderRejected
 from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId, PositionId
 
 from src.core.events import EventBus, SignalDirection
@@ -2060,6 +2060,47 @@ class ActiveMarketMaker(BaseStrategy):
             color=LogColor.YELLOW,
         )
 
+    def on_order_rejected(self, event: OrderRejected) -> None:
+        """订单提交拒绝事件处理，避免 rejected 后本地订单池长期悬挂."""
+        oid = event.client_order_id
+        raw_reason = str(event.reason)
+
+        if oid in self._reduce_to_lot:
+            self._handle_reduce_rejected(oid, raw_reason)
+            return
+
+        lot = self._find_lot_by_flatten_order_id(oid)
+        if lot is not None:
+            if lot.is_open():
+                lot.flatten_order_id = None
+                lot.last_flatten_submit_at = None
+                lot.status = LotStatus.OPEN
+            self.log.warning(
+                f"Flatten order rejected: lot={lot.lot_id} oid={oid} reason={raw_reason}",
+                color=LogColor.YELLOW,
+            )
+            return
+
+        was_quote_order = oid in self._quote_order_ids
+        cleared_quote_state = self._clear_quote_order_state(oid)
+        if not (cleared_quote_state or was_quote_order):
+            self.log.warning(
+                f"Order rejected for untracked order: client_order_id={oid} reason={raw_reason}",
+                color=LogColor.YELLOW,
+            )
+            return
+
+        if raw_reason == "UNKNOWN":
+            self._quote_order_ids.add(oid)
+            self._query_quote_order_after_unknown_cancel(oid, raw_reason)
+            return
+
+        self._quote_order_ids.discard(oid)
+        self.log.warning(
+            f"Quote order rejected: client_order_id={oid} reason={raw_reason}",
+            color=LogColor.YELLOW,
+        )
+
     def _query_quote_order_after_unknown_cancel(self, oid: ClientOrderId, raw_reason: str) -> None:
         """查询未知撤单拒绝后的 quote 终态，兼容未启动策略的单元测试桩."""
         try:
@@ -2073,8 +2114,7 @@ class ActiveMarketMaker(BaseStrategy):
                 order = cache.order(oid)
             except Exception as exc:
                 self.log.warning(
-                    f"Quote cancel rejected as unknown order, cache lookup failed: "
-                    f"client_order_id={oid} reason={raw_reason} err={exc}",
+                    f"Quote cancel rejected as unknown order, cache lookup failed: client_order_id={oid} reason={raw_reason} err={exc}",
                     color=LogColor.YELLOW,
                 )
 
@@ -2494,6 +2534,33 @@ class ActiveMarketMaker(BaseStrategy):
             return
 
         self._place_reduce_order(lot)
+
+    def _find_lot_by_flatten_order_id(self, client_order_id: ClientOrderId) -> InventoryLot | None:
+        """按 flatten 订单 ID 找到对应 lot."""
+        for lot in self._inventory_lots.values():
+            if lot.flatten_order_id == client_order_id:
+                return lot
+        return None
+
+    def _handle_reduce_rejected(self, client_order_id: ClientOrderId, raw_reason: str) -> None:
+        """处理 reduce 提交拒绝，释放旧保护单映射等待下一轮重算."""
+        lot_id = self._reduce_to_lot.pop(client_order_id, None)
+        if lot_id is None:
+            return
+
+        lot = self._inventory_lots.get(lot_id)
+        if lot is None:
+            return
+
+        if lot.reduce_order_id == client_order_id:
+            lot.reduce_order_id = None
+            lot.status = LotStatus.OPEN if lot.is_open() else LotStatus.CLOSED
+            lot.last_reduce_submit_at = None
+
+        self.log.warning(
+            f"Reduce order rejected: lot={lot_id} oid={client_order_id} reason={raw_reason}",
+            color=LogColor.YELLOW,
+        )
 
     def _handle_reduce_cancel_unknown(
         self,
