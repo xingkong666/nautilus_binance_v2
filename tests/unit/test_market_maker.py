@@ -565,44 +565,24 @@ def test_order_cancel_rejected_unknown_replaces_reduce_order(monkeypatch: pytest
     assert lot.status == LotStatus.PENDING_PROTECT
 
 
-def test_on_stop_uses_market_maker_lifecycle_without_base_close_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stop should avoid BaseStrategy's broad cancel/close cycle after pool-specific actions."""
+def test_on_stop_uses_market_maker_lifecycle_without_base_duplicate_actions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stop flow should not issue both pool-specific cancels and BaseStrategy global close/cancel calls."""
     strategy = make_strategy(close_positions_on_stop=True)
-    calls: list[tuple[str, object | None]] = []
+    calls: list[str] = []
 
     monkeypatch.setattr(
         ActiveMarketMaker,
         "_cancel_all_orders",
-        lambda self, reason: calls.append(("pool_cancel", reason)),
+        lambda self, reason: calls.append(f"pool_cancel:{reason.value}"),
     )
-    monkeypatch.setattr(
-        ActiveMarketMaker,
-        "_flatten_all_lots",
-        lambda self: calls.append(("flatten_lots", None)),
-    )
-    monkeypatch.setattr(
-        ActiveMarketMaker,
-        "cancel_all_orders",
-        lambda self, instrument_id: calls.append(("base_cancel_all", instrument_id)),
-    )
-    monkeypatch.setattr(
-        ActiveMarketMaker,
-        "close_all_positions",
-        lambda self, instrument_id: calls.append(("base_close_all", instrument_id)),
-    )
-    monkeypatch.setattr(
-        ActiveMarketMaker,
-        "unsubscribe_bars",
-        lambda self, bar_type: calls.append(("unsubscribe_bars", bar_type)),
-    )
+    monkeypatch.setattr(ActiveMarketMaker, "_flatten_all_lots", lambda self: calls.append("flatten_lots"))
+    monkeypatch.setattr(ActiveMarketMaker, "cancel_all_orders", lambda self, instrument_id=None: calls.append("base_cancel"))
+    monkeypatch.setattr(ActiveMarketMaker, "close_all_positions", lambda self, instrument_id=None: calls.append("base_close"))
+    monkeypatch.setattr(ActiveMarketMaker, "unsubscribe_bars", lambda self, bar_type: calls.append("unsubscribe"))
 
     strategy.on_stop()
 
-    assert ("pool_cancel", CancelReason.STRATEGY_STOP) in calls
-    assert ("flatten_lots", None) in calls
-    assert ("base_cancel_all", INSTRUMENT_ID) not in calls
-    assert ("base_close_all", INSTRUMENT_ID) not in calls
-    assert ("unsubscribe_bars", BAR_TYPE) in calls
+    assert calls == ["pool_cancel:strategy_stop", "flatten_lots", "unsubscribe"]
 
 
 def test_market_maker_configs_are_hedge_only() -> None:
