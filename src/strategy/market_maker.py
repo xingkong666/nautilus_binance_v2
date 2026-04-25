@@ -599,9 +599,13 @@ class ActiveMarketMaker(BaseStrategy):
         self._ask_queue_consumed = 0.0
 
     def on_stop(self) -> None:
-        """停止策略时撤销所有挂单（Quote + Reduce 池）."""
+        """停止策略时以 ActiveMarketMaker 自有订单池收敛，避免重复撤单/平仓."""
         self._cancel_all_orders(CancelReason.STRATEGY_STOP)
-        super().on_stop()
+        if self.config.close_positions_on_stop:
+            self._flatten_all_lots()
+        self._sl_orders.clear()
+        self._tp_orders.clear()
+        self.unsubscribe_bars(self.config.bar_type)
 
     def on_reset(self) -> None:
         """重置策略状态."""
@@ -2039,10 +2043,11 @@ class ActiveMarketMaker(BaseStrategy):
             self._handle_reduce_cancel_unknown(oid, reason, raw_reason)
             return
 
-        if self._clear_quote_order_state(oid):
-            # -2011 说明订单在 Binance 侧已消失（可能已成交）。
-            # 把 oid 重新加回 _quote_order_ids，确保如果 OrderFilled 因 WebSocket
-            # 时序问题晚到，仍能被 on_order_filled 当作 quote fill 正确处理。
+        was_quote_order = oid in self._quote_order_ids
+        cleared_quote_state = self._clear_quote_order_state(oid)
+        if cleared_quote_state or was_quote_order:
+            # -2011 说明订单在 Binance 侧已消失（可能已成交）。即使 active 槽位已被
+            # 新 quote 覆盖，也保留 quote 来源标记，确保晚到的 OrderFilled 仍会创建 lot/reduce。
             self._quote_order_ids.add(oid)
             # 主动向 Binance 查询该订单的最终状态，触发 NautilusTrader 补发
             # 任何遗漏的 OrderFilled 事件（通过对账路径）。
@@ -2068,7 +2073,6 @@ class ActiveMarketMaker(BaseStrategy):
                 )
             return
 
-        self._quote_order_ids.discard(oid)
         self.log.warning(
             f"Cancel rejected as unknown order for untracked order: client_order_id={oid} reason={raw_reason}",
             color=LogColor.YELLOW,
