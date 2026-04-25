@@ -419,6 +419,54 @@ def test_quote_fill_still_cancels_partially_filled_quote(monkeypatch: pytest.Mon
     assert strategy._pending_cancel_reasons[ask_id] == CancelReason.ORDER_FILLED
 
 
+def test_order_cancel_rejected_unknown_for_replaced_quote_keeps_fill_tracking(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unknown cancel rejects for overwritten quote slots should still query and accept late fills."""
+    strategy = make_strategy()
+    old_id = ClientOrderId("quote-old")
+    new_id = ClientOrderId("quote-new")
+    old_order = SimpleNamespace(client_order_id=old_id, is_closed=False)
+    strategy._active_bid_ids = [new_id]
+    strategy._quote_order_ids = {old_id, new_id}
+    strategy._pending_cancel_reasons[old_id] = CancelReason.DRIFT_REFRESH
+    queried: list[ClientOrderId] = []
+    protected_lots: list[str] = []
+
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "cache",
+        property(lambda self: SimpleNamespace(order=lambda client_order_id: old_order if client_order_id == old_id else None)),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "query_order",
+        lambda self, order: queried.append(order.client_order_id),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "_place_reduce_order",
+        lambda self, lot: protected_lots.append(lot.lot_id),
+    )
+    monkeypatch.setattr(ActiveMarketMaker, "_check_lot_risk", lambda self: None)
+    monkeypatch.setattr(ActiveMarketMaker, "_utc_now", lambda self: datetime(2026, 4, 24, tzinfo=UTC))
+
+    event = SimpleNamespace(
+        client_order_id=old_id,
+        reason="{'code': -2011, 'msg': 'Unknown order sent.'}",
+    )
+
+    strategy.on_order_cancel_rejected(event)  # type: ignore[arg-type]
+    strategy._active_bid_ids = []
+    strategy._active_ask_ids = []
+    strategy.on_order_filled(make_quote_fill_event(old_id, "0.06"))  # type: ignore[arg-type]
+
+    assert queried == [old_id]
+    assert old_id not in strategy._pending_cancel_reasons
+    assert len(strategy._inventory_lots) == 1
+    lot = next(iter(strategy._inventory_lots.values()))
+    assert lot.quote_order_id == old_id
+    assert protected_lots == [lot.lot_id]
+
+
 def test_order_cancel_rejected_unknown_replaces_reduce_order(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unknown reduce cancels should release stale protection and request a fresh reduce."""
     strategy = make_strategy()
