@@ -565,6 +565,81 @@ def test_order_cancel_rejected_unknown_replaces_reduce_order(monkeypatch: pytest
     assert lot.status == LotStatus.PENDING_PROTECT
 
 
+def test_order_rejected_unknown_quote_stays_queryable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UNKNOWN quote rejects can later reconcile to accepted/fill, so keep quote tracking."""
+    strategy = make_strategy()
+    oid = ClientOrderId("quote-unknown")
+    order = SimpleNamespace(client_order_id=oid, is_closed=False)
+    strategy._active_bid_ids = [oid]
+    strategy._quote_order_ids = {oid}
+    queried: list[ClientOrderId] = []
+
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "cache",
+        property(lambda self: SimpleNamespace(order=lambda client_order_id: order if client_order_id == oid else None)),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "query_order",
+        lambda self, order: queried.append(order.client_order_id),
+    )
+
+    event = SimpleNamespace(client_order_id=oid, reason="UNKNOWN")
+
+    strategy.on_order_rejected(event)  # type: ignore[arg-type]
+
+    assert strategy._active_bid_ids == [None]
+    assert oid in strategy._quote_order_ids
+    assert queried == [oid]
+
+
+def test_order_rejected_reduce_releases_lot_protection() -> None:
+    """Rejected reduce orders should not leave a lot stuck in protected state."""
+    strategy = make_strategy()
+    oid = ClientOrderId("reduce-rejected")
+    lot = make_lot("long", OrderSide.BUY, 100.0, "0.50")
+    lot.reduce_order_id = oid
+    lot.status = LotStatus.PENDING_PROTECT
+    lot.last_reduce_submit_at = datetime(2026, 4, 24, tzinfo=UTC)
+    strategy._inventory_lots[lot.lot_id] = lot
+    strategy._reduce_to_lot[oid] = lot.lot_id
+
+    event = SimpleNamespace(
+        client_order_id=oid,
+        reason="{'code': -2022, 'msg': 'ReduceOnly Order is rejected.'}",
+    )
+
+    strategy.on_order_rejected(event)  # type: ignore[arg-type]
+
+    assert oid not in strategy._reduce_to_lot
+    assert lot.reduce_order_id is None
+    assert lot.status == LotStatus.OPEN
+    assert lot.last_reduce_submit_at is None
+
+
+def test_order_rejected_flatten_reopens_lot_for_retry() -> None:
+    """Rejected flatten market orders should reopen the lot for later retry/reconciliation."""
+    strategy = make_strategy()
+    oid = ClientOrderId("flatten-rejected")
+    lot = make_lot("short", OrderSide.SELL, 100.0, "0.50")
+    lot.flatten_order_id = oid
+    lot.status = LotStatus.CLOSING
+    lot.last_flatten_submit_at = datetime(2026, 4, 24, tzinfo=UTC)
+    strategy._inventory_lots[lot.lot_id] = lot
+
+    event = SimpleNamespace(
+        client_order_id=oid,
+        reason="{'code': -2022, 'msg': 'ReduceOnly Order is rejected.'}",
+    )
+
+    strategy.on_order_rejected(event)  # type: ignore[arg-type]
+
+    assert lot.flatten_order_id is None
+    assert lot.last_flatten_submit_at is None
+    assert lot.status == LotStatus.OPEN
+
+
 def test_on_stop_uses_market_maker_lifecycle_without_base_duplicate_actions(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stop flow should not issue both pool-specific cancels and BaseStrategy global close/cancel calls."""
     strategy = make_strategy(close_positions_on_stop=True)
