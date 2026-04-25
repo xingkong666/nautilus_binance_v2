@@ -501,6 +501,26 @@ def test_order_cancel_rejected_unknown_replaces_reduce_order(monkeypatch: pytest
     assert lot.status == LotStatus.PENDING_PROTECT
 
 
+def test_on_stop_uses_market_maker_lifecycle_without_base_duplicate_actions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stop flow should not issue both pool-specific cancels and BaseStrategy global close/cancel calls."""
+    strategy = make_strategy(close_positions_on_stop=True)
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "_cancel_all_orders",
+        lambda self, reason: calls.append(f"pool_cancel:{reason.value}"),
+    )
+    monkeypatch.setattr(ActiveMarketMaker, "_flatten_all_lots", lambda self: calls.append("flatten_lots"))
+    monkeypatch.setattr(ActiveMarketMaker, "cancel_all_orders", lambda self, instrument_id=None: calls.append("base_cancel"))
+    monkeypatch.setattr(ActiveMarketMaker, "close_all_positions", lambda self, instrument_id=None: calls.append("base_close"))
+    monkeypatch.setattr(ActiveMarketMaker, "unsubscribe_bars", lambda self, bar_type: calls.append("unsubscribe"))
+
+    strategy.on_stop()
+
+    assert calls == ["pool_cancel:strategy_stop", "flatten_lots", "unsubscribe"]
+
+
 def test_market_maker_configs_are_hedge_only() -> None:
     """Strategy and account configs should align on hedge-only behavior."""
     strategy_cfg = load_yaml(ROOT / "configs/strategies/market_maker.yaml")
