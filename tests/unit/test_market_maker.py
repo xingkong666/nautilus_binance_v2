@@ -296,7 +296,7 @@ def test_prune_keeps_pending_cancel_quote_ids(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_order_cancel_rejected_unknown_clears_quote_state() -> None:
-    """Binance unknown-order cancel rejects should converge quote state locally."""
+    """Binance unknown-order cancel rejects should clear active state but keep fill tracking."""
     strategy = make_strategy()
     oid = ClientOrderId("quote-bid")
     strategy._active_bid_ids = [oid]
@@ -314,11 +314,75 @@ def test_order_cancel_rejected_unknown_clears_quote_state() -> None:
     strategy.on_order_cancel_rejected(event)  # type: ignore[arg-type]
 
     assert strategy._active_bid_ids == [None]
-    assert oid not in strategy._quote_order_ids
+    assert oid in strategy._quote_order_ids
     assert oid not in strategy._pending_cancel_reasons
     assert strategy._quote_state.bid_price is None
     assert strategy._quote_state.bid_submit_time is None
     assert strategy._quote_state.bid_queue_on_submit is None
+
+
+def test_unknown_cancel_for_replaced_quote_stays_queryable_and_fill_creates_lot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pending-cancel quote replaced by newer quotes must still handle late fills."""
+    strategy = make_strategy()
+    old_bid = ClientOrderId("quote-old-bid")
+    new_bid = ClientOrderId("quote-new-bid")
+    new_ask = ClientOrderId("quote-new-ask")
+    strategy._active_bid_ids = [new_bid]
+    strategy._active_ask_ids = [new_ask]
+    strategy._quote_order_ids = {old_bid, new_bid, new_ask}
+    strategy._pending_cancel_reasons[old_bid] = CancelReason.DRIFT_REFRESH
+
+    orders = {
+        old_bid: SimpleNamespace(client_order_id=old_bid, is_closed=False, is_open=False, is_pending_cancel=False),
+        new_bid: SimpleNamespace(client_order_id=new_bid, is_open=True, is_pending_cancel=False),
+        new_ask: SimpleNamespace(client_order_id=new_ask, is_open=True, is_pending_cancel=False),
+    }
+    queried: list[ClientOrderId] = []
+    canceled: list[ClientOrderId] = []
+    reduced_lots: list[str] = []
+
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "cache",
+        property(lambda self: SimpleNamespace(order=lambda client_order_id: orders.get(client_order_id))),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "query_order",
+        lambda self, order: queried.append(order.client_order_id),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "cancel_order",
+        lambda self, order: canceled.append(order.client_order_id),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "_place_reduce_order",
+        lambda self, lot: reduced_lots.append(lot.lot_id) or None,
+    )
+    monkeypatch.setattr(ActiveMarketMaker, "_check_lot_risk", lambda self: None)
+    monkeypatch.setattr(ActiveMarketMaker, "_utc_now", lambda self: datetime(2026, 4, 24, tzinfo=UTC))
+
+    event = SimpleNamespace(
+        client_order_id=old_bid,
+        reason="{'code': -2011, 'msg': 'Unknown order sent.'}",
+    )
+    strategy.on_order_cancel_rejected(event)  # type: ignore[arg-type]
+
+    assert queried == [old_bid]
+    assert old_bid in strategy._quote_order_ids
+    assert old_bid not in strategy._pending_cancel_reasons
+    assert strategy._active_bid_ids == [new_bid]
+
+    strategy.on_order_filled(make_quote_fill_event(old_bid, "0.06"))  # type: ignore[arg-type]
+
+    assert old_bid not in strategy._quote_order_ids
+    assert canceled == [new_bid, new_ask]
+    assert len(strategy._inventory_lots) == 1
+    assert reduced_lots == [next(iter(strategy._inventory_lots))]
 
 
 def test_quote_fill_skips_cancel_for_fully_filled_quote(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -451,6 +515,46 @@ def test_order_cancel_rejected_unknown_replaces_reduce_order(monkeypatch: pytest
     assert replaced == ["long"]
     assert lot.reduce_order_id == ClientOrderId("reduce-2")
     assert lot.status == LotStatus.PENDING_PROTECT
+
+
+def test_on_stop_uses_market_maker_lifecycle_without_base_close_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stop should avoid BaseStrategy's broad cancel/close cycle after pool-specific actions."""
+    strategy = make_strategy(close_positions_on_stop=True)
+    calls: list[tuple[str, object | None]] = []
+
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "_cancel_all_orders",
+        lambda self, reason: calls.append(("pool_cancel", reason)),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "_flatten_all_lots",
+        lambda self: calls.append(("flatten_lots", None)),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "cancel_all_orders",
+        lambda self, instrument_id: calls.append(("base_cancel_all", instrument_id)),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "close_all_positions",
+        lambda self, instrument_id: calls.append(("base_close_all", instrument_id)),
+    )
+    monkeypatch.setattr(
+        ActiveMarketMaker,
+        "unsubscribe_bars",
+        lambda self, bar_type: calls.append(("unsubscribe_bars", bar_type)),
+    )
+
+    strategy.on_stop()
+
+    assert ("pool_cancel", CancelReason.STRATEGY_STOP) in calls
+    assert ("flatten_lots", None) in calls
+    assert ("base_cancel_all", INSTRUMENT_ID) not in calls
+    assert ("base_close_all", INSTRUMENT_ID) not in calls
+    assert ("unsubscribe_bars", BAR_TYPE) in calls
 
 
 def test_market_maker_configs_are_hedge_only() -> None:

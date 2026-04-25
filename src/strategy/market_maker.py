@@ -599,9 +599,18 @@ class ActiveMarketMaker(BaseStrategy):
         self._ask_queue_consumed = 0.0
 
     def on_stop(self) -> None:
-        """停止策略时撤销所有挂单（Quote + Reduce 池）."""
+        """停止策略时按做市商自有池收敛订单生命周期.
+
+        ActiveMarketMaker 维护 quote / reduce / lot 三个本地池。这里避免再调用
+        BaseStrategy.on_stop() 的全局 ``cancel_all_orders`` / ``close_all_positions``，
+        否则会和本策略已经发出的 reduce 撤单、lot flatten 互相打架。
+        """
         self._cancel_all_orders(CancelReason.STRATEGY_STOP)
-        super().on_stop()
+        if self.config.close_positions_on_stop:
+            self._flatten_all_lots()
+        self._sl_orders.clear()
+        self._tp_orders.clear()
+        self.unsubscribe_bars(self.config.bar_type)
 
     def on_reset(self) -> None:
         """重置策略状态."""
@@ -1680,7 +1689,8 @@ class ActiveMarketMaker(BaseStrategy):
                 self._quote_order_ids.discard(oid)
 
         # 清理已不再活跃的撤单原因，防止长期运行时 dict 无限增长
-        stale = [oid for oid in self._pending_cancel_reasons if oid not in active_oids]
+        tracked_oids = active_oids | self._quote_order_ids | set(self._reduce_to_lot)
+        stale = [oid for oid in self._pending_cancel_reasons if oid not in tracked_oids]
         for oid in stale:
             self._pending_cancel_reasons.pop(oid, None)
 
@@ -2039,38 +2049,59 @@ class ActiveMarketMaker(BaseStrategy):
             self._handle_reduce_cancel_unknown(oid, reason, raw_reason)
             return
 
-        if self._clear_quote_order_state(oid):
+        is_known_quote = oid in self._quote_order_ids
+        if self._clear_quote_order_state(oid) or is_known_quote:
             # -2011 说明订单在 Binance 侧已消失（可能已成交）。
             # 把 oid 重新加回 _quote_order_ids，确保如果 OrderFilled 因 WebSocket
             # 时序问题晚到，仍能被 on_order_filled 当作 quote fill 正确处理。
             self._quote_order_ids.add(oid)
             # 主动向 Binance 查询该订单的最终状态，触发 NautilusTrader 补发
             # 任何遗漏的 OrderFilled 事件（通过对账路径）。
-            order = self.cache.order(oid)
-            if order is not None and not order.is_closed:
-                try:
-                    self.query_order(order)
-                    self.log.warning(
-                        f"Quote cancel rejected as unknown order, querying fill status: client_order_id={oid} reason={raw_reason}",
-                        color=LogColor.YELLOW,
-                    )
-                except Exception as exc:
-                    self.log.warning(
-                        f"Quote cancel rejected as unknown order, query_order failed: client_order_id={oid} reason={raw_reason} err={exc}",
-                        color=LogColor.YELLOW,
-                    )
-            else:
-                self.log.warning(
-                    f"Quote cancel rejected as unknown order, order not queryable: "
-                    f"client_order_id={oid} reason={raw_reason} "
-                    f"order_closed={order.is_closed if order else 'not_in_cache'}",
-                    color=LogColor.YELLOW,
-                )
+            self._query_quote_order_after_unknown_cancel(oid, raw_reason)
             return
 
         self._quote_order_ids.discard(oid)
         self.log.warning(
             f"Cancel rejected as unknown order for untracked order: client_order_id={oid} reason={raw_reason}",
+            color=LogColor.YELLOW,
+        )
+
+    def _query_quote_order_after_unknown_cancel(self, oid: ClientOrderId, raw_reason: str) -> None:
+        """查询未知撤单拒绝后的 quote 终态，兼容未启动策略的单元测试桩."""
+        try:
+            cache = self.cache
+        except Exception:
+            cache = None
+
+        order = None
+        if cache is not None:
+            try:
+                order = cache.order(oid)
+            except Exception as exc:
+                self.log.warning(
+                    f"Quote cancel rejected as unknown order, cache lookup failed: "
+                    f"client_order_id={oid} reason={raw_reason} err={exc}",
+                    color=LogColor.YELLOW,
+                )
+
+        if order is not None and not bool(getattr(order, "is_closed", False)):
+            try:
+                self.query_order(order)
+                self.log.warning(
+                    f"Quote cancel rejected as unknown order, querying fill status: client_order_id={oid} reason={raw_reason}",
+                    color=LogColor.YELLOW,
+                )
+            except Exception as exc:
+                self.log.warning(
+                    f"Quote cancel rejected as unknown order, query_order failed: client_order_id={oid} reason={raw_reason} err={exc}",
+                    color=LogColor.YELLOW,
+                )
+            return
+
+        self.log.warning(
+            f"Quote cancel rejected as unknown order, order not queryable: "
+            f"client_order_id={oid} reason={raw_reason} "
+            f"order_closed={getattr(order, 'is_closed', 'not_in_cache') if order else 'not_in_cache'}",
             color=LogColor.YELLOW,
         )
 
