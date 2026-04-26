@@ -22,7 +22,7 @@ from nautilus_trader.config import PositiveInt
 from nautilus_trader.indicators import ExponentialMovingAverage
 from nautilus_trader.model.data import Bar, BarType, OrderBookDeltas, TradeTick
 from nautilus_trader.model.enums import AggressorSide, OrderSide, TimeInForce
-from nautilus_trader.model.events import OrderCanceled, OrderCancelRejected, OrderFilled, OrderRejected
+from nautilus_trader.model.events import OrderCanceled, OrderCancelRejected, OrderFilled, OrderRejected, PositionClosed
 from nautilus_trader.model.identifiers import ClientOrderId, InstrumentId, PositionId
 
 from src.core.events import EventBus, SignalDirection
@@ -86,6 +86,7 @@ class CancelReason(StrEnum):
     STRATEGY_STOP = "strategy_stop"  # 策略停止
     ORDER_FILLED = "order_filled"  # 成交后重置报价
     KILL_SWITCH = "kill_switch"  # 仓位超限，kill switch 触发
+    EXTERNAL_POSITION_CLOSE = "external_position_close"  # 外部平仓后清理关联 reduce 单
 
 
 class QuoteState:
@@ -1350,7 +1351,12 @@ class ActiveMarketMaker(BaseStrategy):
                 order_side = OrderSide.SELL if lot.side == OrderSide.BUY else OrderSide.BUY
                 position_id = self._resolve_lot_position_id(lot)
                 if position_id is None:
-                    self.log.error(f"Skip flatten without position_id: lot={lot.lot_id}", color=LogColor.RED)
+                    # 仓位已不存在（外部平仓），直接标记 lot 为 closed
+                    lot.mark_closed()
+                    self.log.warning(
+                        f"Lot {lot.lot_id} has no open position; marking as closed (external close detected)",
+                        color=LogColor.YELLOW,
+                    )
                     continue
 
                 now = self._utc_now()
@@ -2101,6 +2107,43 @@ class ActiveMarketMaker(BaseStrategy):
             color=LogColor.YELLOW,
         )
 
+    def on_position_closed(self, event: PositionClosed) -> None:
+        """仓位关闭时（含外部平仓）清理关联 lot 和 reduce 订单.
+
+        外部平仓（如手机 App 手动平仓）会触发此回调，但不会触发策略自身的 reduce fill 流程，
+        导致 lot.position_id 指向已关闭的仓位，后续所有 reduce/flatten 订单均被 RiskEngine 拒绝。
+        此处主动清理，使内部状态与交易所保持一致。
+        """
+        super().on_position_closed(event)
+        closed_pid = event.position_id
+        closed_count = 0
+
+        for lot in list(self._inventory_lots.values()):
+            if lot.position_id != closed_pid or not lot.is_open():
+                continue
+
+            # 撤销该 lot 关联的活跃 reduce 订单
+            if lot.reduce_order_id is not None:
+                order = self.cache.order(lot.reduce_order_id)
+                if order is not None and order.is_open and not order.is_pending_cancel:
+                    try:
+                        self._cancel_order_with_reason(order, CancelReason.EXTERNAL_POSITION_CLOSE)
+                    except Exception as exc:
+                        self.log.error(
+                            f"Failed to cancel reduce order for externally closed lot={lot.lot_id}: {exc}",
+                            color=LogColor.RED,
+                        )
+                self._reduce_to_lot.pop(lot.reduce_order_id, None)
+
+            lot.mark_closed()
+            closed_count += 1
+
+        if closed_count > 0:
+            self.log.warning(
+                f"Position {closed_pid} closed externally: marked {closed_count} lots as CLOSED",
+                color=LogColor.YELLOW,
+            )
+
     def _query_quote_order_after_unknown_cancel(self, oid: ClientOrderId, raw_reason: str) -> None:
         """查询未知撤单拒绝后的 quote 终态，兼容未启动策略的单元测试桩."""
         try:
@@ -2262,7 +2305,16 @@ class ActiveMarketMaker(BaseStrategy):
     def _resolve_lot_position_id(self, lot: InventoryLot) -> PositionId | None:
         """解析 lot 对应的持仓 ID，供 reduce 订单绑定使用."""
         if lot.position_id is not None:
-            return lot.position_id
+            # 验证缓存的仓位 ID 仍然处于开放状态，防止外部平仓后返回陈旧值
+            position = self.cache.position(lot.position_id)
+            if position is not None and not position.is_closed:
+                return lot.position_id
+            # 仓位已关闭或不存在，清除缓存并重新通过活跃仓位列表解析
+            self.log.warning(
+                f"Cached position_id={lot.position_id} is closed/missing for lot={lot.lot_id}; re-resolving",
+                color=LogColor.YELLOW,
+            )
+            lot.position_id = None
 
         positions_open = getattr(self.cache, "positions_open", None)
         if not callable(positions_open):
