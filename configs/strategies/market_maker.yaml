@@ -108,7 +108,10 @@ strategy:
         toxic_decay: 0.9
 
         # V4：报价质量得分
-        quote_score_threshold: -0.5
+        # quote_score_threshold: 评分门槛
+        # 公式在 fill_prob=0（bar 初始）时有 -1.0 的结构偏置，-0.5 会导致约 18% 的 bar 直接跳过报价
+        # 调整为 -1.5，只有 inv_ratio 和 toxic 同时极高时才真正拦截
+        quote_score_threshold: -1.5
         toxic_one_side_threshold: 0.5
 
         # V5：microprice alpha 驱动程序
@@ -119,7 +122,10 @@ strategy:
         mp_bias_strength: 0.3
 
         # V5：成交概率驱动执行
-        withdraw_fill_prob_threshold: 0.05
+        # withdraw_fill_prob_threshold: bid 侧 stale 撤单阈值
+        # 原 0.05 导致 bid 侧 72 次过激撤单（每分钟队列消耗 <5% 即触发）
+        # 调整为 0.02，给 bid 队列更多消耗时间
+        withdraw_fill_prob_threshold: 0.02
         fill_prob_spread_adj: true
 
         # V5：有毒流预防性撤单

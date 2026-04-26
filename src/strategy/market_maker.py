@@ -750,6 +750,14 @@ class ActiveMarketMaker(BaseStrategy):
 
         Returns:
             报价质量评分: float.
+
+        注意：
+        - fill_prob 在每个 bar 初始时为 0（consumed 在 bar 末被重置），
+          原公式 fill_prob*1.2 - queue_penalty 会产生固定 -1.0 结构偏置，
+          使几乎所有 bar 初始状态都低于 -0.5 阈值。
+        - 修正为 queue_penalty 权重减半（*0.5），减少对新报价的惩罚。
+        - toxic 权重从 1.5 降为 0.8：toxic 已有 _check_toxic_preemptive 单独拦截，
+          此处不需要重复重罚。
         """
         alpha = abs(dir_val)
         inv = self._inventory_snapshot()
@@ -759,7 +767,7 @@ class ActiveMarketMaker(BaseStrategy):
         fill_prob_ask = self._calc_queue_fill_prob("SELL")
         fill_prob = (fill_prob_bid + fill_prob_ask) / 2.0
         queue_penalty = 1.0 - fill_prob
-        return alpha + fill_prob * 1.2 - inv_ratio * 0.8 - toxic * 1.5 - queue_penalty
+        return alpha + fill_prob * 1.2 - inv_ratio * 0.8 - toxic * 0.8 - queue_penalty * 0.5
 
     def on_order_book_deltas(self, deltas: OrderBookDeltas) -> None:
         """处理 orderbook delta 更新，刷新加权 imbalance."""
