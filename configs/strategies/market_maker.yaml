@@ -47,7 +47,7 @@ strategy:
         dead_zone_threshold: 0.1
 
         # sizing （3100U 账户 * 1.5% ≈ 每边报价 45U；兜底 trade_size 保证名义 > $5）
-        capital_pct_per_trade: 2
+        capital_pct_per_trade: 2.0
         trade_size: "0.06" # fallback: 0.06 SOL ≈ $5.3，满足 Binance 最低名义价值 $5
 
         # ATR（用于动态 spread）
@@ -123,7 +123,12 @@ strategy:
         fill_prob_spread_adj: true
 
         # V5：有毒流预防性撤单
-        toxic_mp_drift_ticks: 1.5
+        # toxic_mp_drift_ticks: orderbook delta 级别 microprice 单次移动阈值（tick 数）
+        # 原值 1.5 为 bar-to-bar 比较，修复为 delta-to-delta 后需适当调低以保持灵敏度
+        # SOL tick=0.01：3.0 ticks = 0.03 USDC ≈ 0.035%，属于单次 orderbook 更新的较大跳变
+        toxic_mp_drift_ticks: 3.0
+        # 触发后冷却 2 秒，防止同一轮行情移动中反复撤单
+        toxic_preemptive_cooldown_ms: 2000
 
         # V5：非对称分层报价
         asymmetric_layers: true

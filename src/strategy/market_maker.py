@@ -251,6 +251,8 @@ class MarketMakerConfig(BaseStrategyConfig, frozen=True):
 
     # V5-US-004: 有毒流预防性撤单
     toxic_mp_drift_ticks: float = 1.5
+    # 预防性撤单后的冷却期（毫秒），防止 orderbook delta 风暴中对同一次方向性移动反复触发
+    toxic_preemptive_cooldown_ms: int = 2000
 
     # V5-US-005: 非对称分层报价
     asymmetric_layers: bool = True
@@ -354,6 +356,10 @@ class ActiveMarketMaker(BaseStrategy):
 
         # V5-US-004: 有毒流预防性撤单
         self._prev_microprice: float | None = None
+        # delta 级别前一 microprice（每次 orderbook delta 更新，用于实时漂移检测）
+        self._prev_delta_microprice: float | None = None
+        # 上次 toxic_preemptive 触发时间（用于冷却保护）
+        self._toxic_preemptive_last_at: datetime | None = None
 
         # V5-US-005: 非对称分层报价
         self._last_dir_val: float = 0.0
@@ -663,6 +669,8 @@ class ActiveMarketMaker(BaseStrategy):
         self._last_quote_score = 0.0
         # V5-US-004: 重置前一微价格
         self._prev_microprice = None
+        self._prev_delta_microprice = None
+        self._toxic_preemptive_last_at = None
         # V5-US-005: 重置上一方向值
         self._last_dir_val = 0.0
 
@@ -775,6 +783,10 @@ class ActiveMarketMaker(BaseStrategy):
 
         # V5-US-004: 有毒流预防性撤单
         self._check_toxic_preemptive()
+        # 本次 delta 处理完成后，更新 delta 级别 microprice 基准（供下次比较用）
+        _current_mp = self._get_microprice(None)
+        if _current_mp is not None:
+            self._prev_delta_microprice = _current_mp
         try:
             order_book = self.cache.order_book(self.config.instrument_id)
             if order_book is not None:
@@ -2253,26 +2265,53 @@ class ActiveMarketMaker(BaseStrategy):
                 self._cancel_order_with_reason(order, CancelReason.STALE_LOW_FILL_PROB)
 
     def _check_toxic_preemptive(self) -> None:
-        """Microprice 急速漂移时预防性撤单（toxic 前置防御）."""
-        if self._last_microprice is None or self._prev_microprice is None:
-            return
+        """Microprice 急速漂移时预防性撤单（toxic 前置防御）.
+
+        修复：原实现比较的是 bar 级别的 _last_microprice 和 _prev_microprice（每分钟才更新一次），
+        导致一个 bar-to-bar 移动 >1.5 tick 后，整整 60 秒内每一个 orderbook delta 都会
+        反复触发撤单，使报价几乎无法存活。
+
+        正确做法：
+        1. 实时从 orderbook 计算当前 microprice；
+        2. 与前一次 orderbook delta 时的 microprice（_prev_delta_microprice）比较；
+        3. 使用 cooldown 避免在同一轮方向性移动中反复触发。
+        """
         if self.instrument is None:
             return
+
+        # 冷却期检查：上次触发后 cooldown_ms 内不重复撤单
+        now = self._utc_now()
+        if self._toxic_preemptive_last_at is not None:
+            elapsed_ms = (now - self._toxic_preemptive_last_at).total_seconds() * 1000
+            if elapsed_ms < self.config.toxic_preemptive_cooldown_ms:
+                return
+
+        # 实时计算当前 microprice（不使用 bar 级别的陈旧值）
+        current_mp = self._get_microprice(None)
+        if current_mp is None or self._prev_delta_microprice is None:
+            return
+
         tick = float(self.instrument.price_increment)
         threshold = self.config.toxic_mp_drift_ticks * tick
-        instant_drift = self._last_microprice - self._prev_microprice
+        instant_drift = current_mp - self._prev_delta_microprice
 
+        fired = False
         if instant_drift < -threshold and self._active_bid_ids and self._active_bid_ids[0] is not None:
             bid_id = self._active_bid_ids[0]
             order = self.cache.order(bid_id)
             if order is not None and order.is_open and not order.is_pending_cancel:
                 self._cancel_order_with_reason(order, CancelReason.TOXIC_PREEMPTIVE)
+                fired = True
 
         if instant_drift > threshold and self._active_ask_ids and self._active_ask_ids[0] is not None:
             ask_id = self._active_ask_ids[0]
             order = self.cache.order(ask_id)
             if order is not None and order.is_open and not order.is_pending_cancel:
                 self._cancel_order_with_reason(order, CancelReason.TOXIC_PREEMPTIVE)
+                fired = True
+
+        if fired:
+            self._toxic_preemptive_last_at = now
 
     def _next_lot_id(self, event: OrderFilled) -> str:
         """生成 fill 级唯一 lot_id."""
