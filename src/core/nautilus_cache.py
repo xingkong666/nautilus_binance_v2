@@ -36,7 +36,8 @@ def build_nautilus_cache_settings(
         host=app_config.redis.host,
         port=app_config.redis.port,
         password=app_config.redis.password or None,
-        timeout=cache_cfg.database_timeout,
+        connection_timeout=cache_cfg.database_timeout,
+        response_timeout=cache_cfg.database_timeout,
     )
     cache = CacheConfig(
         database=database,

@@ -82,7 +82,14 @@ def test_build_node_includes_cache_and_instance_id(monkeypatch) -> None:
     monkeypatch.setattr(adapter_module, "TradingNode", _FakeTradingNode)
 
     cache = CacheConfig(
-        database=DatabaseConfig(type="redis", host="127.0.0.1", port=6379, password="secret", timeout=2),
+        database=DatabaseConfig(
+            type="redis",
+            host="127.0.0.1",
+            port=6379,
+            password="secret",
+            connection_timeout=2,
+            response_timeout=2,
+        ),
         flush_on_start=False,
     )
     instance_id = UUID4()

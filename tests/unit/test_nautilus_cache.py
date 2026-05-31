@@ -65,6 +65,7 @@ def test_live_cache_uses_redis_without_instance_id(monkeypatch, tmp_path: Path) 
 cache:
   enabled: true
   database: redis
+  database_timeout: 7
 """,
     )
 
@@ -75,6 +76,8 @@ cache:
     assert settings.cache.database is not None
     assert settings.cache.database.type == "redis"
     assert settings.cache.database.host == "127.0.0.1"
+    assert settings.cache.database.connection_timeout == 7
+    assert settings.cache.database.response_timeout == 7
     assert settings.cache.use_instance_id is False
     assert settings.cache.flush_on_start is False
 
