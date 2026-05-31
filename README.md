@@ -22,10 +22,13 @@
 ### 1. 安装依赖
 
 ```bash
-# 推荐 uv（项目已锁定 uv.lock）
+# 推荐 uv（项目已锁定 uv.lock，包含 nautilus-trader==1.227.0）
+uv sync --all-extras
+
+# 仅安装运行时依赖
 uv sync
 
-# 或 pip
+# 若不使用 uv，可用 pip 安装开发依赖（不会使用 uv.lock）
 pip install -e ".[dev]"
 
 # 若需要 Telegram/Slack 告警
@@ -180,9 +183,9 @@ nautilus_binance_v2/
 │   ├── backtest/           #   回测引擎封装
 │   └── exchange/           #   BinanceAdapter
 └── tests/
-    ├── unit/               #   91 个单元测试
-    ├── integration/        #   36 个集成测试
-    └── regression/         #   18 个回归基准测试
+    ├── unit/               #   381 个单元测试
+    ├── integration/        #   58 个集成测试
+    └── regression/         #   39 个回归基准测试
 ```
 
 ---
@@ -190,7 +193,7 @@ nautilus_binance_v2/
 ## 测试
 
 ```bash
-# 全量跑（145 tests）
+# 全量跑（478 tests）
 uv run pytest
 
 # 只跑单元测试
@@ -224,7 +227,7 @@ docker compose up -d
 | 包 | 版本要求 |
 |---|---|
 | Python | >= 3.13 |
-| nautilus_trader | >= 1.224.0 |
+| nautilus_trader | == 1.227.0（uv.lock 锁定） |
 | pydantic | >= 2.12.5 |
 | prometheus-client | >= 0.24.1 |
 
